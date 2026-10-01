@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f4f1e9">
   <title>TOEIC 랜덤 문제 카드</title>
-  <link rel="stylesheet" href="../shared/study-sync.css?v=20261002-sync3">
+  <link rel="stylesheet" href="../shared/study-sync.css?v=20261002-nav1">
   <meta name="description" content="167개의 영어 객관식 문제를 무작위로 풀고, 해설과 오답 복습으로 학습하세요.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='6' fill='%23245c4b'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
@@ -213,6 +213,11 @@
   </style>
 </head>
 <body>
+  <nav class="study-page-nav" aria-label="학습 페이지 이동">
+    <a href="../">첫 화면</a>
+    <a href="../vocabulary/">토익 단어장</a>
+    <a href="./" aria-current="page">랜덤 문제집</a>
+  </nav>
   <a class="skip-link" href="#main">문제 영역으로 이동</a>
   <div class="shell">
     <header class="site-header">
@@ -223,7 +228,7 @@
           <div class="brand-subtitle">ONE QUESTION AT A TIME</div>
         </div>
       </div>
-      <button id="home-button" class="header-control" type="button" hidden>처음 화면</button>
+      <button id="home-button" class="header-control" type="button" hidden>출제 설정</button>
     </header>
     <main id="main">
       <section id="start-screen" aria-labelledby="start-heading">
