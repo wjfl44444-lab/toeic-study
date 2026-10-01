@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f4f1e9">
   <title>TOEIC 랜덤 문제 카드</title>
-  <link rel="stylesheet" href="../shared/study-sync.css?v=20261001-sync2">
+  <link rel="stylesheet" href="../shared/study-sync.css?v=20261002-sync3">
   <meta name="description" content="167개의 영어 객관식 문제를 무작위로 풀고, 해설과 오답 복습으로 학습하세요.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='6' fill='%23245c4b'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
@@ -309,7 +309,7 @@
         <p>페이지를 새로고침해 주세요. 계속 문제가 생기면 링크를 다시 열어 주세요.</p>
       </section>
     </main>
-    <footer><p>한 회차 안에서는 같은 문제가 반복되지 않아요. 로그인하면 계정에, 로그인하지 않으면 이 브라우저에 풀이 기록을 저장해요.</p></footer>
+    <footer><p>로그인하면 풀이 기록은 함께 저장돼요. 지금 풀고 있는 화면은 다른 기기가 움직여도 바뀌지 않아요.</p></footer>
   </div>
   <dialog id="restart-dialog" aria-labelledby="restart-title">
     <h2 id="restart-title">새 회차로 시작할까요?</h2>
@@ -379,6 +379,8 @@
       }
       let storageAvailable = true;
       let state = null;
+      // Attempts travel between devices; the currently displayed round stays on this device.
+      let history = { version: 1, attempts: [] };
       let view = 'start';
       let pendingStart = null;
       let studySync = null;
@@ -410,7 +412,9 @@
       function readSavedState() {
         try {
           const saved = localStorage.getItem(STORAGE_KEY);
-          return saved ? validateState(JSON.parse(saved)) : null;
+          const parsed = saved ? parseStudyPayload(saved) : null;
+          if (parsed) history = parsed.history;
+          return parsed ? parsed.state : null;
         } catch (_) { storageAvailable = false; return null; }
       }
       function updateStorageNote() {
@@ -418,23 +422,87 @@
         elements.storageNote.textContent = storageAvailable ? '' : '이 브라우저에서는 풀이 기록을 저장할 수 없어요. 현재 창에서는 계속 풀 수 있어요.';
       }
       function studyPayload() {
-        return JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state });
+        history = combineHistories(history, historyForState(state));
+        return JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state, history });
+      }
+      function newRecordId(prefix) {
+        const uuid = globalThis.crypto?.randomUUID?.();
+        return `${prefix}-${uuid || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`}`;
+      }
+      function roundId(session) {
+        const signature = JSON.stringify([session.startedAt, session.items, !!session.review]);
+        const start = Number.isFinite(session.startedAt) && session.startedAt >= 0 ? session.startedAt : 0;
+        return typeof session.roundId === 'string' && session.roundId.length > 0 && session.roundId.length <= 200
+          ? session.roundId
+          : `legacy-${start}-${fingerprint(signature)}-${fingerprint([...signature].reverse().join(''))}`;
+      }
+      function historyForState(session) {
+        if (!session) return { version: 1, attempts: [] };
+        const round = roundId(session);
+        return { version: 1, attempts: session.answers.flatMap((answer, slot) => answer ? [{
+          attemptId: typeof answer.attemptId === 'string' && answer.attemptId.length > 0 && answer.attemptId.length <= 200
+            ? answer.attemptId : `${round}-${slot}-${answer.selected}`,
+          roundId: round, id: answer.id, slot, selected: answer.selected,
+          at: Number.isFinite(answer.answeredAt) && answer.answeredAt >= 0 ? answer.answeredAt
+            : Number.isFinite(session.startedAt) && session.startedAt >= 0 ? session.startedAt : 0
+        }] : []) };
+      }
+      function validateHistory(value) {
+        if (!value || value.version !== 1 || !Array.isArray(value.attempts)) return null;
+        if (value.attempts.some(a => !a || typeof a.attemptId !== 'string' || !a.attemptId.length || a.attemptId.length > 200 ||
+          typeof a.roundId !== 'string' || !a.roundId.length || a.roundId.length > 200 || !questionMap.has(a.id) ||
+          !Number.isInteger(a.slot) || a.slot < 0 || a.slot >= data.length || !validChoice(a.selected) ||
+          !Number.isFinite(a.at) || a.at < 0)) return null;
+        return { version: 1, attempts: value.attempts.map(a => ({
+          attemptId: a.attemptId, roundId: a.roundId, id: a.id, slot: a.slot, selected: a.selected, at: a.at
+        })) };
+      }
+      function combineHistories(...values) {
+        const attempts = new Map();
+        for (const value of values) for (const attempt of value.attempts) {
+          const existing = attempts.get(attempt.attemptId);
+          // Identical operation IDs are one attempt, including transaction retries.
+          // A deterministic tie-break also keeps malformed duplicate IDs order-independent.
+          if (!existing || JSON.stringify(attempt) > JSON.stringify(existing)) attempts.set(attempt.attemptId, attempt);
+        }
+        return { version: 1, attempts: [...attempts.values()].sort((a, b) => a.attemptId.localeCompare(b.attemptId)) };
+      }
+      function historyScore(value = history) {
+        return value.attempts.reduce((result, attempt) => {
+          result.answered++;
+          result[classify(questionMap.get(attempt.id), attempt.selected)]++;
+          return result;
+        }, { answered: 0, correct: 0, alternate: 0, incorrect: 0 });
       }
       function parseStudyPayload(raw) {
         try {
           const saved = JSON.parse(raw);
           if (!saved || saved.version !== VERSION || saved.fingerprint !== DATA_FINGERPRINT) return null;
-          if (saved.state === null) return { state: null };
-          const restored = validateState(saved);
-          return restored ? { state: restored } : null;
+          const restored = saved.state === null ? null : validateState(saved);
+          if (saved.state !== null && !restored) return null;
+          const storedHistory = saved.history === undefined ? { version: 1, attempts: [] } : validateHistory(saved.history);
+          if (!storedHistory) return null;
+          return { state: restored, history: combineHistories(storedHistory, historyForState(restored)) };
         } catch (_) { return null; }
       }
-      function applyStudyPayload(raw) {
+      function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
+        const local = parseStudyPayload(localRaw), remote = parseStudyPayload(remoteRaw);
+        const base = baseRaw ? parseStudyPayload(baseRaw) : null;
+        if (!local || !remote) throw new Error('The quiz records could not be merged safely.');
+        return JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state: local.state,
+          history: combineHistories(base?.history || { version: 1, attempts: [] }, local.history, remote.history) });
+      }
+      function applyStudyPayload(raw, options = {}) {
         const saved = parseStudyPayload(raw);
         if (!saved) return false;
+        if (options.reason === 'background') {
+          history = combineHistories(history, saved.history, historyForState(state));
+          return true;
+        }
         pendingStart = null;
         closeRestart();
         state = saved.state;
+        history = saved.history;
         if (!state) showStart();
         else if (state.status === 'complete') showFinish();
         else { showView('quiz'); renderQuestion(); }
@@ -454,13 +522,14 @@
         if (!saved) return raw;
         const session = saved.state;
         return JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state: session && {
-          status: session.status, startedAt: session.startedAt, baseCount: session.baseCount,
+          status: session.status, roundId: roundId(session), startedAt: session.startedAt, baseCount: session.baseCount,
           shuffleChoices: session.shuffleChoices,
           items: session.items.map(item => ({ id: item.id, order: item.order })),
           index: session.index, selected: session.selected,
-          answers: session.answers.map(answer => answer && { id: answer.id, selected: answer.selected }),
+          answers: session.answers.map(answer => answer && { id: answer.id, selected: answer.selected,
+            attemptId: answer.attemptId, answeredAt: answer.answeredAt }),
           marked: session.marked.slice().sort(), review: !!session.review
-        } });
+        }, history: saved.history });
       }
       function save() {
         try {
@@ -492,6 +561,8 @@
       }
       function showStart() {
         showView('start');
+        const allResults = historyScore();
+        byId('total-note').textContent = `전체 ${data.length}문제 · 누적 ${allResults.answered}문제 채점 · 맞힌 ${allResults.correct + allResults.alternate} · 틀린 ${allResults.incorrect}`;
         elements.resume.hidden = !state;
         if (state) {
           const results = score(state);
@@ -510,7 +581,7 @@
         const amount = options.review ? ids.length : (baseCount === 'all' ? ids.length : Math.min(Number(baseCount), ids.length));
         const chosen = shuffled(ids).slice(0, amount);
         state = {
-          status: 'in-progress', startedAt: Date.now(), baseCount, shuffleChoices: shouldShuffleChoices,
+          status: 'in-progress', roundId: newRecordId('round'), startedAt: Date.now(), baseCount, shuffleChoices: shouldShuffleChoices,
           items: chosen.map(id => ({ id, order: shouldShuffleChoices ? shuffled([0, 1, 2, 3]) : [0, 1, 2, 3] })),
           index: 0, selected: null, answers: chosen.map(() => null), marked: [], review: !!options.review
         };
@@ -617,7 +688,8 @@
         if (!state.answers[state.index]) {
           if (state.selected === null) return;
           const item = state.items[state.index];
-          state.answers[state.index] = { id: item.id, selected: state.selected };
+          state.answers[state.index] = { id: item.id, selected: state.selected,
+            attemptId: newRecordId('attempt'), answeredAt: Date.now() };
           save(); renderQuestion(); elements.feedback.focus({ preventScroll: true });
           return;
         }
@@ -769,6 +841,8 @@
         getView: () => view,
         fingerprint: DATA_FINGERPRINT,
         questionCount: data.length,
+        getHistory: () => JSON.parse(JSON.stringify(history)),
+        getHistoryScore: () => historyScore(),
         validateState,
         version: VERSION
       });
@@ -780,14 +854,15 @@
           : event.newValue;
         if (applyStudyPayload(raw)) { storageAvailable = true; updateStorageNote(); }
       });
-      import('../shared/study-sync.js?v=20261001-sync2').then(({ connectStudySync }) => {
+      import('../shared/study-sync.js?v=20261002-sync3').then(({ connectStudySync }) => {
         studySync = connectStudySync({
           appId: 'quiz', legacyKey: STORAGE_KEY,
           getPayload: studyPayload,
           validatePayload: raw => parseStudyPayload(raw) !== null,
           applyPayload: applyStudyPayload,
+          mergePayload: mergeStudyPayload,
           summarizePayload: summarizeStudyPayload,
-          hasLocalData: raw => !!parseStudyPayload(raw)?.state,
+          hasLocalData: raw => { const saved = parseStudyPayload(raw); return !!saved && (!!saved.state || saved.history.attempts.length > 0); },
           semanticPayload: semanticStudyPayload
         });
       }).catch(() => { /* The local quiz remains available when account sync cannot load. */ });
