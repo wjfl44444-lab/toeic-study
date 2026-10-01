@@ -5,6 +5,7 @@ import {
   answerIsCorrect,
   buildQuizOptions,
   computeDashboardStats,
+  createInitialState,
   createId,
   csvToWordRecords,
   getAnswerLabel,
@@ -58,21 +59,176 @@ let quizSession = validSavedQuiz(state.activeQuiz) ? state.activeQuiz : null;
 let quizDefaults = { mode: "multiple", direction: "word-to-meaning", onlyWrong: false };
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
 let mistakeFilter = "all";
+let studySync = null;
+let payloadRevision = 0;
+
+const syncSeedWords = createInitialState("2000-01-01T00:00:00.000Z").words;
+const syncSeedContent = wordCollectionContent(syncSeedWords);
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isCount(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function isTimestamp(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function stringList(value, nonempty = false) {
+  return Array.isArray(value) && (!nonempty || value.length > 0)
+    && value.every((item) => typeof item === "string" && (!nonempty || item.trim().length > 0));
+}
+
+// Cloud data must be a complete, readable backup. The normalizer is intentionally
+// permissive for imports, so check the original shape before it can drop fields.
+function decodeStudyPayload(raw) {
+  if (typeof raw !== "string" || !raw) throw new Error("단어장 동기화 데이터가 비어 있습니다.");
+  const parsed = JSON.parse(raw);
+  if (!isRecord(parsed) || !Number.isInteger(parsed.version) || parsed.version < 1
+    || parsed.version > STORAGE_VERSION || !Array.isArray(parsed.words)
+    || !Array.isArray(parsed.sessions) || !isTimestamp(parsed.updatedAt)) {
+    throw new Error("단어장 동기화 데이터 형식이 올바르지 않습니다.");
+  }
+  for (const word of parsed.words) {
+    if (!isRecord(word) || typeof word.id !== "string" || !word.id.trim()
+      || typeof word.word !== "string" || !word.word.trim()
+      || !stringList(word.meanings, true)
+      || !WORD_STATUSES.includes(word.status)
+      || !isCount(word.correctCount) || !isCount(word.wrongCount)
+      || !stringList(word.tags) || (word.aliases !== undefined && !stringList(word.aliases))
+      || ["partOfSpeech", "example", "translation", "memo"].some((key) => word[key] !== undefined && typeof word[key] !== "string")
+      || ["lastStudiedAt", "lastWrongAt"].some((key) => word[key] !== null && word[key] !== undefined && !isTimestamp(word[key]))
+      || !isTimestamp(word.createdAt)) {
+      throw new Error("단어장 동기화 데이터에 읽을 수 없는 단어가 있습니다.");
+    }
+  }
+  for (const session of parsed.sessions) {
+    if (!isRecord(session) || !["flashcard", "multiple", "typing"].includes(session.mode)
+      || !["word-to-meaning", "meaning-to-word"].includes(session.direction)
+      || ["total", "correct", "wrong"].some((key) => !isCount(session[key]))
+      || (session.retryCount !== undefined && !isCount(session.retryCount))
+      || !stringList(session.wrongWordIds) || !isTimestamp(session.finishedAt)) {
+      throw new Error("단어장 동기화 데이터에 읽을 수 없는 학습 기록이 있습니다.");
+    }
+  }
+  for (const key of ["activeStudy", "activeQuiz"]) {
+    if (parsed[key] !== undefined && parsed[key] !== null && !isRecord(parsed[key])) {
+      throw new Error("진행 중인 학습 데이터 형식이 올바르지 않습니다.");
+    }
+  }
+  if (parsed.version >= 4 && ((parsed.activeStudy && !validSavedStudy(parsed.activeStudy, false))
+    || (parsed.activeQuiz && !validSavedQuiz(parsed.activeQuiz, false)))) {
+    throw new Error("진행 중인 학습 데이터를 읽을 수 없습니다.");
+  }
+  const upgraded = upgradeState(parsed);
+  if (!upgraded) throw new Error("단어장 동기화 데이터를 읽을 수 없습니다.");
+  return upgraded.state;
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function wordCollectionContent(words) {
+  return canonicalJson(words.map(({ id, createdAt, ...word }) => word)
+    .sort((first, second) => wordIdentity(first.word).localeCompare(wordIdentity(second.word), "en")));
+}
+
+function validateStudyPayload(raw) {
+  try { decodeStudyPayload(raw); return true; }
+  catch { return false; }
+}
+
+function applyStudyPayload(raw) {
+  const next = decodeStudyPayload(raw);
+  payloadRevision += 1;
+  state = next;
+  studySession = validSavedStudy(next.activeStudy) ? next.activeStudy : null;
+  quizSession = validSavedQuiz(next.activeQuiz) ? next.activeQuiz : null;
+  state.activeStudy = studySession;
+  state.activeQuiz = quizSession;
+  // Close editors tied to the previous account before showing another payload.
+  if (wordDialog.open) wordDialog.close();
+  if (bulkDialog.open) bulkDialog.close();
+  wordForm.reset();
+  wordForm.dataset.editId = "";
+  bulkForm.reset();
+  importFile.value = "";
+  wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
+  mistakeFilter = "all";
+  quizDefaults = { mode: "multiple", direction: "word-to-meaning", onlyWrong: false };
+  render(false);
+}
+
+function summarizeStudyPayload(raw) {
+  const next = decodeStudyPayload(raw);
+  const attempts = next.words.reduce((sum, word) => sum + word.correctCount + word.wrongCount, 0);
+  return `단어 ${next.words.length}개 · 완료 학습 ${next.sessions.length}회 · 답변 ${attempts}회`;
+}
+
+function hasStudyData(raw) {
+  const next = decodeStudyPayload(raw);
+  return next.sessions.length > 0 || Boolean(next.activeStudy || next.activeQuiz)
+    || wordCollectionContent(next.words) !== syncSeedContent;
+}
+
+function semanticStudyPayload(raw) {
+  const { updatedAt, ...next } = decodeStudyPayload(raw);
+  return canonicalJson(next);
+}
+
+async function connectVocabularySync() {
+  try {
+    const { connectStudySync } = await import("../shared/study-sync.js?v=20261001-sync1");
+    studySync = connectStudySync({
+      appId: "vocabulary",
+      mount: document.querySelector(".app-shell"),
+      legacyKey: STORAGE_KEY,
+      getPayload: () => JSON.stringify({ ...state, activeStudy: studySession, activeQuiz: quizSession }),
+      validatePayload: validateStudyPayload,
+      applyPayload: applyStudyPayload,
+      summarizePayload: summarizeStudyPayload,
+      hasLocalData: hasStudyData,
+      semanticPayload: semanticStudyPayload,
+      canUploadPayload: () => !storageBlocked,
+      createEmptyPayload: () => JSON.stringify(createInitialState())
+    });
+  } catch (error) {
+    console.warn("단어장 계정 동기화를 시작하지 못했습니다.", error);
+  }
+}
 
 function validView(view) {
   return Object.hasOwn(VIEW_NAMES, view);
 }
 
-function validSavedStudy(session) {
-  return session && Array.isArray(session.wordIds) && session.wordIds.length && Number.isInteger(session.index)
-    && session.index >= 0 && session.index < session.wordIds.length && session.results
-    && session.wordIds.every((id) => state.words.some((word) => word.id === id));
+function validSavedStudy(session, checkReferences = true) {
+  return isRecord(session) && stringList(session.wordIds, true) && Number.isInteger(session.index)
+    && session.index >= 0 && session.index < session.wordIds.length && isRecord(session.results)
+    && ["known", "confused", "unknown"].every((key) => isCount(session.results[key]))
+    && ["word-to-meaning", "meaning-to-word"].includes(session.direction)
+    && ["revealed", "completed", "recorded"].every((key) => typeof session[key] === "boolean")
+    && (!checkReferences || session.wordIds.every((id) => state.words.some((word) => word.id === id)));
 }
-function validSavedQuiz(session) {
-  return session && Array.isArray(session.queue) && session.queue.length && Number.isInteger(session.index)
+function validSavedQuiz(session, checkReferences = true) {
+  return isRecord(session) && Array.isArray(session.queue) && session.queue.length && Number.isInteger(session.index)
     && session.index >= 0 && session.index < session.queue.length && ["multiple", "typing"].includes(session.mode)
-    && Array.isArray(session.scheduledWordIds) && Array.isArray(session.wrongWordIds)
-    && session.queue.every((question) => question && state.words.some((word) => word.id === question.wordId));
+    && ["word-to-meaning", "meaning-to-word"].includes(session.direction)
+    && ["originalTotal", "originalAnswered", "originalCorrect", "originalWrong", "retriesCompleted"].every((key) => isCount(session[key]))
+    && ["completed", "recorded"].every((key) => typeof session[key] === "boolean")
+    && stringList(session.scheduledWordIds) && stringList(session.wrongWordIds)
+    && (session.feedback === null || (isRecord(session.feedback) && typeof session.feedback.correct === "boolean"
+      && typeof session.feedback.retryScheduled === "boolean" && isCount(session.feedback.wrongCount)))
+    && session.queue.every((question) => isRecord(question) && typeof question.wordId === "string"
+      && (!checkReferences || state.words.some((word) => word.id === question.wordId))
+      && typeof question.answered === "boolean" && typeof question.isRetry === "boolean"
+      && (question.selected === null || typeof question.selected === "string")
+      && (session.mode === "typing" || (stringList(question.options, true) && question.options.length === 4)));
 }
 
 function saveState() {
@@ -81,7 +237,7 @@ function saveState() {
   state.updatedAt = new Date().toISOString();
   state.activeStudy = studySession;
   state.activeQuiz = quizSession;
-  const saved = writeStoredState(browserStorage, state);
+  const saved = studySync ? studySync.saveLocal(JSON.stringify(state)) : writeStoredState(browserStorage, state);
   document.querySelectorAll(".storage-note").forEach((node) => { node.textContent = saved ? "이 브라우저에 저장됨" : "저장 실패 · JSON 백업 필요"; });
   if (!saved) showToast("저장하지 못했어요. JSON 백업을 내려받아 주세요.", "error");
   return saved;
@@ -651,8 +807,13 @@ function downloadBlob(contents, type, filename) {
 
 async function importData(file) {
   if (!file) return;
+  const importRevision = payloadRevision;
   try {
     const text = await file.text();
+    if (importRevision !== payloadRevision) {
+      showToast("학습 데이터가 바뀌었어요. 파일을 다시 선택해 주세요.", "error");
+      return;
+    }
     let records;
     let fullBackup = null;
     if (file.name.toLocaleLowerCase().endsWith(".csv")) records = csvToWordRecords(text);
@@ -862,7 +1023,7 @@ window.addEventListener("hashchange", () => {
 });
 
 window.addEventListener("storage", (event) => {
-  if (event.key !== STORAGE_KEY || !event.newValue) return;
+  if (studySync?.isAccountActive() || storageBlocked || event.key !== STORAGE_KEY || !event.newValue) return;
   try {
     const next = upgradeState(JSON.parse(event.newValue))?.state;
     if (!next || new Date(next.updatedAt).getTime() <= new Date(state.updatedAt).getTime()) return;
@@ -1021,3 +1182,4 @@ function registerWebMcpTools() {
 render();
 registerWebMcpTools();
 if (storageNotice) requestAnimationFrame(() => showToast(storageNotice, storageNoticeTone));
+void connectVocabularySync();
