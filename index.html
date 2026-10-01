@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#f7f5ef">
   <meta name="description" content="토익 단어 암기와 랜덤 문법 문제를 한곳에서 공부하는 개인 학습 공간입니다.">
   <title>나의 토익 스터디</title>
+  <link rel="stylesheet" href="./shared/study-sync.css?v=20261001-sync1">
   <style>
     :root { color-scheme: light; --ink: #20352f; --muted: #64716a; --paper: #f7f5ef; --green: #245c4b; --line: #e1e4dc; }
     * { box-sizing: border-box; }
@@ -89,14 +90,18 @@
         </a>
       </div>
       <section class="note" aria-label="학습 기록 안내">
-        <p><strong>학습 기록은 지금 사용하는 기기와 브라우저에 저장돼요.</strong> 아이폰·아이패드·컴퓨터 사이에 자동으로 동기화되지는 않아요.</p>
+        <p><strong>같은 구글 계정으로 로그인하면 학습 기록을 이어 쓸 수 있어요.</strong> 위쪽에서 로그인한 뒤 단어장·문제집에 들어가 ‘이 기기의 기록을 계정에 연결’을 눌러 주세요. 로그인하지 않으면 이 기기·브라우저에만 저장돼요. 인터넷 연결이 없거나 동기화가 대기 중일 때는 저장 상태를 확인해 주세요.</p>
         <details>
           <summary>기존 단어장 기록을 옮기려면?</summary>
-          <p>기존 단어장의 단어장 화면에서 JSON 전체 백업을 내려받은 뒤, 새 주소의 단어장에서 파일 가져오기로 복원해 주세요. 전체 복원은 현재 단어와 학습 기록을 백업 내용으로 바꾸므로, 먼저 필요한 기록을 백업해 두세요. 다른 기기로 옮길 때도 같은 방법을 사용할 수 있어요.</p>
+          <p>이 주소에서 공부한 기록은 로그인 후 ‘이 기기의 기록을 계정에 연결’을 눌러 옮길 수 있어요. 계정에 기록이 이미 있으면 먼저 사용할 기록을 선택하세요. 예전 주소에서 공부한 단어장은 그 주소에서 JSON 전체 백업을 내려받고, 이 주소의 단어장으로 가져와야 해요. 전체 복원은 현재 단어와 학습 기록을 백업 내용으로 바꾸므로 먼저 백업해 주세요. 로그인 후에는 아이폰·아이패드·컴퓨터에서 같은 구글 계정을 사용하세요.</p>
         </details>
       </section>
     </main>
     <footer>꾸준히, 나의 속도로.</footer>
   </div>
+  <script type="module">
+    import { connectStudySync } from './shared/study-sync.js?v=20261001-sync1';
+    connectStudySync();
+  </script>
 </body>
 </html>
