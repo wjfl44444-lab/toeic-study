@@ -61,6 +61,9 @@ let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort
 let mistakeFilter = "all";
 let studySync = null;
 let payloadRevision = 0;
+// An open card/question keeps its original wording even if another device edits
+// or deletes the shared word. These display-only snapshots are never uploaded.
+const sessionWordSnapshots = new WeakMap();
 
 const syncSeedWords = createInitialState("2000-01-01T00:00:00.000Z").words;
 const syncSeedContent = wordCollectionContent(syncSeedWords);
@@ -144,9 +147,37 @@ function validateStudyPayload(raw) {
   catch { return false; }
 }
 
-function applyStudyPayload(raw) {
+function rememberSessionWords(session, words = state.words) {
+  if (!session) return;
+  let snapshots = sessionWordSnapshots.get(session);
+  if (!snapshots) {
+    snapshots = new Map();
+    sessionWordSnapshots.set(session, snapshots);
+  }
+  const ids = new Set(session.wordIds || session.queue?.map((question) => question.wordId) || []);
+  for (const word of words) {
+    if (ids.has(word.id) && !snapshots.has(word.id)) {
+      snapshots.set(word.id, JSON.parse(JSON.stringify(word)));
+    }
+  }
+}
+
+function sessionWord(session, wordId) {
+  rememberSessionWords(session);
+  return sessionWordSnapshots.get(session)?.get(wordId) || state.words.find((word) => word.id === wordId);
+}
+
+function applyStudyPayload(raw, { reason = "initial" } = {}) {
   const next = decodeStudyPayload(raw);
   payloadRevision += 1;
+  if (reason === "background") {
+    // Refresh shared learning records without touching the active work surface:
+    // DOM, focus, filters, editor text, selected answer and session identities.
+    rememberSessionWords(studySession);
+    rememberSessionWords(quizSession);
+    state = { ...next, activeStudy: studySession, activeQuiz: quizSession };
+    return;
+  }
   state = next;
   studySession = validSavedStudy(next.activeStudy) ? next.activeStudy : null;
   quizSession = validSavedQuiz(next.activeQuiz) ? next.activeQuiz : null;
@@ -163,6 +194,178 @@ function applyStudyPayload(raw) {
   mistakeFilter = "all";
   quizDefaults = { mode: "multiple", direction: "word-to-meaning", onlyWrong: false };
   render(false);
+}
+
+function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
+  let local = decodeStudyPayload(localRaw);
+  let remote = decodeStudyPayload(remoteRaw);
+  let base = baseRaw ? decodeStudyPayload(baseRaw) : null;
+  // Devices can add the same word independently with different ids. Align ALL
+  // three snapshots before calculating deletion or deltas, not just the final
+  // word list: base/cloud id B and local id A refer to one learning counter.
+  // Matching by id as well as spelling keeps ordinary word renames connected.
+  const parents = new Map();
+  const logicalRoot = (id) => {
+    if (!parents.has(id)) parents.set(id, id);
+    let root = id;
+    while (parents.get(root) !== root) root = parents.get(root);
+    while (parents.get(id) !== id) {
+      const next = parents.get(id);
+      parents.set(id, root);
+      id = next;
+    }
+    return root;
+  };
+  const spellings = new Map();
+  const allWords = [...local.words, ...(base?.words || []), ...remote.words];
+  for (const word of allWords) {
+    const key = wordIdentity(word.word);
+    const root = logicalRoot(word.id);
+    if (spellings.has(key)) parents.set(root, logicalRoot(spellings.get(key)));
+    else spellings.set(key, word.id);
+  }
+  const canonicalIds = new Map();
+  // Local ids come first so the already-open queue keeps the same references.
+  for (const word of allWords) {
+    const root = logicalRoot(word.id);
+    if (!canonicalIds.has(root)) canonicalIds.set(root, word.id);
+  }
+  const idAliases = new Map(allWords.map((word) => [word.id, canonicalIds.get(logicalRoot(word.id))]));
+  const alignId = (id) => idAliases.get(id) || id;
+  const align = (payload) => {
+    if (!payload) return null;
+    const alignedWords = new Map();
+    for (const word of payload.words) {
+      const id = alignId(word.id);
+      const prior = alignedWords.get(id);
+      if (!prior) alignedWords.set(id, { ...word, id });
+      else alignedWords.set(id, {
+        ...word, ...prior, id,
+        meanings: uniqueStrings([...prior.meanings, ...word.meanings]),
+        tags: uniqueStrings([...prior.tags, ...word.tags]),
+        aliases: uniqueStrings([...(prior.aliases || []), ...(word.aliases || [])]),
+        correctCount: prior.correctCount + word.correctCount,
+        wrongCount: prior.wrongCount + word.wrongCount,
+      });
+    }
+    return {
+      ...payload, words: [...alignedWords.values()],
+      sessions: payload.sessions.map((session) => ({ ...session, wrongWordIds: uniqueStrings(session.wrongWordIds.map(alignId)) })),
+      activeStudy: payload.activeStudy ? { ...payload.activeStudy, wordIds: payload.activeStudy.wordIds.map(alignId) } : null,
+      activeQuiz: payload.activeQuiz ? {
+        ...payload.activeQuiz,
+        queue: payload.activeQuiz.queue.map((question) => ({ ...question, wordId: alignId(question.wordId) })),
+        scheduledWordIds: uniqueStrings(payload.activeQuiz.scheduledWordIds.map(alignId)),
+        wrongWordIds: uniqueStrings(payload.activeQuiz.wrongWordIds.map(alignId)),
+      } : null,
+    };
+  };
+  local = align(local);
+  base = align(base);
+  remote = align(remote);
+  const equal = (a, b) => canonicalJson(a) === canonicalJson(b);
+  const preferLocal = Date.parse(local.updatedAt) > Date.parse(remote.updatedAt)
+    || (local.updatedAt === remote.updatedAt && canonicalJson(local.words) >= canonicalJson(remote.words));
+  const field = (before, ours, theirs) => equal(ours, before) ? theirs
+    : equal(theirs, before) || equal(ours, theirs) ? ours : preferLocal ? ours : theirs;
+  const latest = (...values) => values.filter(isTimestamp)
+    .sort((a, b) => Date.parse(b) - Date.parse(a) || b.localeCompare(a))[0] || null;
+  const setField = (before = [], ours = [], theirs = []) => {
+    const beforeKeys = new Set(before.map(normalizeText));
+    const ourKeys = new Set(ours.map(normalizeText));
+    const theirKeys = new Set(theirs.map(normalizeText));
+    return uniqueStrings([...ours, ...theirs].filter((value) => !beforeKeys.has(normalizeText(value))
+      || (ourKeys.has(normalizeText(value)) && theirKeys.has(normalizeText(value)))));
+  };
+  const byId = (words) => new Map(words.map((word) => [word.id, word]));
+  const baseWords = byId(base?.words || []);
+  const localWords = byId(local.words);
+  const remoteWords = byId(remote.words);
+  const mergedWords = [];
+  for (const id of new Set([...localWords.keys(), ...remoteWords.keys()])) {
+    const before = baseWords.get(id);
+    const ours = localWords.get(id);
+    const theirs = remoteWords.get(id);
+    // Existing-word deletion wins over concurrent edits; an unrelated local
+    // render must not recreate a word deliberately removed on another device.
+    if (before && (!ours || !theirs)) continue;
+    if (!ours || !theirs) {
+      mergedWords.push(ours || theirs);
+      continue;
+    }
+    const merged = { ...theirs, ...ours };
+    for (const key of ["word", "partOfSpeech", "example", "translation", "memo", "status"]) {
+      merged[key] = field(before?.[key], ours[key], theirs[key]);
+    }
+    for (const key of ["meanings", "tags", "aliases"]) {
+      merged[key] = setField(before?.[key], ours[key], theirs[key]);
+    }
+    // Simultaneous replacement of the last meaning must still be readable.
+    if (!merged.meanings.length) merged.meanings = (preferLocal ? ours : theirs).meanings;
+    for (const key of ["correctCount", "wrongCount"]) {
+      // A transaction retry must always use the SAME original base/local pair.
+      // Unknown common history (legacy import) is conservatively non-additive.
+      merged[key] = base ? Math.max(0, theirs[key] + ours[key] - (before?.[key] || 0))
+        : Math.max(ours[key], theirs[key]);
+    }
+    merged.lastStudiedAt = latest(ours.lastStudiedAt, theirs.lastStudiedAt);
+    merged.lastWrongAt = merged.wrongCount ? latest(ours.lastWrongAt, theirs.lastWrongAt) : null;
+    merged.createdAt = [ours.createdAt, theirs.createdAt].sort((a, b) => Date.parse(a) - Date.parse(b) || a.localeCompare(b))[0];
+    mergedWords.push(merged);
+  }
+
+  // Independently added copies of the same word are a single shared word.
+  // Keep the local id so an open local queue is not rewritten by a background
+  // update, and preserve both copies' meanings and learning counts.
+  const identities = new Map();
+  const words = [];
+  for (const word of mergedWords) {
+    const key = wordIdentity(word.word);
+    if (!identities.has(key)) {
+      identities.set(key, words.length);
+      words.push(word);
+      continue;
+    }
+    const index = identities.get(key);
+    const prior = words[index];
+    idAliases.set(word.id, prior.id);
+    words[index] = {
+      ...word, ...prior,
+      meanings: uniqueStrings([...prior.meanings, ...word.meanings]),
+      tags: uniqueStrings([...prior.tags, ...word.tags]),
+      aliases: uniqueStrings([...(prior.aliases || []), ...(word.aliases || [])]),
+      correctCount: base ? prior.correctCount + word.correctCount : Math.max(prior.correctCount, word.correctCount),
+      wrongCount: base ? prior.wrongCount + word.wrongCount : Math.max(prior.wrongCount, word.wrongCount),
+      lastStudiedAt: latest(prior.lastStudiedAt, word.lastStudiedAt),
+      lastWrongAt: latest(prior.lastWrongAt, word.lastWrongAt),
+    };
+  }
+  const sessionKey = (session) => typeof session.id === "string" && session.id
+    ? session.id : canonicalJson(session);
+  const baseSessions = new Set((base?.sessions || []).map(sessionKey));
+  const ourSessions = new Map(local.sessions.map((session) => [sessionKey(session), session]));
+  const theirSessions = new Map(remote.sessions.map((session) => [sessionKey(session), session]));
+  const sessions = [];
+  for (const key of new Set([...ourSessions.keys(), ...theirSessions.keys()])) {
+    const ours = ourSessions.get(key);
+    const theirs = theirSessions.get(key);
+    if (baseSessions.has(key) && (!ours || !theirs)) continue;
+    const session = !ours ? theirs : !theirs || equal(ours, theirs) ? ours
+      : preferLocal ? ours : theirs;
+    sessions.push({ ...session, wrongWordIds: uniqueStrings(session.wrongWordIds.map((id) => idAliases.get(id) || id)) });
+  }
+  sessions.sort((a, b) => Date.parse(a.finishedAt) - Date.parse(b.finishedAt)
+    || sessionKey(a).localeCompare(sessionKey(b)));
+  const merged = {
+    ...local, version: STORAGE_VERSION, words, sessions: sessions.slice(-80),
+    // Progress is device-local while the page is open; the full payload still
+    // lets a freshly opened device resume the last cloud-saved session.
+    activeStudy: local.activeStudy, activeQuiz: local.activeQuiz,
+    updatedAt: latest(local.updatedAt, remote.updatedAt),
+  };
+  const raw = JSON.stringify(merged);
+  if (!validateStudyPayload(raw)) throw new Error("합친 단어장 기록을 읽을 수 없습니다.");
+  return raw;
 }
 
 function summarizeStudyPayload(raw) {
@@ -184,7 +387,7 @@ function semanticStudyPayload(raw) {
 
 async function connectVocabularySync() {
   try {
-    const { connectStudySync } = await import("../shared/study-sync.js?v=20261001-sync2");
+    const { connectStudySync } = await import("../shared/study-sync.js?v=20261002-sync3");
     studySync = connectStudySync({
       appId: "vocabulary",
       mount: document.querySelector(".app-shell"),
@@ -192,6 +395,7 @@ async function connectVocabularySync() {
       getPayload: () => JSON.stringify({ ...state, activeStudy: studySession, activeQuiz: quizSession }),
       validatePayload: validateStudyPayload,
       applyPayload: applyStudyPayload,
+      mergePayload: mergeStudyPayload,
       summarizePayload: summarizeStudyPayload,
       hasLocalData: hasStudyData,
       semanticPayload: semanticStudyPayload,
@@ -404,7 +608,7 @@ function configTagOptions(selected = "all", wrongOnly = false) {
 }
 
 function renderStudy() {
-  if (state.words.length === 0) return `${renderPageHeader("단어 익히기", "암기 카드", "뜻을 가리고 빠르게 기억을 확인하세요.")}${renderNoWords()}`;
+  if (state.words.length === 0 && !studySession) return `${renderPageHeader("단어 익히기", "암기 카드", "뜻을 가리고 빠르게 기억을 확인하세요.")}${renderNoWords()}`;
   if (!studySession) return renderStudySetup();
   if (studySession.completed) return renderStudyResult();
   return renderStudyCard();
@@ -424,7 +628,7 @@ function renderStudySetup() {
 }
 
 function renderStudyCard() {
-  const word = state.words.find((item) => item.id === studySession.wordIds[studySession.index]);
+  const word = sessionWord(studySession, studySession.wordIds[studySession.index]);
   if (!word) {
     studySession = null;
     return renderStudySetup();
@@ -448,7 +652,7 @@ function renderStudyResult() {
 }
 
 function renderQuiz() {
-  if (state.words.length === 0) return `${renderPageHeader("실전 확인", "퀴즈", "객관식 또는 직접 입력으로 기억을 확인하세요.")}${renderNoWords()}`;
+  if (state.words.length === 0 && !quizSession) return `${renderPageHeader("실전 확인", "퀴즈", "객관식 또는 직접 입력으로 기억을 확인하세요.")}${renderNoWords()}`;
   if (!quizSession) return renderQuizSetup();
   if (quizSession.completed) return renderQuizResult();
   return renderQuizQuestion();
@@ -478,7 +682,7 @@ function renderQuizSetup() {
 
 function renderQuizQuestion() {
   const question = quizSession.queue[quizSession.index];
-  const word = state.words.find((item) => item.id === question.wordId);
+  const word = sessionWord(quizSession, question.wordId);
   if (!word) {
     quizSession.queue.splice(quizSession.index, 1);
     if (quizSession.index >= quizSession.queue.length) finishQuiz();
@@ -645,7 +849,7 @@ function submitQuizAnswer(answer) {
   if (!quizSession || quizSession.feedback || quizSession.completed) return;
   const question = quizSession.queue[quizSession.index];
   if (!question || question.answered) return;
-  const word = state.words.find((item) => item.id === question.wordId);
+  const word = sessionWord(quizSession, question.wordId);
   if (!word) return;
   const correct = quizSession.mode === "multiple"
     ? normalizeText(answer) === normalizeText(getAnswerLabel(word, quizSession.direction))
