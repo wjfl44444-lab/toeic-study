@@ -1,0 +1,18 @@
+.study-sync { box-sizing: border-box; width: min(1120px, calc(100% - 32px)); margin: 16px auto; padding: 14px 18px; border: 1px solid #dbe4ed; border-radius: 16px; color: #23344a; background: #fff; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; box-shadow: 0 3px 14px #22354d08; }
+.study-sync *, .study-sync *::before, .study-sync *::after { box-sizing: border-box; }
+.study-sync__top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.study-sync__identity { font-weight: 700; overflow-wrap: anywhere; }
+.study-sync__status { flex: 1; min-width: 170px; color: #53657b; }
+.study-sync[data-state="conflict"] { border-color: #d9a75a; background: #fffbf2; }
+.study-sync[data-state="error"] { border-color: #db9292; }
+.study-sync__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.study-sync button { appearance: none; cursor: pointer; border: 1px solid #d6dee9; border-radius: 9px; padding: 8px 12px; color: #33455a; background: #f7f9fc; font: inherit; font-weight: 650; line-height: 1.4; }
+.study-sync button.study-sync__primary { color: #fff; background: #245da7; border-color: #245da7; }
+.study-sync button:hover { filter: brightness(.96); }
+.study-sync button:focus-visible, .study-sync summary:focus-visible { outline: 3px solid #74a8e4; outline-offset: 3px; }
+.study-sync button:disabled { opacity: .55; cursor: wait; }
+.study-sync__detail { white-space: pre-line; margin: 10px 0 0; font-size: 13px; color: #65758a; }
+.study-sync__privacy { margin-top: 9px; font-size: 12px; color: #718197; }
+.study-sync__privacy summary { cursor: pointer; width: fit-content; }
+.study-sync__privacy p { margin: 6px 0 0; }
+@media (max-width: 600px) { .study-sync { width: calc(100% - 24px); padding: 12px; margin: 12px auto; } .study-sync__status { flex-basis: 100%; } .study-sync__actions button { flex-grow: 1; } }
