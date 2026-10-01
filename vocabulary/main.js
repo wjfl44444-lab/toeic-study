@@ -184,7 +184,7 @@ function semanticStudyPayload(raw) {
 
 async function connectVocabularySync() {
   try {
-    const { connectStudySync } = await import("../shared/study-sync.js?v=20261001-sync1");
+    const { connectStudySync } = await import("../shared/study-sync.js?v=20261001-sync2");
     studySync = connectStudySync({
       appId: "vocabulary",
       mount: document.querySelector(".app-shell"),
