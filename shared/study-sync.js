@@ -1,4 +1,4 @@
-import { fitsCloudPayload, nextRevision, parseCloudRecord, remoteDecision } from "./sync-core.js?v=20261001-sync2";
+import { fitsCloudPayload, nextRevision, parseCloudRecord, remoteDecision } from "./sync-core.js?v=20261002-sync3";
 
 const SDK_URL = "https://www.gstatic.com/firebasejs/12.19.0/";
 let sdkPromise;
@@ -38,7 +38,8 @@ function errorText(error) {
 
 /**
  * Return immediately; local saves are safe while the optional SDK starts.
- * applyPayload must replace state without invoking the application's save path.
+ * Initial loads restore progress; background loads merge shared records without
+ * replacing an open screen. Neither apply path may invoke the app's save path.
  */
 export function connectStudySync(options = {}) {
   const appId = ["vocabulary", "quiz"].includes(options.appId) ? options.appId : null;
@@ -57,6 +58,7 @@ export function connectStudySync(options = {}) {
   let initializing = false;
   let authBusy = false;
   let authInitialized = false;
+  let serverInitialized = false;
   let phase = "starting";
   let message = "계정 연결 확인 중 · 기기 저장 사용 가능";
   let storageFailed = false;
@@ -77,6 +79,24 @@ export function connectStudySync(options = {}) {
     try { return options.semanticPayload ? String(options.semanticPayload(raw)) : raw; }
     catch { return raw; }
   };
+  const independent = typeof options.mergePayload === "function";
+  const commits = (raw) => {
+    try {
+      const ledger = JSON.parse(raw)?._studySync;
+      return ledger?.version === 1 && Array.isArray(ledger.commits)
+        ? [...new Set(ledger.commits.filter((id) => typeof id === "string" && /^[a-zA-Z0-9-]{8,100}$/.test(id)))].slice(-256) : [];
+    } catch { return []; }
+  };
+  const merge = (base, local, cloud) => {
+    const result = cloud === null ? local : independent ? options.mergePayload(base, local, cloud) : local;
+    if (!valid(result)) throw Object.assign(new Error("Invalid merge result."), { code: "sync/invalid-record" });
+    return result;
+  };
+  const receiptGap = (record, sent) => record.revision > sent.expected &&
+    commits(record.payload).length < Math.min(record.revision - sent.expected, 256);
+  const operationId = () => globalThis.crypto?.randomUUID?.() ||
+    `op-${Date.now().toString(36)}-${Array.from(globalThis.crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(36)).join("-")}`;
+  const pendingNow = () => Boolean(account?.lastSent) || semantic(account?.payload) !== semantic(account?.acknowledgedPayload);
   const meaningful = (raw) => {
     try { return valid(raw) && (options.hasLocalData ? Boolean(options.hasLocalData(raw)) : true); }
     catch { return true; }
@@ -117,8 +137,9 @@ export function connectStudySync(options = {}) {
     memoryAccounts.set(account.uid, { account: { ...account }, issue: accountCacheIssue, blocked: accountCacheBlocked });
     if (accountCacheBlocked) { storageFailed = true; return false; }
     const ok = write(cacheKey(account.uid), JSON.stringify({
-      version: 1, payload: account.payload, basePayload: account.basePayload,
-      baseRevision: account.baseRevision, linked: account.linked, pending: account.pending,
+      version: 2, payload: account.payload, basePayload: account.basePayload,
+      baseRevision: account.baseRevision, acknowledgedPayload: account.acknowledgedPayload,
+      linked: account.linked, pending: account.pending, lastSent: account.lastSent,
     }));
     storageFailed = !ok;
     return ok;
@@ -135,9 +156,18 @@ export function connectStudySync(options = {}) {
     if (original === null) return null;
     try {
       const saved = JSON.parse(original);
-      if (saved?.version !== 1 || !valid(saved.payload) || typeof saved.linked !== "boolean" || typeof saved.pending !== "boolean" || !(saved.baseRevision === null || Number.isSafeInteger(saved.baseRevision) && saved.baseRevision >= 0) || !(saved.basePayload === null || valid(saved.basePayload)) || saved.linked && (saved.baseRevision === null || (saved.baseRevision === 0) !== (saved.basePayload === null))) throw new Error("Unreadable account cache.");
-      const pending = saved.linked ? semantic(saved.payload) !== semantic(saved.basePayload) : saved.pending;
-      return { uid, payload: saved.payload, basePayload: saved.basePayload, baseRevision: saved.baseRevision, linked: saved.linked, pending };
+      if (![1, 2].includes(saved?.version) || !valid(saved.payload) || typeof saved.linked !== "boolean" || typeof saved.pending !== "boolean" || !(saved.baseRevision === null || Number.isSafeInteger(saved.baseRevision) && saved.baseRevision >= 0) || !(saved.basePayload === null || valid(saved.basePayload)) || saved.linked && (saved.baseRevision === null || (saved.baseRevision === 0) !== (saved.basePayload === null))) throw new Error("Unreadable account cache.");
+      const acknowledgedPayload = saved.version === 1 ? saved.basePayload : saved.acknowledgedPayload;
+      const lastSent = saved.version === 1 ? null : saved.lastSent;
+      if (!(acknowledgedPayload === null || valid(acknowledgedPayload)) ||
+          lastSent !== null && !(saved.linked && /^[a-zA-Z0-9-]{8,100}$/.test(lastSent?.operationId || "") &&
+          valid(lastSent.payload) && (lastSent.basePayload === null || valid(lastSent.basePayload)) &&
+          (lastSent.acknowledgedPayload === null || valid(lastSent.acknowledgedPayload)) &&
+          Number.isSafeInteger(lastSent.expected) && lastSent.expected >= 0 &&
+          (lastSent.expected === 0) === (lastSent.basePayload === null))) throw new Error("Unreadable account checkpoint.");
+      const pending = Boolean(lastSent) || (saved.linked ? semantic(saved.payload) !== semantic(acknowledgedPayload) : saved.pending);
+      return { uid, payload: saved.payload, basePayload: saved.basePayload, baseRevision: saved.baseRevision,
+        acknowledgedPayload, lastSent, linked: saved.linked, pending };
     } catch {
       accountCacheIssue = { raw: original, backedUp: backup(original, "unreadable-account-cache", uid) };
       accountCacheBlocked = !accountCacheIssue.backedUp;
@@ -147,7 +177,7 @@ export function connectStudySync(options = {}) {
 
   function backup(raw, label, uid = user?.uid || "guest") {
     if (typeof raw !== "string" || !prefix) return true;
-    const key = `${prefix}backup:${encodeURIComponent(uid)}:${label}:${Date.now()}`;
+    const key = `${prefix}backup:${encodeURIComponent(uid)}:${label}:${Date.now()}:${operationId()}`;
     return write(key, raw);
   }
 
@@ -196,10 +226,10 @@ export function connectStudySync(options = {}) {
     return guestBackupReady && !accountCacheBlocked;
   }
 
-  function apply(raw) {
+  function apply(raw, reason = "initial") {
     if (!appId || !valid(raw)) return false;
     applying = true;
-    try { options.applyPayload?.(raw); return true; }
+    try { options.applyPayload?.(raw, { reason }); return true; }
     catch { setStatus("error", "기록을 불러오지 못했어요. 현재 기록을 백업한 뒤 다시 시도해 주세요."); return false; }
     finally { applying = false; }
   }
@@ -230,6 +260,8 @@ export function connectStudySync(options = {}) {
     account.payload = record.payload;
     account.basePayload = record.payload;
     account.baseRevision = record.revision;
+    account.acknowledgedPayload = record.payload;
+    account.lastSent = null;
     account.linked = true;
     account.pending = false;
     persistAccount();
@@ -262,6 +294,7 @@ export function connectStudySync(options = {}) {
     }
     account.baseRevision = 0;
     account.basePayload = null;
+    account.acknowledgedPayload = null;
     account.linked = true;
     account.pending = true;
     persistAccount();
@@ -274,6 +307,40 @@ export function connectStudySync(options = {}) {
     // A slower explicit read must never roll back a newer listener result.
     if (remote && record.revision > 0 && record.revision < remote.revision) return;
     remote = record;
+    if (independent) {
+      if (inflight) return;
+      if (account.lastSent) {
+        // Never incorporate another device's increments until this immutable
+        // checkpoint is resolved. Otherwise its residual delta would be doubled.
+        if (commits(record.payload).includes(account.lastSent.operationId)) {
+          reconcileCommit(record, account.lastSent);
+        } else if (record.revision > account.lastSent.expected + 256 || receiptGap(record, account.lastSent)) {
+          setStatus("error", "이전 저장의 완료 여부를 확인하지 못해 재전송을 멈췄어요. 기기 기록은 보관 중이며 기록 관리에서 백업할 수 있습니다.");
+        } else {
+          serverInitialized = true;
+          setStatus("linked", "기기 기록 보관 중 · 이전 저장을 다시 확인 중…");
+          scheduleUpload();
+        }
+        return;
+      }
+      const first = !serverInitialized;
+      serverInitialized = true;
+      if (!account.linked) {
+        if (record.payload !== null) automaticCloud(record);
+        else automaticSeed();
+      } else if (record.payload === null) {
+        if (account.baseRevision === 0) automaticSeed();
+        else setStatus("error", "이전에 연결된 계정 기록을 찾지 못했어요. 기기 기록은 보관 중입니다.");
+      } else if (first && !account.pending) {
+        automaticCloud(record);
+      } else if (record.revision > account.baseRevision) {
+        mergeRemote(record, first ? "initial" : "background");
+      } else if (account.pending) {
+        setStatus("linked", "이 기기 기록 저장됨 · 계정에 저장 대기 중");
+        scheduleUpload();
+      }
+      return;
+    }
     if (inflight && record.revision === inflight.expected + 1 && semantic(record.payload) === inflight.semantic) return;
     // Finish the revision-checked write before applying another device's record.
     // Its result/catch will process the queued remote record without overwriting it.
@@ -299,6 +366,7 @@ export function connectStudySync(options = {}) {
     } else if (decision === "acknowledge") {
       account.baseRevision = record.revision;
       account.basePayload = record.payload;
+      account.acknowledgedPayload = account.payload;
       account.pending = false;
       persistAccount();
       setStatus("linked", storageFailed ? "계정 저장 확인됨 · 기기 저장 공간 부족, 백업 필요" : "계정 저장 확인됨 · 변경 내용 자동 저장");
@@ -307,6 +375,52 @@ export function connectStudySync(options = {}) {
     } else {
       automaticSeed();
     }
+  }
+
+  function mergeRemote(record, reason = "background") {
+    const previous = { ...account };
+    try {
+      const local = merge(account.basePayload, account.payload, record.payload);
+      const acknowledged = merge(account.basePayload, account.acknowledgedPayload || account.basePayload || account.payload, record.payload);
+      if (account.pending && semantic(local) !== semantic(account.payload) && !protectReplacedDraft()) {
+        setStatus("error", "다른 기기의 기록과 합치기 전 현재 변경 내용을 보관하지 못했어요. 기록 관리에서 백업하고 저장 공간을 확보해 주세요.");
+        return;
+      }
+      account.payload = local;
+      account.acknowledgedPayload = acknowledged;
+      account.basePayload = record.payload;
+      account.baseRevision = record.revision;
+      account.pending = pendingNow();
+      persistAccount();
+      if (!apply(local, reason)) { account = previous; persistAccount(); return; }
+      setStatus("linked", account.pending ? "학습 기록 연결됨 · 이 기기 변경 내용 저장 대기 중" : "학습 기록 연결됨 · 현재 화면은 이 기기에서 유지");
+      if (account.pending) scheduleUpload();
+    } catch (error) { account = previous; setStatus("error", errorText(error)); }
+  }
+
+  function reconcileCommit(record, sent) {
+    const previous = { ...account };
+    try {
+      // Only actions performed after the pinned send are additional local work.
+      const local = merge(sent.payload, account.payload, record.payload);
+      const acknowledged = merge(sent.payload, sent.payload, record.payload);
+      if (semantic(local) !== semantic(account.payload) && !protectReplacedDraft()) {
+        setStatus("error", "계정 저장은 완료됐지만 현재 기기 변경 내용의 안전한 보관이 필요해요. 기록 관리에서 백업하고 다시 연결해 주세요.");
+        return;
+      }
+      account.payload = local;
+      account.acknowledgedPayload = acknowledged;
+      account.basePayload = record.payload;
+      account.baseRevision = record.revision;
+      account.lastSent = null;
+      account.linked = true;
+      account.pending = pendingNow();
+      serverInitialized = true;
+      persistAccount();
+      if (!apply(local, "background")) { account = previous; persistAccount(); return; }
+      setStatus("linked", storageFailed ? "계정 저장 확인됨 · 기기 저장 공간 부족, 백업 필요" : account.pending ? "기기 기록 저장됨 · 추가 변경 내용 저장 대기 중" : "계정 저장 확인됨 · 학습 기록 자동 연결, 현재 화면 유지");
+      if (account.pending) scheduleUpload();
+    } catch (error) { account = previous; setStatus("error", errorText(error)); }
   }
 
   function parseSnapshot(snapshot) {
@@ -344,6 +458,7 @@ export function connectStudySync(options = {}) {
     if (!uploadAllowed()) { setStatus("error", "원래 기기 기록을 확인하지 못해 계정 저장을 멈췄어요. 기록을 백업하고 복구해 주세요."); return; }
     if (!fitsCloudPayload(account.payload)) { setStatus("linked", "기기 기록 보관 중 · 기록이 커서 계정 저장 불가, JSON 백업을 내려받아 주세요."); return; }
     if (!navigator.onLine) { scheduleUpload(); return; }
+    if (independent) { await uploadMerged(); return; }
     const ticket = epoch, uid = account.uid;
     const sent = { payload: account.payload, semantic: semantic(account.payload), expected: account.baseRevision };
     const ref = sdk.storeSdk.doc(sdk.db, "users", uid, "study", appId);
@@ -362,6 +477,7 @@ export function connectStudySync(options = {}) {
       if (!current(ticket, uid)) return;
       account.baseRevision = result.revision;
       account.basePayload = sent.payload;
+      account.acknowledgedPayload = sent.payload;
       account.pending = semantic(account.payload) !== sent.semantic;
       persistAccount();
       inflight = null;
@@ -380,6 +496,57 @@ export function connectStudySync(options = {}) {
         setStatus("loading", "다른 기기의 최근 계정 기록에 자동 연결 중…");
         void refreshRemote(false);
       } else setStatus(error?.code?.includes("permission") || error?.code?.includes("invalid-record") ? "error" : "linked", errorText(error));
+    }
+  }
+
+  async function uploadMerged() {
+    const ticket = epoch, uid = account.uid;
+    const resuming = Boolean(account.lastSent);
+    if (!account.lastSent) account.lastSent = {
+      operationId: operationId(), payload: account.payload, basePayload: account.basePayload,
+      expected: account.baseRevision, acknowledgedPayload: account.acknowledgedPayload,
+    };
+    const sent = account.lastSent;
+    // An uncertain backend acknowledgement must be recoverable after reload.
+    if (!persistAccount()) { setStatus("error", "기기 저장 공간이 부족해 안전한 계정 저장을 멈췄어요. 기록을 백업하고 저장 공간을 확보해 주세요."); return; }
+    const ref = sdk.storeSdk.doc(sdk.db, "users", uid, "study", appId);
+    inflight = sent;
+    setStatus("saving", "이 기기 기록 저장됨 · 학습 기록을 계정에 저장 중…");
+    try {
+      const result = await sdk.storeSdk.runTransaction(sdk.db, async (transaction) => {
+        if (!current(ticket, uid)) throw Object.assign(new Error("Account changed."), { code: "sync/stale" });
+        const record = parseSnapshot(await transaction.get(ref));
+        if (!current(ticket, uid)) throw Object.assign(new Error("Account changed."), { code: "sync/stale" });
+        const ids = commits(record.payload);
+        if (ids.includes(sent.operationId)) return record;
+        if (sent.expected > 0 && record.payload === null || record.revision < sent.expected || record.revision > sent.expected + 256 ||
+          resuming && receiptGap(record, sent)) {
+          throw Object.assign(new Error("Checkpoint cannot safely be replayed."), { code: "sync/invalid-record" });
+        }
+        const merged = JSON.parse(merge(sent.basePayload, sent.payload, record.payload));
+        merged._studySync = { version: 1, commits: [...ids, sent.operationId].slice(-256) };
+        const payload = JSON.stringify(merged);
+        if (!fitsCloudPayload(payload)) throw Object.assign(new Error("Payload exceeds cloud guard."), { code: "sync/payload-too-large" });
+        const revision = nextRevision(record.revision, record.revision);
+        transaction.set(ref, { schemaVersion: 1, revision, updatedAt: sdk.storeSdk.serverTimestamp(), payload });
+        return { revision, payload };
+      });
+      if (!current(ticket, uid)) return;
+      inflight = null;
+      reconcileCommit(result, sent);
+      if (remote && remote.revision > result.revision) receiveRemote(remote, ticket, uid);
+      else remote = result;
+    } catch (error) {
+      if (!current(ticket, uid)) return;
+      inflight = null;
+      persistAccount();
+      if (remote && commits(remote.payload).includes(sent.operationId)) {
+        reconcileCommit(remote, sent);
+      } else if (error?.code === "sync/payload-too-large") {
+        setStatus("error", "기록이 커서 계정 저장을 멈췄어요. 기기 기록은 유지되며 기록 관리에서 백업할 수 있습니다.");
+      } else {
+        setStatus(error?.code?.includes("permission") || error?.code?.includes("invalid-record") ? "error" : "linked", errorText(error));
+      }
     }
   }
 
@@ -434,8 +601,8 @@ export function connectStudySync(options = {}) {
 
   async function restoreRecovery() {
     const saved = recoveryRecord();
-    if (!account || !saved || inflight) return;
-    if (!window.confirm("보관된 기기 기록으로 현재 계정 기록을 바꿀까요? 현재 기록도 별도 백업으로 보관합니다.")) return;
+    if (!account || !saved || inflight || account.lastSent) return;
+    if (!window.confirm("보관된 기기 기록을 복구할까요? 현재 기록도 별도 백업으로 보관하고, 다른 기기의 새 학습 기록은 유지합니다.")) return;
     const ticket = epoch, uid = account.uid, localBefore = semantic(account.payload);
     try {
       const snapshot = await sdk.storeSdk.getDocFromServer(sdk.storeSdk.doc(sdk.db, "users", uid, "study", appId));
@@ -451,11 +618,13 @@ export function connectStudySync(options = {}) {
       account.payload = saved.payload;
       account.baseRevision = latest.revision;
       account.basePayload = latest.payload;
+      account.acknowledgedPayload = latest.payload;
+      account.lastSent = null;
       account.linked = true;
       account.pending = semantic(saved.payload) !== semantic(latest.payload);
       remote = latest;
       persistAccount();
-      if (!apply(saved.payload)) { account = previous; persistAccount(); return; }
+      if (!apply(saved.payload, "restore")) { account = previous; persistAccount(); return; }
       setStatus("linked", account.pending ? "보관된 기록 복구됨 · 계정에 자동 저장 중…" : "계정 기록과 같은 보관 기록을 복구했어요 · 변경 내용 자동 저장");
       void upload();
     } catch (error) { if (current(ticket, uid)) setStatus("error", errorText(error)); }
@@ -478,7 +647,7 @@ export function connectStudySync(options = {}) {
       const changed = semantic(raw) !== semantic(account.payload);
       if (!changed) return !storageFailed;
       account.payload = raw;
-      account.pending = account.linked ? semantic(raw) !== semantic(account.basePayload) : true;
+      account.pending = account.linked ? pendingNow() : true;
       const ok = persistAccount();
       if (!ok) setStatus(phase, "기기 저장 공간이 부족해요. 화면의 기록은 유지되지만 JSON 백업이 필요합니다.");
       else if (["linked", "saving"].includes(phase)) {
@@ -500,19 +669,22 @@ export function connectStudySync(options = {}) {
     user = nextUser;
     account = null;
     remote = null;
+    serverInitialized = false;
     storageFailed = false;
     accountCacheIssue = null;
     accountCacheBlocked = false;
     if (previousUser && appId) restoreGuest();
     if (!nextUser) { setStatus("guest", "이 기기에 기록 저장 · Google 로그인으로 기기 간 기록 연결"); return; }
     if (!appId) { setStatus("linked", "로그인됨 · 단어장과 문제집에서 기록이 자동으로 연결돼요."); return; }
-    account = loadAccount(nextUser.uid) || { uid: nextUser.uid, payload: guestRaw || getRaw(), basePayload: null, baseRevision: null, linked: false, pending: false };
+    const cached = loadAccount(nextUser.uid);
+    account = cached || { uid: nextUser.uid, payload: guestRaw || getRaw(), basePayload: null, baseRevision: null,
+      acknowledgedPayload: null, lastSent: null, linked: false, pending: false };
     if (!valid(account.payload)) {
       try { account.payload = options.createEmptyPayload?.(); } catch { /* Handled below. */ }
     }
     if (!valid(account.payload)) { setStatus("error", "기기 기록의 형식을 확인하지 못했어요. 기록을 백업하고 복구한 뒤 다시 연결해 주세요."); return; }
     persistAccount();
-    apply(account.payload);
+    if (cached) apply(account.payload);
     setStatus("loading", account.pending ? "이 계정의 기기 임시 기록을 복원했어요 · 계정 기록 확인 중…" : "로그인됨 · 계정 기록 확인 중…");
     subscribe();
   }
@@ -584,7 +756,7 @@ export function connectStudySync(options = {}) {
       const saved = recoveryRecord();
       if (saved) {
         button("보관된 기기 기록 백업", () => download(saved.payload, "preserved-device"), false, false, toolsActions);
-        button("보관된 기기 기록으로 복구", restoreRecovery, false, Boolean(inflight), toolsActions);
+        button("보관된 기기 기록으로 복구", restoreRecovery, false, Boolean(inflight || account?.lastSent), toolsActions);
       }
     }
   }
@@ -610,7 +782,7 @@ export function connectStudySync(options = {}) {
     const privacy = document.createElement("details"); privacy.className = "study-sync__privacy";
     const heading = document.createElement("summary"); heading.textContent = "기록 저장 안내";
     const explanation = document.createElement("p");
-    explanation.textContent = "같은 Google 계정으로 로그인하면 계정 기록을 자동으로 불러오고 변경 내용도 자동 저장합니다. 계정에 기록이 없으면 이 기기 기록을 자동 연결합니다. 서로 다른 기록은 최근 계정 저장본을 사용하고, 바뀌기 전 기기 기록은 기록 관리에서 백업하거나 복구할 수 있습니다. 오프라인 기록은 다른 기기에 즉시 반영되지 않으므로 이동 전 계정 저장 확인을 살펴보세요. 공용 기기에서는 사용 후 로그아웃하세요.";
+    explanation.textContent = "같은 Google 계정으로 로그인하면 학습 기록이 자동으로 연결됩니다. 새로 연 페이지는 최근 진행을 불러오지만, 이미 열어 둔 문제·선택·편집 화면은 다른 기기 때문에 바뀌지 않습니다. 정오답과 단어 학습 기록은 함께 보관합니다. 계정에 기록이 없으면 이 기기 기록을 자동 연결합니다. 로그인 전 기록은 별도로 보관하며 필요한 경우 기록 관리에서 백업할 수 있습니다. 오프라인 기록은 다른 기기에 즉시 반영되지 않으므로 이동 전 계정 저장 확인을 살펴보세요. 공용 기기에서는 사용 후 로그아웃하세요.";
     privacy.append(heading, explanation);
     bar.append(top, actions, detail, tools, privacy);
     (options.mount || document.body).prepend(bar);
