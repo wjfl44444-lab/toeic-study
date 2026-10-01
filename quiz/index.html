@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f4f1e9">
   <title>TOEIC 랜덤 문제 카드</title>
+  <link rel="stylesheet" href="../shared/study-sync.css?v=20261001-sync1">
   <meta name="description" content="167개의 영어 객관식 문제를 무작위로 풀고, 해설과 오답 복습으로 학습하세요.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='6' fill='%23245c4b'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
@@ -308,7 +309,7 @@
         <p>페이지를 새로고침해 주세요. 계속 문제가 생기면 링크를 다시 열어 주세요.</p>
       </section>
     </main>
-    <footer><p>한 회차 안에서는 같은 문제가 반복되지 않아요. 풀이 기록은 이 브라우저에 저장돼요.</p></footer>
+    <footer><p>한 회차 안에서는 같은 문제가 반복되지 않아요. 로그인하면 계정에, 로그인하지 않으면 이 브라우저에 풀이 기록을 저장해요.</p></footer>
   </div>
   <dialog id="restart-dialog" aria-labelledby="restart-title">
     <h2 id="restart-title">새 회차로 시작할까요?</h2>
@@ -380,6 +381,7 @@
       let state = null;
       let view = 'start';
       let pendingStart = null;
+      let studySync = null;
       function validChoice(value) { return Number.isInteger(value) && value >= 0 && value < 4; }
       function validateState(saved) {
         if (!saved || saved.version !== VERSION || saved.fingerprint !== DATA_FINGERPRINT) return null;
@@ -415,8 +417,57 @@
         elements.storageNote.hidden = storageAvailable;
         elements.storageNote.textContent = storageAvailable ? '' : '이 브라우저에서는 풀이 기록을 저장할 수 없어요. 현재 창에서는 계속 풀 수 있어요.';
       }
+      function studyPayload() {
+        return JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state });
+      }
+      function parseStudyPayload(raw) {
+        try {
+          const saved = JSON.parse(raw);
+          if (!saved || saved.version !== VERSION || saved.fingerprint !== DATA_FINGERPRINT) return null;
+          if (saved.state === null) return { state: null };
+          const restored = validateState(saved);
+          return restored ? { state: restored } : null;
+        } catch (_) { return null; }
+      }
+      function applyStudyPayload(raw) {
+        const saved = parseStudyPayload(raw);
+        if (!saved) return false;
+        pendingStart = null;
+        closeRestart();
+        state = saved.state;
+        if (!state) showStart();
+        else if (state.status === 'complete') showFinish();
+        else { showView('quiz'); renderQuestion(); }
+        return true;
+      }
+      function summarizeStudyPayload(raw) {
+        const saved = parseStudyPayload(raw);
+        if (!saved || !saved.state) return '저장된 풀이가 없어요.';
+        const session = saved.state;
+        const results = score(session);
+        return session.status === 'complete'
+          ? `${session.items.length}문제 완료 · 맞힌 ${results.correct + results.alternate}문제 · 틀린 ${results.incorrect}문제`
+          : `${session.items.length}문제 중 ${results.answered}문제 채점 · ${session.index + 1}번째 문제 진행 중`;
+      }
+      function semanticStudyPayload(raw) {
+        const saved = parseStudyPayload(raw);
+        if (!saved) return raw;
+        const session = saved.state;
+        return JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state: session && {
+          status: session.status, startedAt: session.startedAt, baseCount: session.baseCount,
+          shuffleChoices: session.shuffleChoices,
+          items: session.items.map(item => ({ id: item.id, order: item.order })),
+          index: session.index, selected: session.selected,
+          answers: session.answers.map(answer => answer && { id: answer.id, selected: answer.selected }),
+          marked: session.marked.slice().sort(), review: !!session.review
+        } });
+      }
       function save() {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state })); }
+        try {
+          const raw = studyPayload();
+          if (studySync) storageAvailable = studySync.saveLocal(raw);
+          else { localStorage.setItem(STORAGE_KEY, raw); storageAvailable = true; }
+        }
         catch (_) { storageAvailable = false; }
         updateStorageNote();
       }
@@ -721,6 +772,25 @@
         validateState,
         version: VERSION
       });
+      window.addEventListener('storage', event => {
+        if ((studySync && studySync.isAccountActive()) || event.storageArea !== localStorage ||
+          (event.key !== STORAGE_KEY && event.key !== null)) return;
+        const raw = event.newValue === null
+          ? JSON.stringify({ version: VERSION, fingerprint: DATA_FINGERPRINT, state: null })
+          : event.newValue;
+        if (applyStudyPayload(raw)) { storageAvailable = true; updateStorageNote(); }
+      });
+      import('../shared/study-sync.js?v=20261001-sync1').then(({ connectStudySync }) => {
+        studySync = connectStudySync({
+          appId: 'quiz', legacyKey: STORAGE_KEY,
+          getPayload: studyPayload,
+          validatePayload: raw => parseStudyPayload(raw) !== null,
+          applyPayload: applyStudyPayload,
+          summarizePayload: summarizeStudyPayload,
+          hasLocalData: raw => !!parseStudyPayload(raw)?.state,
+          semanticPayload: semanticStudyPayload
+        });
+      }).catch(() => { /* The local quiz remains available when account sync cannot load. */ });
     })();
   </script>
 </body>
