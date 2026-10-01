@@ -6,6 +6,11 @@
 .study-sync[data-state="conflict"] { border-color: #d9a75a; background: #fffbf2; }
 .study-sync[data-state="error"] { border-color: #db9292; }
 .study-sync__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.study-sync__tools { margin-top: 10px; font-size: 13px; color: #65758a; }
+.study-sync__tools > summary { width: fit-content; padding: 3px 0; color: #53657b; cursor: pointer; }
+.study-sync__tools[open] > summary { margin-bottom: 2px; }
+.study-sync__tools .study-sync__actions { margin-top: 6px; }
+.study-sync__tools p { margin: 8px 0 0; }
 .study-sync button { appearance: none; cursor: pointer; border: 1px solid #d6dee9; border-radius: 9px; padding: 8px 12px; color: #33455a; background: #f7f9fc; font: inherit; font-weight: 650; line-height: 1.4; }
 .study-sync button.study-sync__primary { color: #fff; background: #245da7; border-color: #245da7; }
 .study-sync button:hover { filter: brightness(.96); }
