@@ -1,4 +1,4 @@
-import { fitsCloudPayload, nextRevision, parseCloudRecord, remoteDecision } from "./sync-core.js?v=20261001-sync1";
+import { fitsCloudPayload, nextRevision, parseCloudRecord, remoteDecision } from "./sync-core.js?v=20261001-sync2";
 
 const SDK_URL = "https://www.gstatic.com/firebasejs/12.19.0/";
 let sdkPromise;
@@ -66,7 +66,7 @@ export function connectStudySync(options = {}) {
   let accountCacheBlocked = false;
   const memoryAccounts = new Map();
   let guestMemoryDirty = false;
-  let bar, identity, status, actions, detail;
+  let bar, identity, status, actions, detail, toolsActions;
 
   const valid = (raw) => {
     try { return typeof raw === "string" && Boolean(options.validatePayload?.(raw)); }
@@ -151,6 +151,26 @@ export function connectStudySync(options = {}) {
     return write(key, raw);
   }
 
+  function recoveryKey(uid = user?.uid) { return `${prefix}recovery:${encodeURIComponent(uid)}`; }
+
+  function recoveryRecord() {
+    if (!user || !prefix) return null;
+    try {
+      const saved = JSON.parse(read(recoveryKey()));
+      return saved?.version === 1 && valid(saved.payload) ? saved : null;
+    } catch { return null; }
+  }
+
+  function protectReplacedDraft() {
+    if (!ensureRecoveryBackups()) return false;
+    if (!account || !valid(account.payload)) return false;
+    const previous = recoveryRecord();
+    if (previous && semantic(previous.payload) === semantic(account.payload)) return true;
+    if (!backup(account.payload, "before-automatic-account-load")) return false;
+    // Only displaced local drafts use this slot, never routine clean refreshes.
+    return write(recoveryKey(), JSON.stringify({ version: 1, payload: account.payload, savedAt: new Date().toISOString() }));
+  }
+
   function preserveGuest() {
     const original = read(options.legacyKey);
     guestBackupRaw = original;
@@ -218,18 +238,49 @@ export function connectStudySync(options = {}) {
     return true;
   }
 
+  function automaticCloud(record) {
+    if (!account || record.payload === null) return;
+    if (!uploadAllowed()) {
+      setStatus("error", "원래 기기 기록을 확인하지 못해 자동 연결을 멈췄어요. 기록 관리에서 원본을 백업하고 복구해 주세요.");
+      return;
+    }
+    const differs = semantic(account.payload) !== semantic(record.payload);
+    const displaced = differs && (account.pending || !account.linked && meaningful(account.payload));
+    if (!ensureRecoveryBackups() || displaced && !protectReplacedDraft()) {
+      setStatus("error", "자동 연결 전 기기 기록을 안전하게 보관하지 못했어요. 기록 관리에서 백업한 뒤 저장 공간을 확보해 주세요.");
+      return;
+    }
+    accountCacheBlocked = false;
+    if (acceptedCloud(record) && displaced) setStatus("linked", "최근 계정 기록으로 자동 연결됨 · 이전 기기 기록은 기록 관리에 보관");
+  }
+
+  function automaticSeed() {
+    if (!account || !remote || remote.revision !== 0) return;
+    if (accountCacheIssue || !ensureRecoveryBackups() || !uploadAllowed()) {
+      setStatus("error", "원래 기기 기록을 확인하지 못해 자동 연결을 멈췄어요. 기록 관리에서 원본을 백업하고 복구해 주세요.");
+      return;
+    }
+    account.baseRevision = 0;
+    account.basePayload = null;
+    account.linked = true;
+    account.pending = true;
+    persistAccount();
+    setStatus("linked", "이 기기 기록을 계정에 자동 연결 중…");
+    scheduleUpload();
+  }
+
   function receiveRemote(record, ticket, uid) {
     if (!current(ticket, uid)) return;
     // A slower explicit read must never roll back a newer listener result.
     if (remote && record.revision > 0 && record.revision < remote.revision) return;
     remote = record;
     if (inflight && record.revision === inflight.expected + 1 && semantic(record.payload) === inflight.semantic) return;
+    // Finish the revision-checked write before applying another device's record.
+    // Its result/catch will process the queued remote record without overwriting it.
+    if (inflight) return;
     if (!account.linked) {
-      if (!accountCacheIssue && record.payload !== null && (semantic(account.payload) === semantic(record.payload) || !meaningful(account.payload))) {
-        acceptedCloud(record);
-      } else {
-        setStatus("choice", accountCacheIssue ? "이 계정의 기기 임시 기록을 읽지 못했어요. 원본을 보관했으며 사용할 기록을 직접 선택해 주세요." : record.payload === null ? "이 계정에 연결된 기록이 없어요. 연결할 기기 기록을 확인해 주세요." : "계정 기록과 기기 기록이 달라요. 사용할 기록을 선택해 주세요.");
-      }
+      if (record.payload !== null) automaticCloud(record);
+      else automaticSeed();
       return;
     }
     const decision = remoteDecision({
@@ -240,7 +291,8 @@ export function connectStudySync(options = {}) {
     if (decision === "ignore") return;
     if (decision === "conflict") {
       clearTimeout(timer);
-      setStatus("conflict", "다른 기기에서 기록이 바뀌었어요. 두 기록을 보관했으며 자동으로 덮어쓰지 않습니다.");
+      if (record.payload !== null) automaticCloud(record);
+      else setStatus("error", "이전에 연결된 계정 기록을 찾지 못했어요. 기기 기록은 보관 중이며 기록 관리에서 복구할 수 있어요.");
     } else if (decision === "upload") {
       setStatus("linked", "이 기기 기록 저장됨 · 계정에 저장 대기 중");
       scheduleUpload();
@@ -251,11 +303,9 @@ export function connectStudySync(options = {}) {
       persistAccount();
       setStatus("linked", storageFailed ? "계정 저장 확인됨 · 기기 저장 공간 부족, 백업 필요" : "계정 저장 확인됨 · 변경 내용 자동 저장");
     } else if (record.payload !== null) {
-      acceptedCloud(record);
+      automaticCloud(record);
     } else {
-      setStatus("choice", "이 계정에 기록이 없어요. 기기 기록을 연결해 주세요.");
-      account.linked = false;
-      persistAccount();
+      automaticSeed();
     }
   }
 
@@ -327,7 +377,7 @@ export function connectStudySync(options = {}) {
       inflight = null;
       persistAccount();
       if (error?.code === "sync/conflict") {
-        setStatus("conflict", "다른 기기의 새 기록을 발견했어요. 자동 저장을 멈추고 두 기록을 보관했습니다.");
+        setStatus("loading", "다른 기기의 최근 계정 기록에 자동 연결 중…");
         void refreshRemote(false);
       } else setStatus(error?.code?.includes("permission") || error?.code?.includes("invalid-record") ? "error" : "linked", errorText(error));
     }
@@ -382,6 +432,35 @@ export function connectStudySync(options = {}) {
     void upload();
   }
 
+  async function restoreRecovery() {
+    const saved = recoveryRecord();
+    if (!account || !saved || inflight) return;
+    if (!window.confirm("보관된 기기 기록으로 현재 계정 기록을 바꿀까요? 현재 기록도 별도 백업으로 보관합니다.")) return;
+    const ticket = epoch, uid = account.uid, localBefore = semantic(account.payload);
+    try {
+      const snapshot = await sdk.storeSdk.getDocFromServer(sdk.storeSdk.doc(sdk.db, "users", uid, "study", appId));
+      if (!current(ticket, uid)) return;
+      if (semantic(account.payload) !== localBefore || inflight) { setStatus("linked", "복구 중 기록이 바뀌었어요. 최신 기록을 확인한 뒤 다시 복구해 주세요."); return; }
+      const latest = parseSnapshot(snapshot);
+      if (!ensureRecoveryBackups() || !uploadAllowed() || !fitsCloudPayload(saved.payload) || !backup(account.payload, "before-recovery") || latest.payload !== null && !backup(latest.payload, "account-before-recovery")) {
+        setStatus("error", "현재 기록을 안전하게 보관하지 못해 복구를 멈췄어요. 기록을 백업하고 저장 공간을 확인해 주세요.");
+        return;
+      }
+      clearTimeout(timer);
+      const previous = { ...account };
+      account.payload = saved.payload;
+      account.baseRevision = latest.revision;
+      account.basePayload = latest.payload;
+      account.linked = true;
+      account.pending = semantic(saved.payload) !== semantic(latest.payload);
+      remote = latest;
+      persistAccount();
+      if (!apply(saved.payload)) { account = previous; persistAccount(); return; }
+      setStatus("linked", account.pending ? "보관된 기록 복구됨 · 계정에 자동 저장 중…" : "계정 기록과 같은 보관 기록을 복구했어요 · 변경 내용 자동 저장");
+      void upload();
+    } catch (error) { if (current(ticket, uid)) setStatus("error", errorText(error)); }
+  }
+
   function saveLocal(raw) {
     try {
       if (disposed || !appId || !valid(raw)) return false;
@@ -426,7 +505,7 @@ export function connectStudySync(options = {}) {
     accountCacheBlocked = false;
     if (previousUser && appId) restoreGuest();
     if (!nextUser) { setStatus("guest", "이 기기에 기록 저장 · Google 로그인으로 기기 간 기록 연결"); return; }
-    if (!appId) { setStatus("linked", "로그인됨 · 단어장과 퀴즈에서 계정 기록을 연결할 수 있어요."); return; }
+    if (!appId) { setStatus("linked", "로그인됨 · 단어장과 문제집에서 기록이 자동으로 연결돼요."); return; }
     account = loadAccount(nextUser.uid) || { uid: nextUser.uid, payload: guestRaw || getRaw(), basePayload: null, baseRevision: null, linked: false, pending: false };
     if (!valid(account.payload)) {
       try { account.payload = options.createEmptyPayload?.(); } catch { /* Handled below. */ }
@@ -448,7 +527,7 @@ export function connectStudySync(options = {}) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function button(label, handler, primary = false, disabled = false) {
+  function button(label, handler, primary = false, disabled = false, target = actions) {
     const node = document.createElement("button");
     node.type = "button";
     node.textContent = label;
@@ -458,7 +537,7 @@ export function connectStudySync(options = {}) {
       try { Promise.resolve(handler()).catch((error) => setStatus("error", errorText(error))); }
       catch (error) { setStatus("error", errorText(error)); }
     });
-    actions.append(node);
+    target.append(node);
   }
 
   function summary(raw) {
@@ -473,6 +552,7 @@ export function connectStudySync(options = {}) {
     identity.textContent = user ? `${user.displayName || "Google 계정"}${user.email ? ` · ${user.email}` : ""}` : "학습 기록 연결";
     status.textContent = message;
     actions.replaceChildren();
+    toolsActions.replaceChildren();
     detail.textContent = "";
     if (!user) {
       button("Google 로그인", async () => {
@@ -494,22 +574,18 @@ export function connectStudySync(options = {}) {
       }, false, authBusy);
     }
     if (appId && user && account) {
-      if (["choice", "conflict"].includes(phase)) {
-        detail.textContent = `이 기기: ${summary(account.payload)}\n계정: ${summary(remote?.payload)}`;
-        if (remote?.payload) button(phase === "choice" ? "계정 기록으로 계속하기" : "계정 기록 불러오기", chooseCloud, true, Boolean(inflight));
-        if (remote) button(remote.revision === 0 ? "이 기기의 기록을 계정에 연결" : "이 기기의 기록으로 계정 기록 바꾸기", chooseLocal, remote.revision === 0, Boolean(inflight));
-      } else if (["linked", "saving"].includes(phase)) {
-        button("지금 계정에 저장", () => { clearTimeout(timer); void upload(); }, false, Boolean(inflight) || !account.pending);
-        if (remote?.payload && !inflight) button("계정 기록 불러오기", chooseCloud);
-      }
-      if (phase === "error" || phase === "loading" || !navigator.onLine) button("다시 연결", () => refreshRemote());
+      if (phase === "error" || !navigator.onLine) button("다시 연결", () => refreshRemote());
     }
     if (appId) {
-      button("기록 백업", () => download(account?.payload || getRaw() || guestRaw));
-      if (user && valid(guestRaw) && meaningful(guestRaw)) button("로그인 전 기기 기록 백업", () => download(guestRaw, "guest"));
-      if (user && guestBackupRaw !== null && (!guestBackupReady || !valid(guestBackupRaw))) button("로그인 전 원본 백업", () => download(guestBackupRaw, "guest-original"));
-      if (user && accountCacheIssue) button("이 계정의 기기 원본 백업", () => download(accountCacheIssue.raw, "account-original"));
-      if (phase === "conflict" && remote?.payload) button("계정 기록 백업", () => download(remote.payload, "account"));
+      button("기록 백업", () => download(account?.payload || getRaw() || guestRaw), false, false, toolsActions);
+      if (user && valid(guestRaw) && meaningful(guestRaw)) button("로그인 전 기기 기록 백업", () => download(guestRaw, "guest"), false, false, toolsActions);
+      if (user && guestBackupRaw !== null && (!guestBackupReady || !valid(guestBackupRaw))) button("로그인 전 원본 백업", () => download(guestBackupRaw, "guest-original"), false, false, toolsActions);
+      if (user && accountCacheIssue) button("이 계정의 기기 원본 백업", () => download(accountCacheIssue.raw, "account-original"), false, false, toolsActions);
+      const saved = recoveryRecord();
+      if (saved) {
+        button("보관된 기기 기록 백업", () => download(saved.payload, "preserved-device"), false, false, toolsActions);
+        button("보관된 기기 기록으로 복구", restoreRecovery, false, Boolean(inflight), toolsActions);
+      }
     }
   }
 
@@ -525,12 +601,18 @@ export function connectStudySync(options = {}) {
     top.append(identity, status);
     actions = document.createElement("div"); actions.className = "study-sync__actions";
     detail = document.createElement("p"); detail.className = "study-sync__detail";
+    const tools = document.createElement("details"); tools.className = "study-sync__tools";
+    const toolsHeading = document.createElement("summary"); toolsHeading.textContent = "기록 관리";
+    toolsActions = document.createElement("div"); toolsActions.className = "study-sync__actions";
+    const toolsNote = document.createElement("p"); toolsNote.textContent = "평소에는 로그인만 하면 자동 연결됩니다. 백업과 복구는 필요한 경우에만 사용하세요.";
+    tools.append(toolsHeading, toolsActions, toolsNote);
+    tools.hidden = !appId;
     const privacy = document.createElement("details"); privacy.className = "study-sync__privacy";
     const heading = document.createElement("summary"); heading.textContent = "기록 저장 안내";
     const explanation = document.createElement("p");
-    explanation.textContent = "로그인 전 기록은 이 브라우저에 보관됩니다. 로그인한 계정에 연결한 기록만 기기 간에 저장되며, 서로 다른 기록은 선택 후 연결합니다. 공용 기기에서는 사용 후 로그아웃하세요. 무료 저장 한도나 연결 문제로 계정 저장이 멈춰도 기기 기록을 백업할 수 있습니다.";
+    explanation.textContent = "같은 Google 계정으로 로그인하면 계정 기록을 자동으로 불러오고 변경 내용도 자동 저장합니다. 계정에 기록이 없으면 이 기기 기록을 자동 연결합니다. 서로 다른 기록은 최근 계정 저장본을 사용하고, 바뀌기 전 기기 기록은 기록 관리에서 백업하거나 복구할 수 있습니다. 오프라인 기록은 다른 기기에 즉시 반영되지 않으므로 이동 전 계정 저장 확인을 살펴보세요. 공용 기기에서는 사용 후 로그아웃하세요.";
     privacy.append(heading, explanation);
-    bar.append(top, actions, detail, privacy);
+    bar.append(top, actions, detail, tools, privacy);
     (options.mount || document.body).prepend(bar);
     render();
   }
