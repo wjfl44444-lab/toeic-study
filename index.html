@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f5ef">
+  <meta name="description" content="토익 단어 암기와 랜덤 문법 문제를 한곳에서 공부하는 개인 학습 공간입니다.">
+  <title>나의 토익 스터디</title>
+  <style>
+    :root { color-scheme: light; --ink: #20352f; --muted: #64716a; --paper: #f7f5ef; --green: #245c4b; --line: #e1e4dc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif; line-height: 1.65; word-break: keep-all; }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible, summary:focus-visible { outline: 3px solid #b27625; outline-offset: 6px; }
+    .shell { max-width: 1060px; margin: auto; padding: 0 32px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 30px 0; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 750; letter-spacing: -.025em; }
+    .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--green); color: white; font: 750 16px Georgia, serif; }
+    .small-label { font-size: 12px; color: var(--muted); }
+    main { padding: 58px 0 36px; }
+    .eyebrow { margin: 0 0 14px; color: var(--green); font-size: 11px; font-weight: 750; letter-spacing: .14em; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 47px); line-height: 1.3; letter-spacing: -.05em; }
+    .intro { margin: 18px 0 36px; color: var(--muted); font-size: 15px; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .card { display: flex; flex-direction: column; min-height: 300px; padding: 29px; border: 1px solid var(--line); border-radius: 24px; background: #fffefa; transition: transform .18s ease, box-shadow .18s ease; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px #20352f0b; }
+    .card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; }
+    .icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: #e9efe5; color: var(--green); }
+    .icon svg { width: 25px; height: 25px; }
+    .quiz .icon { background: #edf0f5; color: #344c72; }
+    .category { color: var(--muted); font-size: 11px; letter-spacing: .08em; }
+    h2 { margin: 0 0 10px; font-size: 25px; letter-spacing: -.035em; }
+    .description { margin: 0; color: var(--muted); font-size: 14px; }
+    .features { display: flex; flex-wrap: wrap; gap: 7px; margin: 18px 0 28px; }
+    .features span { padding: 3px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 11px; }
+    .start { display: flex; align-items: center; justify-content: space-between; min-height: 48px; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); color: var(--green); font-size: 14px; font-weight: 750; }
+    .start span:last-child { font-size: 22px; line-height: 1; }
+    .note { margin-top: 27px; padding: 20px 23px; border: 1px solid var(--line); border-radius: 16px; color: var(--muted); font-size: 12px; }
+    .note p { margin: 0; }
+    .note strong { color: var(--ink); font-weight: 650; }
+    details { margin-top: 11px; }
+    summary { width: fit-content; padding: 3px 0; cursor: pointer; color: var(--green); }
+    details p { margin-top: 8px !important; }
+    footer { padding: 20px 0 30px; color: var(--muted); font-size: 11px; }
+    @media (max-width: 650px) {
+      .shell { padding: 0 20px; }
+      header { padding: 23px 0; }
+      main { padding: 37px 0 22px; }
+      .intro { margin: 15px 0 25px; font-size: 14px; }
+      .cards { grid-template-columns: 1fr; gap: 15px; }
+      .card { min-height: 0; padding: 24px; border-radius: 20px; }
+      .card-top { margin-bottom: 19px; }
+      .features { margin: 16px 0 20px; }
+      .note { padding: 17px 19px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand"><span class="mark" aria-hidden="true">T</span>나의 토익 스터디</div>
+      <span class="small-label">단어부터 문법까지</span>
+    </header>
+    <main>
+      <p class="eyebrow">MY STUDY SPACE</p>
+      <h1>오늘은 무엇을<br>공부할까요?</h1>
+      <p class="intro">나의 속도로 차근차근.<br>단어를 익히거나, 순서를 섞은 문제로 실력을 확인해 보세요.</p>
+      <div class="cards">
+        <a class="card vocabulary" href="./vocabulary/" aria-label="토익 단어장 열기">
+          <div class="card-top">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h7a3 3 0 0 1 3 3V21a4 4 0 0 0-4-2H4z"/><path d="M14 7.5a3 3 0 0 1 3-3h3V19h-3a4 4 0 0 0-3 2"/><path d="M7 9h3M7 13h3"/></svg></span>
+            <span class="category">01 · VOCABULARY</span>
+          </div>
+          <h2>토익 단어장</h2>
+          <p class="description">영단어와 한글 뜻을 익히고,<br>암기 카드와 퀴즈로 반복해서 복습해요.</p>
+          <div class="features"><span>암기 카드</span><span>단어 퀴즈</span><span>오답노트</span></div>
+          <div class="start"><span>단어 공부 시작하기</span><span aria-hidden="true">→</span></div>
+        </a>
+        <a class="card quiz" href="./quiz/" aria-label="토익 랜덤 문제집 열기">
+          <div class="card-top">
+            <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m7 9 1.5 1.5L11 8M14 9h3m-10 6 1.5 1.5L11 14M14 15h3"/></svg></span>
+            <span class="category">02 · PRACTICE</span>
+          </div>
+          <h2>토익 랜덤 문제집</h2>
+          <p class="description">167문항을 유형 구분 없이 섞어서 풀고,<br>정답과 한글 해설을 확인해요.</p>
+          <div class="features"><span>랜덤 출제</span><span>한글 해설</span><span>오답 복습</span></div>
+          <div class="start"><span>문제 풀기 시작하기</span><span aria-hidden="true">→</span></div>
+        </a>
+      </div>
+      <section class="note" aria-label="학습 기록 안내">
+        <p><strong>학습 기록은 지금 사용하는 기기와 브라우저에 저장돼요.</strong> 아이폰·아이패드·컴퓨터 사이에 자동으로 동기화되지는 않아요.</p>
+        <details>
+          <summary>기존 단어장 기록을 옮기려면?</summary>
+          <p>기존 단어장의 단어장 화면에서 JSON 전체 백업을 내려받은 뒤, 새 주소의 단어장에서 파일 가져오기로 복원해 주세요. 전체 복원은 현재 단어와 학습 기록을 백업 내용으로 바꾸므로, 먼저 필요한 기록을 백업해 두세요. 다른 기기로 옮길 때도 같은 방법을 사용할 수 있어요.</p>
+        </details>
+      </section>
+    </main>
+    <footer>꾸준히, 나의 속도로.</footer>
+  </div>
+</body>
+</html>
