@@ -1,3 +1,9 @@
+.study-page-nav { box-sizing: border-box; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: min(1120px, calc(100% - 32px)); margin: 16px auto; padding: 8px; border: 1px solid #dbe4ed; border-radius: 14px; background: #fff; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.study-page-nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 9px 16px; border-radius: 9px; color: #33455a; font-weight: 650; text-decoration: none; white-space: nowrap; }
+.study-page-nav a:hover { background: #f0f4f9; }
+.study-page-nav a[aria-current="page"] { background: #e8efff; color: #245da7; }
+.study-page-nav a:focus-visible { outline: 3px solid #74a8e4; outline-offset: 2px; }
+@media (max-width: 600px) { .study-page-nav { width: calc(100% - 24px); gap: 4px; padding: 6px; } .study-page-nav a { flex: 1; padding: 9px 8px; font-size: 13px; } }
 .study-sync { box-sizing: border-box; width: min(1120px, calc(100% - 32px)); margin: 16px auto; padding: 14px 18px; border: 1px solid #dbe4ed; border-radius: 16px; color: #23344a; background: #fff; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; box-shadow: 0 3px 14px #22354d08; }
 .study-sync *, .study-sync *::before, .study-sync *::after { box-sizing: border-box; }
 .study-sync__top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
