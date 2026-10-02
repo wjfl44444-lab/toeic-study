@@ -500,7 +500,12 @@
       function applyStudyPayload(raw, options = {}) {
         const saved = parseStudyPayload(raw);
         if (!saved) return false;
-        if (options.reason === 'background') {
+        // A page entry restores records, not the active screen. If the user
+        // already chose to continue this round while the server was loading,
+        // a second initial snapshot must not interrupt their card or answer.
+        const alreadyOpenedRound = options.reason === 'initial' && !options.resetSession && view !== 'start' && state && saved.state &&
+          roundId(state) === roundId(saved.state);
+        if (options.reason === 'background' || alreadyOpenedRound) {
           history = combineHistories(history, saved.history, historyForState(state));
           return true;
         }
@@ -508,7 +513,7 @@
         closeRestart();
         state = saved.state;
         history = saved.history;
-        if (!state) showStart();
+        if (options.reason === 'initial' || !state) showStart();
         else if (state.status === 'complete') showFinish();
         else { showView('quiz'); renderQuestion(); }
         return true;
@@ -768,6 +773,15 @@
         } else if (event.key === 'Enter') { event.preventDefault(); checkOrNext(); }
       });
       initSettings(); state = readSavedState(); showStart();
+      // Browser Back can restore a live page from its back-forward cache.
+      // Keep its progress, but present the same entry choices as a fresh visit.
+      window.addEventListener('pageshow', event => {
+        if (!event.persisted) return;
+        pendingStart = null;
+        closeRestart();
+        showStart();
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      });
       const modelContext = document.modelContext;
       if (modelContext && typeof modelContext.registerTool === 'function') {
         const lifecycle = new AbortController();
@@ -859,7 +873,7 @@
           : event.newValue;
         if (applyStudyPayload(raw)) { storageAvailable = true; updateStorageNote(); }
       });
-      import('../shared/study-sync.js?v=20261002-sync3').then(({ connectStudySync }) => {
+      import('../shared/study-sync.js?v=20261002-start1').then(({ connectStudySync }) => {
         studySync = connectStudySync({
           appId: 'quiz', legacyKey: STORAGE_KEY,
           getPayload: studyPayload,
