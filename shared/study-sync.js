@@ -226,10 +226,10 @@ export function connectStudySync(options = {}) {
     return guestBackupReady && !accountCacheBlocked;
   }
 
-  function apply(raw, reason = "initial") {
+  function apply(raw, reason = "initial", resetSession = false) {
     if (!appId || !valid(raw)) return false;
     applying = true;
-    try { options.applyPayload?.(raw, { reason }); return true; }
+    try { options.applyPayload?.(raw, { reason, resetSession }); return true; }
     catch { setStatus("error", "기록을 불러오지 못했어요. 현재 기록을 백업한 뒤 다시 시도해 주세요."); return false; }
     finally { applying = false; }
   }
@@ -240,7 +240,7 @@ export function connectStudySync(options = {}) {
     if (!valid(raw)) {
       try { raw = options.createEmptyPayload?.() || initialGuestRaw; } catch { raw = initialGuestRaw; }
     }
-    if (valid(raw)) { guestRaw = raw; apply(raw); }
+    if (valid(raw)) { guestRaw = raw; apply(raw, "initial", true); }
   }
 
   function current(ticket, uid) { return !disposed && epoch === ticket && user?.uid === uid && account?.uid === uid; }
@@ -265,7 +265,7 @@ export function connectStudySync(options = {}) {
     account.linked = true;
     account.pending = false;
     persistAccount();
-    if (!apply(record.payload)) { account = previous; persistAccount(); return false; }
+    if (!apply(record.payload, "initial", !previous.linked)) { account = previous; persistAccount(); return false; }
     setStatus("linked", storageFailed ? "계정 기록을 불러왔어요 · 기기 저장 공간 부족, 백업 필요" : "계정 기록 불러옴 · 변경 내용 자동 저장");
     return true;
   }
@@ -684,7 +684,7 @@ export function connectStudySync(options = {}) {
     }
     if (!valid(account.payload)) { setStatus("error", "기기 기록의 형식을 확인하지 못했어요. 기록을 백업하고 복구한 뒤 다시 연결해 주세요."); return; }
     persistAccount();
-    if (cached) apply(account.payload);
+    if (cached) apply(account.payload, "initial", true);
     setStatus("loading", account.pending ? "이 계정의 기기 임시 기록을 복원했어요 · 계정 기록 확인 중…" : "로그인됨 · 계정 기록 확인 중…");
     subscribe();
   }
