@@ -42,7 +42,7 @@ function errorText(error) {
  * replacing an open screen. Neither apply path may invoke the app's save path.
  */
 export function connectStudySync(options = {}) {
-  const appId = ["vocabulary", "quiz"].includes(options.appId) ? options.appId : null;
+  const appId = ["vocabulary", "quiz", "power-voca"].includes(options.appId) ? options.appId : null;
   const prefix = appId ? `toeic-sync:v1:${appId}:` : null;
   let sdk = null;
   let user = null;
@@ -58,6 +58,7 @@ export function connectStudySync(options = {}) {
   let initializing = false;
   let authBusy = false;
   let authInitialized = false;
+  let accountBoundaryPending = false;
   let serverInitialized = false;
   let phase = "starting";
   let message = "계정 연결 확인 중 · 기기 저장 사용 가능";
@@ -229,7 +230,15 @@ export function connectStudySync(options = {}) {
   function apply(raw, reason = "initial", resetSession = false) {
     if (!appId || !valid(raw)) return false;
     applying = true;
-    try { options.applyPayload?.(raw, { reason, resetSession }); return true; }
+    try {
+      const metadata = { reason, resetSession };
+      // Keep existing adapters byte-for-byte compatible in behavior. A delayed
+      // first auth restore is not an explicit account switch in the new module.
+      if (appId === "power-voca") metadata.accountSwitch = accountBoundaryPending;
+      options.applyPayload?.(raw, metadata);
+      accountBoundaryPending = false;
+      return true;
+    }
     catch { setStatus("error", "기록을 불러오지 못했어요. 현재 기록을 백업한 뒤 다시 시도해 주세요."); return false; }
     finally { applying = false; }
   }
@@ -661,8 +670,10 @@ export function connectStudySync(options = {}) {
   function authChanged(nextUser) {
     if (disposed) return;
     if (authInitialized && user?.uid === nextUser?.uid) return;
+    const hadAuthState = authInitialized;
     authInitialized = true;
     const previousUser = user;
+    accountBoundaryPending = hadAuthState && previousUser?.uid !== nextUser?.uid;
     ++epoch;
     stopDocument();
     if (!previousUser && nextUser && appId) guestBackupReady = preserveGuest();
