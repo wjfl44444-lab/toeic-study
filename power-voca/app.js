@@ -21,6 +21,29 @@
   var accountEpoch = 0;
   var letters = ["A", "B", "C", "D"];
   var views = ["loading", "error", "start", "quiz", "results"];
+  // Textbook contents, grouped without changing question data or saved signatures.
+  // Keep the existing settings.step field so older records and backups still load.
+  var textbookScopes = [
+    { id: "verb-noun", label: "동사 + 명사", steps: [1, 2, 3] },
+    { id: "adj-noun", label: "형용사 + 명사", steps: [4] },
+    { id: "adv-verb", label: "부사 + 동사", steps: [5, 6] },
+    { id: "adv-adj", label: "부사 + 형용사", steps: [7] },
+    { id: "verb-prep", label: "동사 + 전치사", steps: [8, 9] },
+    { id: "prep-noun", label: "전치사 + 명사", steps: [10, 11] },
+    { id: "noun-prep", label: "명사 + 전치사", steps: [12] },
+    { id: "adj-prep", label: "형용사 + 전치사", steps: [13, 14] },
+    { id: "multi-pos", label: "다품사 어휘", steps: [15, 16, 17] },
+    { id: "polysemy", label: "다의어", steps: [18, 19] },
+    { id: "compound-nouns", label: "복합 명사", steps: [20] },
+    { id: "verb-patterns", label: "혼동 문법 · to부정사·동명사", steps: [21] },
+    { id: "lc-vocabulary", label: "LC 빈출 어휘 · PART 1~4", steps: [22, 23, 24] },
+    { id: "rc-vocabulary", label: "RC 빈출 어휘 · PART 7", steps: [25, 26, 27] },
+    { id: "paraphrasing", label: "어휘 재표현 · 패러프레이징", steps: [28, 29, 30] }
+  ];
+  var scopeByStep = Object.create(null);
+  textbookScopes.forEach(function (scope) {
+    scope.steps.forEach(function (step) { scopeByStep[String(step)] = scope.id; });
+  });
 
   function el(id) { return document.getElementById(id); }
   function text(id, value) { el(id).textContent = value; }
@@ -159,7 +182,7 @@
       var settings = saved.settings;
       if (settings && typeof settings === "object") {
         if (["20", "50", "100", "all"].indexOf(settings.roundSize) !== -1) { el("round-size").value = settings.roundSize; }
-        if (Array.from(el("step-filter").options).some(function (option) { return option.value === settings.step; })) { el("step-filter").value = settings.step; }
+        el("step-filter").value = normalizedScope(settings.step);
         if (typeof settings.shuffleQuestions === "boolean") { el("shuffle-questions").checked = settings.shuffleQuestions; }
         if (typeof settings.shuffleOptions === "boolean") { el("shuffle-options").checked = settings.shuffleOptions; }
       }
@@ -171,7 +194,7 @@
   }
   function applySettings(settings) {
     if (["20", "50", "100", "all"].indexOf(settings.roundSize) !== -1) { el("round-size").value = settings.roundSize; }
-    if (Array.from(el("step-filter").options).some(function (option) { return option.value === settings.step; })) { el("step-filter").value = settings.step; }
+    el("step-filter").value = normalizedScope(settings.step);
     el("shuffle-questions").checked = settings.shuffleQuestions;
     el("shuffle-options").checked = settings.shuffleOptions;
   }
@@ -311,10 +334,18 @@
     var graded = items.reduce(function (sum, item) { return sum + item.stagesGraded; }, 0);
     text("history-summary", attempts ? "학습한 문제 " + new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
   }
-  function stepOf(q) { return q.source && q.source.step != null ? String(q.source.step) : ""; }
+  function scopeForStep(value) {
+    var match = /^(?:step\s*)?(\d+)$/i.exec(String(value == null ? "" : value).trim());
+    return match && scopeByStep[String(Number(match[1]))] || "other-vocabulary";
+  }
+  function scopeOf(q) { return scopeForStep(q.source && q.source.step); }
+  function normalizedScope(value) {
+    var scope = /^(?:step\s*)?\d+$/i.test(String(value).trim()) ? scopeForStep(value) : value;
+    return Array.from(el("step-filter").options).some(function (option) { return option.value === scope; }) ? scope : "all";
+  }
   function filteredQuestions() {
-    var step = el("step-filter").value;
-    return data.questions.filter(function (q) { return step === "all" || stepOf(q) === step; });
+    var scope = el("step-filter").value;
+    return data.questions.filter(function (q) { return scope === "all" || scopeOf(q) === scope; });
   }
   function updateSettings() {
     var pool = filteredQuestions(), size = el("round-size").value;
@@ -566,15 +597,21 @@
   var error = validateData(data);
   if (error) { text("error-message", error); showView("error"); return; }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
-  var steps = Array.from(new Set(data.questions.map(stepOf).filter(Boolean))).sort(function (a, b) { return a.localeCompare(b, "ko", { numeric: true }); });
-  steps.forEach(function (step) {
-    var option = node("option", "", /^step\b/i.test(step) ? step : "STEP " + step); option.value = step; el("step-filter").append(option);
+  var scopeCounts = Object.create(null);
+  data.questions.forEach(function (q) {
+    var scope = scopeOf(q); scopeCounts[scope] = (scopeCounts[scope] || 0) + 1;
   });
-  el("step-filter-label").hidden = steps.length < 2;
+  var availableScopes = textbookScopes.filter(function (scope) { return scopeCounts[scope.id]; });
+  if (scopeCounts["other-vocabulary"]) { availableScopes.push({ id: "other-vocabulary", label: "기타 어휘" }); }
+  availableScopes.forEach(function (scope) {
+    var option = node("option", "", scope.label + " (" + scopeCounts[scope.id].toLocaleString("ko-KR") + "문제)");
+    option.value = scope.id; el("step-filter").append(option);
+  });
+  el("step-filter-label").hidden = availableScopes.length < 2;
   restoreState();
   document.querySelectorAll("[data-total]").forEach(function (item) { item.textContent = data.questions.length; });
   if (data.coverage && el("coverage-summary")) {
-    text("coverage-summary", "교재 STEP 1–30 · 표제어 " + data.coverage.headwords.toLocaleString("ko-KR") + "개 · 추가 표현 " + data.coverage.extras.toLocaleString("ko-KR") + "개를 반영했어요. 다의어와 유사 표현을 나눠 전체 " + data.questions.length.toLocaleString("ko-KR") + "문제 카드로 연습해요. 문장 문제와 표현 자체를 완성하는 문제가 함께 있어요.");
+    text("coverage-summary", "교재 목차 " + availableScopes.length + "개 분류 · 표제어 " + data.coverage.headwords.toLocaleString("ko-KR") + "개 · 추가 표현 " + data.coverage.extras.toLocaleString("ko-KR") + "개를 반영했어요. 다의어와 유사 표현을 나눠 전체 " + data.questions.length.toLocaleString("ko-KR") + "문제 카드로 연습해요. 문장 문제와 표현 자체를 완성하는 문제가 함께 있어요.");
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
