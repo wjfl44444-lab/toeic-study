@@ -7,8 +7,9 @@
   <title>파워토익 VOCA · 쓰임 학습</title>
   <link rel="stylesheet" href="styles.css">
   <script src="questions.js" defer></script>
-  <script src="sync-model.js" defer></script>
-  <script src="app.js?v=20261019-categories1" defer></script>
+  <script src="practice-options.js?v=20261019-linked1" defer></script>
+  <script src="sync-model.js?v=20261019-linked1" defer></script>
+  <script src="app.js?v=20261019-linked1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -49,7 +50,7 @@
           <p class="intro-copy">문장 속 뜻부터 어울리는 표현까지<br class="desktop-break"> 한 문제씩 확인해 보세요.</p>
           <div class="sample-notice"><strong>뜻과 쓰임을 함께 확인하는 문제 카드예요.</strong><span>교재의 인쇄 내용을 바탕으로 만든 응용 문제입니다. 손글씨 필기는 포함하지 않았어요.</span></div>
           <p class="settings-note" id="coverage-summary"></p>
-          <div class="two-step-note"><span class="two-step-number">1 → 2</span><p><strong>일부 문제는 두 단계로 풀어요.</strong><br>표현 고르기 → 뜻 고르기, 뜻 고르기 → 유의어 고르기처럼 연결해요. 마지막 단계까지 답한 후에만 정답과 해설이 공개돼요.</p></div>
+          <div class="two-step-note"><span class="two-step-number">1 → 2</span><p><strong>첫 답을 맞히면 다음 단계로 넘어가요.</strong><br>표현 고르기 → 뜻 고르기, 뜻 고르기 → 유의어 고르기처럼 연결해요. 첫 답이 틀리면 바로 오답 처리하고 해설을 보여줘요.</p></div>
           <div class="round-settings"><label for="round-size">이번에 풀 문제 수<select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label><label for="step-filter" id="step-filter-label" hidden>학습 범위<select id="step-filter"><option value="all">교재 전체</option></select></label><p id="pool-summary" class="settings-note"></p></div>
           <div class="start-settings">
             <fieldset>
@@ -57,7 +58,7 @@
               <label class="check-label"><input type="checkbox" id="shuffle-questions" checked><span>문제 순서 섞기</span></label>
               <label class="check-label"><input type="checkbox" id="shuffle-options" checked><span>선택지도 함께 섞기</span></label>
             </fieldset>
-            <p class="settings-note">문제 유형과 교재 위치는 채점한 뒤에만 보여요.<br>앞 단계는 <strong>다음 단계</strong>, 마지막은 <strong>채점하기</strong>로 진행해요.</p>
+            <p class="settings-note">문제 유형과 교재 위치는 채점한 뒤에만 보여요.<br>첫 단계는 <strong>답 확인</strong>, 마지막은 <strong>채점하기</strong>로 진행해요.</p>
           </div>
           <button class="primary-button start-button" id="start-button">섞어서 시작하기 <span aria-hidden="true">↗</span></button>
           <p class="privacy-note">사이트에서 같은 Google 계정으로 로그인하면 교재 학습 기록도 자동으로 이어져요.<br class="desktop-break"> 로그인하지 않거나 파일로 직접 열면 이 기기·브라우저에만 저장돼요. 기존 단어장·문제집 기록은 따로 안전하게 유지해요.</p>

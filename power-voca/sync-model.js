@@ -28,10 +28,11 @@
   }
   function session(value, compact) {
     if (value === null) { return null; }
-    if (!object(value) || !["all", "wrong"].includes(value.mode) || !date(value.startedAt) || !Array.isArray(value.cards) ||
+    if (!object(value) || !["all", "wrong"].includes(value.mode) || !date(value.startedAt) ||
+        value.practiceVersion !== undefined && !signature(value.practiceVersion) || !Array.isArray(value.cards) ||
         !value.cards.length || value.cards.length > MAX_RECORDS || !Number.isInteger(value.index) || value.index < 0 || value.index >= value.cards.length) { throw new Error("Invalid session"); }
     var seen = new Set();
-    return { mode: value.mode, index: value.index, startedAt: value.startedAt, cards: value.cards.map(function (stored) {
+    var result = { mode: value.mode, index: value.index, startedAt: value.startedAt, cards: value.cards.map(function (stored) {
       var card = compact && Array.isArray(stored) && stored.length === 5 ? {
         id: stored[0], signature: stored[1], stageIndex: stored[2], graded: (stored[3] & 1) !== 0, deferred: (stored[3] & 2) !== 0,
         stages: Array.isArray(stored[4]) ? stored[4].map(function (s) { return Array.isArray(s) && s.length === 2 ? { selected: s[0], order: typeof s[1] === "string" ? s[1].split("").map(Number) : null } : null; }) : null
@@ -41,14 +42,24 @@
           !Array.isArray(card.stages) || card.stages.length < 1 || card.stages.length > 2 || card.stageIndex < 0 || card.stageIndex >= card.stages.length ||
           typeof card.graded !== "boolean" || card.deferred !== undefined && typeof card.deferred !== "boolean") { throw new Error("Invalid card"); }
       seen.add(card.id);
+      // New gated rounds end after a wrong first choice. Only that precise
+      // checkpoint shape may have an unanswered stage on a graded card.
+      // The app additionally checks the actual first-stage answer on restore.
+      var endedAfterFirst = ["20261019-linked1", "20261019-gated-legacy1"].includes(value.practiceVersion) && card.graded && card.stageIndex === 0 &&
+        card.stages.length === 2 && card.stages[0] && Number.isInteger(card.stages[0].selected) &&
+        card.stages[1] && card.stages[1].selected === null;
       return { id: card.id, signature: card.signature, stageIndex: card.stageIndex, graded: card.graded, deferred: card.deferred === true,
-        stages: card.stages.map(function (s) {
+        stages: card.stages.map(function (s, stageIndex) {
           if (!object(s) || !(s.selected === null || Number.isInteger(s.selected) && s.selected >= 0 && s.selected < 4) ||
-              card.graded && s.selected === null || !Array.isArray(s.order) || s.order.length !== 4 || new Set(s.order).size !== 4 ||
+              card.graded && s.selected === null && !(endedAfterFirst && stageIndex === 1) || !Array.isArray(s.order) || s.order.length !== 4 || new Set(s.order).size !== 4 ||
               !s.order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < 4; })) { throw new Error("Invalid stage"); }
           return { selected: s.selected, order: s.order.slice() };
         }) };
     }) };
+    // An absent version means the original printed question choices. Never
+    // silently reinterpret an existing round using newer practice overlays.
+    if (value.practiceVersion !== undefined) { result.practiceVersion = value.practiceVersion; }
+    return result;
   }
   function fromTuple(tuple) {
     if (!Array.isArray(tuple) || tuple.length !== 8 || !key(tuple[0]) || !(tuple[6] === null || typeof tuple[6] === "boolean") || !(tuple[7] === null || date(tuple[7]))) { throw new Error("Invalid history tuple"); }
@@ -108,6 +119,7 @@
     if (compact) {
       result.session = value.session && { mode: value.session.mode, index: value.session.index, startedAt: value.session.startedAt,
         cards: value.session.cards.map(function (card) { return [card.id, card.signature, card.stageIndex, (card.graded ? 1 : 0) + (card.deferred ? 2 : 0), card.stages.map(function (s) { return [s.selected, s.order.join("")]; })]; }) };
+      if (result.session && value.session.practiceVersion !== undefined) { result.session.practiceVersion = value.session.practiceVersion; }
       result.history = Object.keys(value.history).sort().map(function (id) { return tuple(id, value.history[id]); });
     }
     if (value.archivedHistory && value.archivedHistory.length) {

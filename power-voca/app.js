@@ -2,6 +2,9 @@
   "use strict";
 
   var data = window.POWER_VOCA_SAMPLE;
+  var practice = window.POWER_VOCA_PRACTICE;
+  var practiceVersion = "20261019-linked1";
+  var legacyGatedVersion = "20261019-gated-legacy1";
   var session = null;
   var storageKey = "power-voca-full-v1";
   var history = Object.create(null);
@@ -83,7 +86,7 @@
   }
   function serializedSession() {
     if (!session) { return unavailableSession; }
-    return { mode: session.mode, index: session.index, startedAt: session.startedAt,
+    var saved = { mode: session.mode, index: session.index, startedAt: session.startedAt,
       cards: session.cards.map(function (card) {
         return { id: card.question.id, signature: signatures.get(card.question.id),
           stageIndex: card.stageIndex, graded: card.graded, deferred: card.deferred,
@@ -91,6 +94,8 @@
             return { selected: stage.selected, order: stage.choices.map(function (choice) { return choice.originalIndex; }) };
           }) };
       }) };
+    if (session.practiceVersion) { saved.practiceVersion = session.practiceVersion; }
+    return saved;
   }
   function currentSettings() {
     return { roundSize: el("round-size").value, step: el("step-filter").value,
@@ -129,6 +134,23 @@
   function restoreSession(saved) {
     if (!saved || !Array.isArray(saved.cards) || !saved.cards.length || saved.cards.length > data.questions.length ||
         !Number.isInteger(saved.index) || saved.index < 0 || saved.index >= saved.cards.length) { return null; }
+    if (saved.practiceVersion && saved.practiceVersion !== legacyGatedVersion &&
+        (saved.practiceVersion !== practiceVersion || !hasPracticeOptions())) { return null; }
+    // Only unanswered replacement choices may adopt the new edition. A chosen
+    // meaning, any graded card, or an already advanced old wrong answer pins
+    // the entire saved round to its original choice meanings.
+    var version = saved.practiceVersion;
+    if (!version && hasPracticeOptions() && saved.cards.every(function (stored) {
+      var q = stored && questionMap.get(stored.id);
+      if (!q || stored.graded || !Array.isArray(stored.stages) || stored.stages.length !== q.stages.length ||
+          stored.stageIndex > 0 && stored.stages[0].selected !== q.stages[0].answer) { return false; }
+      return stored.stages.every(function (stage, index) {
+        if (!stage) { return false; }
+        var revised = practiceStage(q, index, practiceVersion);
+        var changed = revised.options.some(function (option, i) { return option !== q.stages[index].options[i]; });
+        return !changed || stage.selected === null;
+      });
+    })) { version = practiceVersion; }
     var ids = new Set(), cards = [];
     for (var i = 0; i < saved.cards.length; i += 1) {
       var stored = saved.cards[i], q = stored && questionMap.get(stored.id);
@@ -136,20 +158,25 @@
           !Array.isArray(stored.stages) || stored.stages.length !== q.stages.length ||
           !Number.isInteger(stored.stageIndex) || stored.stageIndex < 0 || stored.stageIndex >= q.stages.length ||
           typeof stored.graded !== "boolean") { return null; }
+      var earlyEnd = stored.graded && saved.practiceVersion && stored.stageIndex === 0 && q.stages.length === 2 &&
+        stored.stages[0] && stored.stages[0].selected !== null && stored.stages[0].selected !== q.stages[0].answer &&
+        stored.stages[1] && stored.stages[1].selected === null;
       var stages = [];
       for (var j = 0; j < q.stages.length; j += 1) {
-        var stage = stored.stages[j], order = stage && stage.order;
+        var stage = stored.stages[j], order = stage && stage.order, stageData = practiceStage(q, j, version);
         if (!stage || !Array.isArray(order) || order.length !== 4 || new Set(order).size !== 4 ||
             !order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < 4; }) ||
             !(stage.selected === null || Number.isInteger(stage.selected) && stage.selected >= 0 && stage.selected < 4) ||
-            stored.graded && stage.selected === null) { return null; }
-        stages.push({ data: q.stages[j], selected: stage.selected, choices: order.map(function (n) { return { text: q.stages[j].options[n], originalIndex: n }; }) });
+            stored.graded && stage.selected === null && !(earlyEnd && j === 1)) { return null; }
+        stages.push({ data: stageData, selected: stage.selected, choices: order.map(function (n) { return { text: stageData.options[n], originalIndex: n }; }) });
       }
       cards.push({ question: q, stageIndex: stored.stageIndex, graded: stored.graded, deferred: stored.deferred === true, stages: stages });
       ids.add(q.id);
     }
-    return { mode: saved.mode === "wrong" ? "wrong" : "all", index: saved.index,
+    var restored = { mode: saved.mode === "wrong" ? "wrong" : "all", index: saved.index,
       startedAt: typeof saved.startedAt === "string" ? saved.startedAt : new Date().toISOString(), cards: cards };
+    if (version) { restored.practiceVersion = version; }
+    return restored;
   }
   function restoreState() {
     try {
@@ -322,7 +349,7 @@
     }
     item.attempts += 1;
     if (isAllCorrect(card)) { item.correct += 1; }
-    item.stagesGraded += card.stages.length;
+    item.stagesGraded += card.stages.filter(function (stage) { return stage.selected !== null; }).length;
     item.stagesCorrect += card.stages.filter(function (stage) { return stage.selected === stage.data.answer; }).length;
     item.lastCorrect = isAllCorrect(card); item.lastStudiedAt = new Date().toISOString();
     history[id] = item;
@@ -370,6 +397,24 @@
       Array.isArray(stage.optionReasons) && stage.optionReasons.length === 4 &&
       stage.optionReasons.every(function (value) { return typeof value === "string" && value.trim(); });
   }
+  function hasPracticeOptions() {
+    return practice && practice.version === practiceVersion && practice.stages && typeof practice.stages === "object";
+  }
+  function practiceStage(question, index, version) {
+    var original = question.stages[index];
+    var patch = version === practiceVersion && hasPracticeOptions() && practice.stages[question.id] && practice.stages[question.id][index];
+    if (!patch) { return original; }
+    var revised = Object.assign({}, original, patch, { answer: original.answer });
+    return validStage(revised) && new Set(revised.options).size === 4 ? revised : original;
+  }
+  function stagePrompt(card, index) {
+    var prompt = card.stages[index].data.prompt, first = card.stages[0];
+    if (index > 0 && /_{2,}/.test(first.data.prompt) && /_{2,}/.test(prompt)) {
+      var selected = card.graded ? first.data.answer : first.selected;
+      if (selected !== null) { prompt = prompt.replace(/_{2,}/g, function () { return first.data.options[selected]; }); }
+    }
+    return prompt;
+  }
   function validateData(value) {
     if (!value || !Array.isArray(value.questions) || !value.questions.length) {
       return "같은 폴더의 questions.js에 문제 데이터가 준비되어 있는지 확인해 주세요.";
@@ -397,6 +442,7 @@
       if (!card.graded) { result.ungraded += 1; return; }
       if (isAllCorrect(card)) { result.correct += 1; } else { result.wrong += 1; }
       card.stages.forEach(function (stage) {
+        if (stage.selected === null) { return; }
         result.stagesGraded += 1;
         if (stage.selected === stage.data.answer) { result.stagesCorrect += 1; }
       });
@@ -420,9 +466,11 @@
     var mixQuestions = forceShuffle || el("shuffle-questions").checked;
     var mixOptions = forceShuffle || el("shuffle-options").checked;
     var ordered = mixQuestions ? shuffled(questions) : questions.slice();
-    session = { mode: mode, index: 0, startedAt: new Date().toISOString(), cards: ordered.map(function (question) {
+    var version = hasPracticeOptions() ? practiceVersion : legacyGatedVersion;
+    session = { mode: mode, index: 0, startedAt: new Date().toISOString(), practiceVersion: version, cards: ordered.map(function (question) {
       return { question: question, stageIndex: 0, graded: false, deferred: false,
-        stages: question.stages.map(function (stage) {
+        stages: question.stages.map(function (_, index) {
+          var stage = practiceStage(question, index, version);
           var choices = stage.options.map(function (option, index) { return { text: option, originalIndex: index }; });
           return { data: stage, choices: mixOptions ? shuffled(choices) : choices, selected: null };
         }) };
@@ -450,6 +498,9 @@
     }
     input.addEventListener("change", function () {
       if (card.graded) { return; }
+      if (card.stageIndex === 0 && stage.selected !== choice.originalIndex) {
+        card.stages.slice(1).forEach(function (later) { later.selected = null; });
+      }
       stage.selected = choice.originalIndex; card.deferred = false;
       saveState();
       Array.prototype.forEach.call(el("options-list").children, function (item) {
@@ -457,7 +508,7 @@
       });
       el("grade-button").disabled = false;
       text("question-state", "선택 완료 · 아직 미채점");
-      announce(letters[displayIndex] + "번을 선택했어요. " + (card.stageIndex < card.stages.length - 1 ? "다음 단계로 넘어갈 수 있어요. 정답은 아직 공개하지 않아요." : "채점하기를 누르면 모든 단계의 해설이 공개돼요."));
+      announce(letters[displayIndex] + "번을 선택했어요. " + (card.stageIndex < card.stages.length - 1 ? "답 확인을 누르면 맞았을 때만 다음 단계로 넘어가요." : "채점하기를 누르면 해설이 공개돼요."));
     });
     return label;
   }
@@ -469,9 +520,11 @@
   function renderFeedback(card) {
     var correctCount = card.stages.filter(function (stage) { return stage.selected === stage.data.answer; }).length;
     var allCorrect = correctCount === card.stages.length;
+    var attempted = card.stages.filter(function (stage) { return stage.selected !== null; }).length;
     el("feedback-panel").classList.toggle("wrong", !allCorrect);
     text("feedback-title", allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
-    text("correct-answer", card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
+    text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
+      card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
     text("answer-summary-expression", card.question.answerSummary.expression);
     text("answer-summary-meaning", card.question.answerSummary.meaning);
     el("answer-summary").hidden = false;
@@ -480,12 +533,14 @@
       var stageData = stage.data;
       var box = node("section", "stage-feedback");
       var isCorrect = stage.selected === stageData.answer;
-      box.append(node("h3", "stage-feedback-title " + (isCorrect ? "correct" : "wrong"), (stageIndex + 1) + "단계 · " + (isCorrect ? "정답" : "오답")));
-      box.append(node("p", "stage-feedback-prompt", stageData.prompt));
+      var skipped = stage.selected === null;
+      box.append(node("h3", "stage-feedback-title" + (skipped ? "" : isCorrect ? " correct" : " wrong"), (stageIndex + 1) + "단계 · " + (skipped ? "미진행 · 복습용 해설" : isCorrect ? "정답" : "오답")));
+      box.append(node("p", "stage-feedback-prompt", stagePrompt(card, stageIndex)));
       var answerIndex = stage.choices.findIndex(function (choice) { return choice.originalIndex === stageData.answer; });
       var selectedIndex = stage.choices.findIndex(function (choice) { return choice.originalIndex === stage.selected; });
       box.append(node("p", "stage-answer-line", "정답 " + letters[answerIndex] + " · " + stageData.options[stageData.answer]));
-      box.append(node("p", "stage-selected-line", "선택한 답 " + letters[selectedIndex] + " · " + stageData.options[stage.selected]));
+      box.append(node("p", "stage-selected-line", skipped ? "1단계에서 틀려 진행하지 않았어요. 이 단계는 채점 횟수에 포함하지 않아요." :
+        "선택한 답 " + letters[selectedIndex] + " · " + stageData.options[stage.selected]));
       if (stageData.translation) { box.append(feedbackSection("문장 해석", stageData.translation)); }
       box.append(feedbackSection("정답 근거", stageData.explanation));
       var reasons = node("div", "feedback-section"); reasons.append(node("h3", "", "선택지 하나씩 확인하기"));
@@ -525,21 +580,23 @@
     el("progress-fill").style.width = (progress / session.cards.length * 100) + "%";
     text("question-number", "QUESTION " + String(session.index + 1).padStart(2, "0"));
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
-    text("stage-indicator", (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (card.stages.length > 1 && !card.graded ? " · 마지막 단계에서 함께 채점" : ""));
+    text("stage-indicator", (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (card.stages.length > 1 && !card.graded ? " · 첫 답을 맞히면 다음 단계" : ""));
     el("previous-stage-button").hidden = card.stageIndex === 0;
-    text("question-instruction", stage.data.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.");
-    text("question-heading", stage.data.prompt);
+    text("question-instruction", card.stageIndex > 0 && /_{2,}/.test(card.stages[0].data.prompt) ? "완성된 표현의 뜻을 고르세요." :
+      stage.data.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.");
+    text("question-heading", stagePrompt(card, card.stageIndex));
     var list = el("options-list"); list.replaceChildren();
     stage.choices.forEach(function (choice, index) { list.append(createOption(card, stage, choice, index)); });
     el("previous-button").disabled = session.index === 0;
     el("skip-button").hidden = card.graded;
     el("grade-button").hidden = card.graded;
     el("grade-button").disabled = stage.selected == null;
-    text("grade-button", card.stageIndex < card.stages.length - 1 ? "다음 단계 →" : "채점하기");
+    text("grade-button", card.stageIndex < card.stages.length - 1 ? "답 확인 →" : "채점하기");
     el("next-button").hidden = !card.graded;
     var nextLabel = session.index === session.cards.length - 1 ? "풀이 결과 보기" : "다음 문제 →";
     text("next-button", nextLabel); text("feedback-next-button", nextLabel);
-    text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : card.stages.length > 1 ? "모든 단계를 마쳐야 정답이 공개돼요. 채점 전에는 이전 단계의 답을 바꿀 수 있어요." : "선택만으로 정답이 공개되지 않아요.");
+    text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : card.stages.length > 1 ?
+      "첫 답이 틀리면 바로 오답 처리해요. 맞히면 다음 단계로 넘어가고, 마지막 채점 후 해설을 보여줘요." : "선택만으로 정답이 공개되지 않아요.");
     el("feedback-panel").hidden = !card.graded;
     if (card.graded) { renderFeedback(card); } else { clearFeedback(); }
     saveState();
@@ -548,17 +605,27 @@
   function submitStage() {
     var card = currentCard(), stage = currentStage();
     if (card.graded || stage.selected == null) { return; }
+    if (card.stageIndex === 0 && card.stages.length > 1 && stage.selected !== stage.data.answer) {
+      card.stages.slice(1).forEach(function (later) { later.selected = null; });
+      if (!session.practiceVersion) { session.practiceVersion = legacyGatedVersion; }
+      finishCard(card);
+      announce("1단계가 오답이어서 이 문제를 종료했어요. 올바른 표현과 뜻을 확인해 보세요.");
+      return;
+    }
     if (card.stageIndex < card.stages.length - 1) {
       card.stageIndex += 1; renderQuestion(true);
-      announce((card.stageIndex + 1) + "단계예요. 앞 단계의 정답은 아직 공개하지 않아요.");
+      announce("1단계 정답이에요. " + (card.stageIndex + 1) + "단계의 답을 골라 주세요.");
       return;
     }
     var missing = card.stages.findIndex(function (item) { return item.selected == null; });
     if (missing !== -1) { card.stageIndex = missing; renderQuestion(true); announce("아직 선택하지 않은 단계가 있어요."); return; }
+    finishCard(card);
+    announce(isAllCorrect(card) ? "모든 단계가 정답이에요. 각 단계의 해석과 해설이 공개됐어요." : "다시 확인할 답이 있어요. 각 단계의 해석과 해설이 공개됐어요.");
+  }
+  function finishCard(card) {
     card.graded = true; card.deferred = false; recordCard(card); renderQuestion(false);
     el("feedback-title").focus({ preventScroll: true });
     el("feedback-panel").scrollIntoView({ block: "start", behavior: "auto" });
-    announce(isAllCorrect(card) ? "모든 단계가 정답이에요. 각 단계의 해석과 해설이 공개됐어요." : "다시 확인할 답이 있어요. 각 단계의 해석과 해설이 공개됐어요.");
   }
   function next() {
     if (session.index < session.cards.length - 1) { session.index += 1; renderQuestion(true); }
