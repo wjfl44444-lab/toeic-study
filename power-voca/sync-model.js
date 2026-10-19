@@ -45,7 +45,7 @@
       // New gated rounds end after a wrong first choice. Only that precise
       // checkpoint shape may have an unanswered stage on a graded card.
       // The app additionally checks the actual first-stage answer on restore.
-      var endedAfterFirst = ["20261019-linked1", "20261019-gated-legacy1"].includes(value.practiceVersion) && card.graded && card.stageIndex === 0 &&
+      var endedAfterFirst = ["20261019-linked1", "20261019-hard2", "20261019-gated-legacy1"].includes(value.practiceVersion) && card.graded && card.stageIndex === 0 &&
         card.stages.length === 2 && card.stages[0] && Number.isInteger(card.stages[0].selected) &&
         card.stages[1] && card.stages[1].selected === null;
       return { id: card.id, signature: card.signature, stageIndex: card.stageIndex, graded: card.graded, deferred: card.deferred === true,

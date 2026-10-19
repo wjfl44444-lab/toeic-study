@@ -3,7 +3,9 @@
 
   var data = window.POWER_VOCA_SAMPLE;
   var practice = window.POWER_VOCA_PRACTICE;
-  var practiceVersion = "20261019-linked1";
+  var hardPractice = window.POWER_VOCA_HARD_PRACTICE;
+  var practiceVersion = "20261019-hard2";
+  var previousPracticeVersion = "20261019-linked1";
   var legacyGatedVersion = "20261019-gated-legacy1";
   var session = null;
   var storageKey = "power-voca-full-v1";
@@ -134,23 +136,23 @@
   function restoreSession(saved) {
     if (!saved || !Array.isArray(saved.cards) || !saved.cards.length || saved.cards.length > data.questions.length ||
         !Number.isInteger(saved.index) || saved.index < 0 || saved.index >= saved.cards.length) { return null; }
-    if (saved.practiceVersion && saved.practiceVersion !== legacyGatedVersion &&
-        (saved.practiceVersion !== practiceVersion || !hasPracticeOptions())) { return null; }
+    if (saved.practiceVersion && saved.practiceVersion !== legacyGatedVersion && !hasPracticeOptions(saved.practiceVersion)) { return null; }
     // Only unanswered replacement choices may adopt the new edition. A chosen
     // meaning, any graded card, or an already advanced old wrong answer pins
     // the entire saved round to its original choice meanings.
-    var version = saved.practiceVersion;
-    if (!version && hasPracticeOptions() && saved.cards.every(function (stored) {
+    var version = saved.practiceVersion, latest = latestPracticeVersion();
+    if ((!version || version === previousPracticeVersion) && latest !== legacyGatedVersion && version !== latest && saved.cards.every(function (stored) {
       var q = stored && questionMap.get(stored.id);
       if (!q || stored.graded || !Array.isArray(stored.stages) || stored.stages.length !== q.stages.length ||
           stored.stageIndex > 0 && stored.stages[0].selected !== q.stages[0].answer) { return false; }
       return stored.stages.every(function (stage, index) {
         if (!stage) { return false; }
-        var revised = practiceStage(q, index, practiceVersion);
-        var changed = revised.options.some(function (option, i) { return option !== q.stages[index].options[i]; });
+        var original = practiceStage(q, index, version);
+        var revised = practiceStage(q, index, latest);
+        var changed = revised.options.some(function (option, i) { return option !== original.options[i]; });
         return !changed || stage.selected === null;
       });
-    })) { version = practiceVersion; }
+    })) { version = latest; }
     var ids = new Set(), cards = [];
     for (var i = 0; i < saved.cards.length; i += 1) {
       var stored = saved.cards[i], q = stored && questionMap.get(stored.id);
@@ -397,14 +399,22 @@
       Array.isArray(stage.optionReasons) && stage.optionReasons.length === 4 &&
       stage.optionReasons.every(function (value) { return typeof value === "string" && value.trim(); });
   }
-  function hasPracticeOptions() {
-    return practice && practice.version === practiceVersion && practice.stages && typeof practice.stages === "object";
+  function hasPracticeOptions(version) {
+    var previousReady = practice && practice.version === previousPracticeVersion && practice.stages && typeof practice.stages === "object";
+    if (version === previousPracticeVersion) { return previousReady; }
+    return version === practiceVersion && previousReady && hardPractice && hardPractice.version === practiceVersion &&
+      hardPractice.stages && typeof hardPractice.stages === "object";
+  }
+  function latestPracticeVersion() {
+    return hasPracticeOptions(practiceVersion) ? practiceVersion : hasPracticeOptions(previousPracticeVersion) ? previousPracticeVersion : legacyGatedVersion;
   }
   function practiceStage(question, index, version) {
     var original = question.stages[index];
-    var patch = version === practiceVersion && hasPracticeOptions() && practice.stages[question.id] && practice.stages[question.id][index];
-    if (!patch) { return original; }
-    var revised = Object.assign({}, original, patch, { answer: original.answer });
+    if (!hasPracticeOptions(version)) { return original; }
+    var patch = practice.stages[question.id] && practice.stages[question.id][index];
+    var harder = version === practiceVersion && hardPractice.stages[question.id] && hardPractice.stages[question.id][index];
+    if (!patch && !harder) { return original; }
+    var revised = Object.assign({}, original, patch || {}, harder || {}, { answer: original.answer });
     return validStage(revised) && new Set(revised.options).size === 4 ? revised : original;
   }
   function stagePrompt(card, index) {
@@ -455,6 +465,9 @@
       var count = totals();
       el("resume-panel").hidden = false;
       text("resume-summary", session.cards.length + "문제 중 " + (count.correct + count.wrong) + "문제 채점 · 모두 맞힌 문제 " + count.correct + " · 다시 볼 문제 " + count.wrong);
+      if (session.practiceVersion !== latestPracticeVersion()) {
+        el("resume-summary").append(document.createTextNode(" · 이미 고른 답을 보존한 이전 보기 풀이예요. 개선된 보기로 풀려면 새 연습을 시작해 주세요."));
+      }
       text("resume-button", count.ungraded ? "이어서 풀기" : "풀이 결과 보기");
     } else { el("resume-panel").hidden = true; }
     renderHistory();
@@ -466,7 +479,7 @@
     var mixQuestions = forceShuffle || el("shuffle-questions").checked;
     var mixOptions = forceShuffle || el("shuffle-options").checked;
     var ordered = mixQuestions ? shuffled(questions) : questions.slice();
-    var version = hasPracticeOptions() ? practiceVersion : legacyGatedVersion;
+    var version = latestPracticeVersion();
     session = { mode: mode, index: 0, startedAt: new Date().toISOString(), practiceVersion: version, cards: ordered.map(function (question) {
       return { question: question, stageIndex: 0, graded: false, deferred: false,
         stages: question.stages.map(function (_, index) {
