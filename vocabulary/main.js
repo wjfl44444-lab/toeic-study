@@ -56,7 +56,8 @@ let currentView = validView(location.hash.slice(1)) ? location.hash.slice(1) : "
 let toastTimer;
 let studySession = validSavedStudy(state.activeStudy) ? state.activeStudy : null;
 let quizSession = validSavedQuiz(state.activeQuiz) ? state.activeQuiz : null;
-let quizDefaults = { mode: "multiple", direction: "word-to-meaning", onlyWrong: false };
+let studyDefaults = studySettings(studySession);
+let quizDefaults = quizSettings(quizSession);
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
 let mistakeFilter = "all";
 let studySync = null;
@@ -192,7 +193,8 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
   importFile.value = "";
   wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
   mistakeFilter = "all";
-  quizDefaults = { mode: "multiple", direction: "word-to-meaning", onlyWrong: false };
+  studyDefaults = studySettings(studySession);
+  quizDefaults = quizSettings(quizSession);
   render(false);
 }
 
@@ -602,9 +604,33 @@ function renderWordCard(word) {
   return `<article class="word-card ${word.status === "mastered" ? "mastered" : ""}"><div class="word-main"><h3>${h(word.word)}</h3><p>${h(word.partOfSpeech || "품사 미지정")}</p></div><div class="word-meaning"><strong>${h(word.meanings.join(", "))}</strong><div class="tag-row">${word.tags.map((tag) => `<span class="tag">${h(tag)}</span>`).join("")}</div></div><div class="word-actions"><select class="status-select" data-status-id="${h(word.id)}" aria-label="${h(word.word)} 암기 상태">${WORD_STATUSES.map((status) => `<option value="${status}" ${word.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="small-button edit-button" type="button" data-action="edit-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 수정">✎ <span>수정</span></button><button class="small-button delete-button" type="button" data-action="delete-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 삭제">× <span>삭제</span></button></div><details class="word-details"><summary>예문과 학습 기록 보기</summary><div class="detail-grid"><div><span>영어 예문</span><p>${h(word.example || "등록된 예문이 없습니다.")}</p></div><div><span>예문 해석</span><p>${h(word.translation || "등록된 해석이 없습니다.")}</p></div><div><span>메모</span><p>${h(word.memo || "등록된 메모가 없습니다.")}</p></div><div><span>학습 기록</span><p>정답 ${word.correctCount}회 · 오답 ${word.wrongCount}회 · ${formatDate(word.lastStudiedAt)}</p></div></div></details></article>`;
 }
 
+function studySettings(session) {
+  return { direction: session?.direction || "word-to-meaning", tag: session?.tag || "all", count: session?.requestedCount || 10 };
+}
+
+function quizSettings(session) {
+  return { ...studySettings(session), mode: session?.mode || "multiple", onlyWrong: Boolean(session?.onlyWrong) };
+}
+
+function rememberStudyTag(tag) {
+  wordFilters.tag = tag;
+  wordFilters.page = 1;
+  studyDefaults.tag = tag;
+  quizDefaults.tag = tag;
+}
+
 function configTagOptions(selected = "all", wrongOnly = false) {
-  const tags = allTags().filter((tag) => !wrongOnly || state.words.some((word) => word.wrongCount > 0 && word.tags.includes(tag)));
-  return `<option value="all">모든 태그</option>${tags.map((tag) => `<option value="${h(tag)}" ${tag === selected ? "selected" : ""}>${h(tag)}</option>`).join("")}`;
+  // A scope without mistakes must stay selected, never silently broaden to all.
+  const tags = uniqueStrings([...allTags(), ...(selected !== "all" ? [selected] : [])])
+    .filter((tag) => tag === selected || !wrongOnly || state.words.some((word) => word.wrongCount > 0 && word.tags.includes(tag)));
+  return `<option value="all" ${selected === "all" ? "selected" : ""}>모든 태그</option>${tags.map((tag) => `<option value="${h(tag)}" ${tag === selected ? "selected" : ""}>${h(tag)}</option>`).join("")}`;
+}
+
+function configCountOptions(selected = 10, unit = "문제") {
+  const counts = [5, 10, 20, 30, 50];
+  const numeric = Number(selected);
+  if (Number.isInteger(numeric) && numeric > 0 && numeric <= 50 && !counts.includes(numeric)) counts.push(numeric);
+  return `${counts.sort((a, b) => a - b).map((count) => `<option value="${count}" ${String(selected) === String(count) ? "selected" : ""}>${count}${unit}</option>`).join("")}<option value="all" ${selected === "all" ? "selected" : ""}>전체</option>`;
 }
 
 function renderStudy() {
@@ -619,9 +645,9 @@ function renderStudySetup() {
     <form id="study-config" class="setup-card">
       <header><span class="setup-symbol" aria-hidden="true">▣</span><div><h2>학습 범위를 정해 주세요</h2><p>오답이 많거나 오래 보지 않은 단어가 먼저 나옵니다.</p></div></header>
       <div class="form-grid three-columns">
-        <label><span>문제 방향</span><select name="direction"><option value="word-to-meaning">영어 → 한글 뜻</option><option value="meaning-to-word">한글 뜻 → 영어</option></select></label>
-        <label><span>태그</span><select name="tag">${configTagOptions()}</select></label>
-        <label><span>카드 수</span><select name="count"><option value="5">5개</option><option value="10" selected>10개</option><option value="20">20개</option><option value="30">30개</option><option value="50">50개</option></select></label>
+        <label><span>문제 방향</span><select name="direction"><option value="word-to-meaning" ${studyDefaults.direction === "word-to-meaning" ? "selected" : ""}>영어 → 한글 뜻</option><option value="meaning-to-word" ${studyDefaults.direction === "meaning-to-word" ? "selected" : ""}>한글 뜻 → 영어</option></select></label>
+        <label><span>태그</span><select name="tag">${configTagOptions(studyDefaults.tag)}</select></label>
+        <label><span>카드 수</span><select name="count">${configCountOptions(studyDefaults.count, "개")}</select></label>
       </div>
       <div class="setup-footer"><p>평가 결과는 다음 출제 우선순위에 반영됩니다.</p><button class="primary-button" type="submit">암기 카드 시작 →</button></div>
     </form>`;
@@ -659,7 +685,7 @@ function renderQuiz() {
 }
 
 function renderQuizSetup() {
-  const wrongCount = state.words.filter((word) => word.wrongCount > 0).length;
+  const wrongCount = state.words.filter((word) => word.wrongCount > 0 && (quizDefaults.tag === "all" || word.tags.includes(quizDefaults.tag))).length;
   return `${renderPageHeader("실전 확인", "퀴즈", "정답률은 첫 출제 문제를 기준으로 기록되고, 틀린 단어는 세 문제 뒤 한 번 더 나옵니다.")}
     <form id="quiz-config" class="setup-card">
       <header><span class="setup-symbol" aria-hidden="true">✓</span><div><h2>퀴즈 방식을 골라 주세요</h2><p>약 3분이면 10문제를 풀 수 있어요.</p></div></header>
@@ -670,12 +696,12 @@ function renderQuizSetup() {
         </div></div>
         <div class="form-grid three-columns">
           <label><span>문제 방향</span><select name="direction"><option value="word-to-meaning" ${quizDefaults.direction === "word-to-meaning" ? "selected" : ""}>영어 → 한글 뜻</option><option value="meaning-to-word" ${quizDefaults.direction === "meaning-to-word" ? "selected" : ""}>한글 뜻 → 영어</option></select></label>
-          <label><span>태그</span><select name="tag">${configTagOptions("all", quizDefaults.onlyWrong)}</select></label>
-          <label><span>문제 수</span><select name="count"><option value="5">5문제</option><option value="10" selected>10문제</option><option value="20">20문제</option><option value="30">30문제</option><option value="50">50문제</option></select></label>
+          <label><span>태그</span><select name="tag">${configTagOptions(quizDefaults.tag, quizDefaults.onlyWrong)}</select></label>
+          <label><span>문제 수</span><select name="count">${configCountOptions(quizDefaults.count)}</select></label>
         </div>
-        <label class="choice-card"><input type="checkbox" name="onlyWrong" ${quizDefaults.onlyWrong ? "checked" : ""} ${wrongCount === 0 ? "disabled" : ""} /><span><strong>오답 단어만 출제</strong><small>${wrongCount ? `현재 ${wrongCount}개의 오답 단어가 있어요.` : "아직 틀린 단어가 없어요."}</small></span></label>
+        <label class="choice-card"><input type="checkbox" name="onlyWrong" ${quizDefaults.onlyWrong ? "checked" : ""} ${wrongCount === 0 && !quizDefaults.onlyWrong ? "disabled" : ""} /><span><strong>오답 단어만 출제</strong><small>${wrongCount ? `선택한 범위에 ${wrongCount}개의 오답 단어가 있어요.` : "선택한 범위에는 오답 단어가 없어요."}</small></span></label>
       </div>
-      <p class="quiz-help">객관식은 단어장 전체에서 같은 품사의 보기를 찾습니다. 복합 품사는 같은 조합끼리, 숙어는 비슷한 뜻의 형태끼리 묶습니다. 보기가 부족한 단어는 제외하며 카드·직접 입력으로 학습할 수 있어요.</p>
+      <p class="quiz-help">전체를 선택하면 선택한 태그·오답 조건에서 출제 가능한 단어를 모두 풉니다. 객관식은 단어장 전체에서 같은 품사의 보기를 찾습니다. 복합 품사는 같은 조합끼리, 숙어는 비슷한 뜻의 형태끼리 묶습니다. 보기가 부족한 단어는 제외하며 카드·직접 입력으로 학습할 수 있어요.</p>
       <div class="setup-footer"><p>직접 입력의 영어 답은 대소문자와 앞뒤 공백을 구분하지 않습니다.</p><button class="primary-button" type="submit">퀴즈 시작 →</button></div>
     </form>`;
 }
@@ -752,12 +778,14 @@ function renderNoWords() {
 
 function startStudy(form) {
   const data = new FormData(form);
-  const selected = selectWeightedWords(state.words, Number(data.get("count")), { tag: String(data.get("tag")), onlyWrong: false });
+  studyDefaults = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
+  rememberStudyTag(studyDefaults.tag);
+  const selected = selectWeightedWords(state.words, studyDefaults.count === "all" ? state.words.length : studyDefaults.count, { tag: studyDefaults.tag, onlyWrong: false });
   if (selected.length === 0) {
     showToast("선택한 범위에 학습할 단어가 없습니다.", "error");
     return;
   }
-  studySession = { wordIds: selected.map((word) => word.id), index: 0, direction: String(data.get("direction")), revealed: false, results: { known: 0, confused: 0, unknown: 0 }, completed: false, recorded: false };
+  studySession = { wordIds: selected.map((word) => word.id), index: 0, direction: studyDefaults.direction, tag: studyDefaults.tag, requestedCount: studyDefaults.count, revealed: false, results: { known: 0, confused: 0, unknown: 0 }, completed: false, recorded: false };
   render();
   window.scrollTo({ top: 0, behavior: "instant" });
 }
@@ -788,7 +816,7 @@ function startQuiz(form) {
     direction: String(data.get("direction")),
     tag: String(data.get("tag")),
     onlyWrong: data.get("onlyWrong") === "on",
-    count: Number(data.get("count"))
+    count: String(data.get("count")) === "all" ? "all" : Number(data.get("count"))
   });
   if (!result.ok) showToast(result.error, "error");
 }
@@ -812,7 +840,7 @@ function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, count = 10
     optionsById.set(word.id, options);
     return true;
   }) : state.words;
-  const selected = selectWeightedWords(pool, Number(count), { tag, onlyWrong });
+  const selected = selectWeightedWords(pool, count === "all" ? pool.length : Number(count), { tag, onlyWrong });
   if (selected.length === 0) {
     return { ok: false, error: mode === "multiple" ? "같은 품사의 서로 다른 보기 4개를 만들 수 없어요. 단어를 더 추가하거나 직접 입력 퀴즈를 선택해 주세요." : "선택한 범위에 출제할 단어가 없습니다." };
   }
@@ -820,12 +848,14 @@ function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, count = 10
   if (mode === "multiple" && preparedQueue.some((question) => question.options.length < 4)) {
     return { ok: false, error: "객관식 보기를 만들려면 서로 다른 답을 가진 단어가 최소 4개 필요합니다." };
   }
-  quizDefaults = { mode, direction, onlyWrong };
+  quizDefaults = { mode, direction, tag, onlyWrong, count };
+  rememberStudyTag(tag);
   quizSession = {
     mode,
     direction,
     tag,
     onlyWrong,
+    requestedCount: count,
     queue: preparedQueue,
     index: 0,
     originalTotal: selected.length,
@@ -1088,6 +1118,7 @@ document.addEventListener("click", (event) => {
   }
   else if (action === "reset-word-filters") {
     wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
+    rememberStudyTag("all");
     render();
   }
   else if (action === "word-page") {
@@ -1121,6 +1152,8 @@ document.addEventListener("click", (event) => {
     setView("quiz");
   }
   else if (action === "start-wrong-quiz") {
+    if (currentView === "quiz" && quizSession) quizDefaults = quizSettings(quizSession);
+    else if (currentView === "study" && studySession) quizDefaults = { ...quizDefaults, ...studySettings(studySession) };
     quizSession = null;
     quizDefaults = { ...quizDefaults, onlyWrong: true };
     setView("quiz");
@@ -1184,7 +1217,7 @@ document.addEventListener("change", (event) => {
     wordFilters.status = event.target.value;
     renderWordbookResults();
   } else if (event.target.id === "tag-filter") {
-    wordFilters.tag = event.target.value;
+    rememberStudyTag(event.target.value);
     renderWordbookResults();
   } else if (event.target.id === "mistake-filter") {
     wordFilters.mistakes = event.target.value;
@@ -1192,6 +1225,15 @@ document.addEventListener("change", (event) => {
   } else if (event.target.id === "sort-filter") {
     wordFilters.sort = event.target.value;
     renderWordbookResults();
+  } else if (event.target.closest?.("#quiz-config")) {
+    const data = new FormData(event.target.closest("#quiz-config"));
+    quizDefaults = { mode: String(data.get("mode")), direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: data.get("onlyWrong") === "on", count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
+    rememberStudyTag(quizDefaults.tag);
+    render();
+  } else if (event.target.closest?.("#study-config")) {
+    const data = new FormData(event.target.closest("#study-config"));
+    studyDefaults = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
+    rememberStudyTag(studyDefaults.tag);
   } else if (event.target.matches("[data-status-id]")) {
     state.words = state.words.map((word) => word.id === event.target.dataset.statusId ? { ...word, status: event.target.value } : word);
     saveState();
@@ -1354,7 +1396,7 @@ function registerWebMcpTools() {
       properties: {
         mode: { type: "string", enum: ["multiple", "typing"] },
         direction: { type: "string", enum: ["word-to-meaning", "meaning-to-word"] },
-        count: { type: "integer", minimum: 1, maximum: 50 },
+        count: { oneOf: [{ type: "integer", minimum: 1, maximum: 50 }, { type: "string", const: "all" }] },
         tag: { type: "string" },
         onlyWrong: { type: "boolean" }
       },
@@ -1364,7 +1406,7 @@ function registerWebMcpTools() {
     annotations: { readOnlyHint: false, untrustedContentHint: false },
     execute(input) {
       assertObject(input, ["mode", "direction", "count", "tag", "onlyWrong"]);
-      if (!Number.isInteger(input.count) || input.count < 1 || input.count > 50) throw new Error("문제 수는 1부터 50 사이의 정수여야 합니다.");
+      if (input.count !== "all" && (!Number.isInteger(input.count) || input.count < 1 || input.count > 50)) throw new Error("문제 수는 1부터 50 사이의 정수 또는 all이어야 합니다.");
       if (!["multiple", "typing"].includes(input.mode)) throw new Error("mode는 multiple 또는 typing이어야 합니다.");
       if (!["word-to-meaning", "meaning-to-word"].includes(input.direction)) throw new Error("direction이 올바르지 않습니다.");
       if (input.tag !== undefined && typeof input.tag !== "string") throw new Error("tag는 문자열이어야 합니다.");
