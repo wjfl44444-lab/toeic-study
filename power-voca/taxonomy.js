@@ -56,6 +56,7 @@
   ]);
   add("meanings", [
     ["multi-pos", "다품사어"], ["polysemy", "다의어"],
+    ["confusable-words", "혼동 어휘·같은 품사 뜻 구별"],
     ["paraphrasing", "재표현·패러프레이징"], ["core-meanings", "핵심 어휘·의미 구별"],
     ["conversation-expressions", "대화·안내 표현"]
   ]);
@@ -165,6 +166,7 @@
   function expressionOf(q) { return clean(q && q.answerSummary && q.answerSummary.expression || q && q.source && q.source.headword); }
   function classify(q) {
     var source = q && q.source || {}, step = Number(source.step);
+    if (source.book === "quickstart" && byScope[source.scope]) { return result(source.scope); }
     var key = clean(source.target || source.unit), base = key.replace(/-s\d+$/, "");
     var expression = expressionOf(q), lower = expression.toLowerCase();
     if (structuralOverrides[key]) { return result(structuralOverrides[key]); }

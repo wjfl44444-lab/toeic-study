@@ -1,7 +1,13 @@
 (function () {
   "use strict";
 
-  var data = window.POWER_VOCA_SAMPLE;
+  var originalData = window.POWER_VOCA_SAMPLE;
+  var quickstartData = window.TOEIC_QUICKSTART || null;
+  // Never append to or annotate the original corpus: fingerprints for old
+  // cards include the entire original object and must remain unchanged.
+  var data = originalData && quickstartData ? Object.assign({}, originalData, {
+    questions: originalData.questions.concat(quickstartData.questions || [])
+  }) : originalData;
   var practice = window.POWER_VOCA_PRACTICE;
   var hardPractice = window.POWER_VOCA_HARD_PRACTICE;
   var practiceVersion = "20261019-hard2";
@@ -431,9 +437,12 @@
     var revised = Object.assign({}, original, patch || {}, harder || {}, { answer: original.answer });
     return validStage(revised) && new Set(revised.options).size === 4 ? revised : original;
   }
+  function isLinkedMeaningStage(card, index) {
+    return index > 0 && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
+  }
   function stagePrompt(card, index) {
     var prompt = card.stages[index].data.prompt, first = card.stages[0];
-    if (index > 0 && /_{2,}/.test(first.data.prompt) && /_{2,}/.test(prompt)) {
+    if (isLinkedMeaningStage(card, index) && /_{2,}/.test(prompt)) {
       var selected = card.graded ? first.data.answer : first.selected;
       if (selected !== null) { prompt = prompt.replace(/_{2,}/g, function () { return first.data.options[selected]; }); }
     }
@@ -584,11 +593,18 @@
     });
     text("learning-point", card.question.learningPoint);
     var q = card.question, source = q.source || {}, sourceParts = [];
-    if (source.bookPage != null && source.bookPage !== "") { sourceParts.push("교재 " + String(source.bookPage).replace(/^p\.?\s*/i, "") + "쪽"); }
+    if (source.bookPage != null && source.bookPage !== "") { sourceParts.push((source.book === "quickstart" ? "퀵스타트 " : "파워토익 VOCA ") + String(source.bookPage).replace(/^p\.?\s*/i, "") + "쪽"); }
     if (source.entry != null && source.entry !== "") { sourceParts.push("항목 " + source.entry); }
     if (source.headword) { sourceParts.push(source.headword); }
     if (q.category) { sourceParts.push("학습 포인트: " + q.category); }
-    text("question-source", sourceParts.join(" · ") + (sourceParts.length ? "\n" : "") + "교재의 인쇄된 학습 내용을 바탕으로 만든 응용 문제입니다.");
+    var linkedSources = quickstartData && quickstartData.references && quickstartData.references[q.id] || [];
+    var quickstartPages = linkedSources.map(function (item) { return item.bookPage; });
+    if (source.book === "quickstart" && Array.isArray(source.pages)) { quickstartPages = quickstartPages.concat(source.pages); }
+    quickstartPages = Array.from(new Set(quickstartPages)).sort(function (a, b) { return a - b; });
+    if (quickstartPages.length && !(source.book === "quickstart" && quickstartPages.length === 1 && quickstartPages[0] === source.bookPage)) {
+      sourceParts.push("함께 학습: 퀵스타트 " + quickstartPages.join(", ") + "쪽");
+    }
+    text("question-source", sourceParts.join(" · ") + (sourceParts.length ? "\n" : "") + "교재의 인쇄된 학습 내용을 바탕으로 만든 응용 문제입니다. 예문은 학습을 위해 새로 구성했어요.");
   }
   function clearFeedback() {
     ["feedback-title", "correct-answer", "answer-summary-expression", "answer-summary-meaning", "learning-point", "question-source"].forEach(function (id) { text(id, ""); });
@@ -609,7 +625,7 @@
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
     text("stage-indicator", (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (card.stages.length > 1 && !card.graded ? " · 첫 답을 맞히면 다음 단계" : ""));
     el("previous-stage-button").hidden = card.stageIndex === 0;
-    text("question-instruction", card.stageIndex > 0 && /_{2,}/.test(card.stages[0].data.prompt) ? "완성된 표현의 뜻을 고르세요." :
+    text("question-instruction", isLinkedMeaningStage(card, card.stageIndex) ? "완성된 표현의 뜻을 고르세요." :
       stage.data.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.");
     text("question-heading", stagePrompt(card, card.stageIndex));
     var list = el("options-list"); list.replaceChildren();
@@ -708,9 +724,9 @@
   restoreState();
   document.querySelectorAll("[data-total]").forEach(function (item) { item.textContent = data.questions.length; });
   if (data.coverage && el("coverage-summary")) {
-    text("coverage-summary", "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + data.questions.length.toLocaleString("ko-KR") + "문제 카드를 함께 연습해요. 현재 문제는 파워토익 VOCA의 인쇄 내용 기준이며, 퀵스타트 새 문제는 아직 포함하지 않았어요. 문제 수는 단어 수와 달라요.");
+    text("coverage-summary", quickstartData ? "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + originalData.questions.length.toLocaleString("ko-KR") + "문제에 퀵스타트 " + quickstartData.questions.length.toLocaleString("ko-KR") + "문제를 더했어요. 같은 표현·학습 목표는 기존 문제에 연결하고, 구조·형태를 묻는 새 문제는 따로 연습해요. 전체 " + data.questions.length.toLocaleString("ko-KR") + "문제이며 문제 수는 단어 수와 달라요." : "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + data.questions.length.toLocaleString("ko-KR") + "문제예요. 퀵스타트 추가 자료를 불러오지 못했다면 새로고침해 주세요. 기존 기록은 유지돼요.");
   }
-  text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + " · 인쇄 내용만 반영");
+  text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
   el("group-filter").addEventListener("change", function () { populateSubscopes("all"); updateSettings(); saveState(); });
   el("step-filter").addEventListener("change", function () {
@@ -754,7 +770,8 @@
     applyPayload: applyStudyPayload,
     summarizePayload: summarizeStudyPayload,
     getSync: function () { return studySync; },
-    fingerprint: fingerprint
+    fingerprint: fingerprint,
+    getCatalogStats: function () { return { original: originalData.questions.length, added: quickstartData ? quickstartData.questions.length : 0, total: data.questions.length }; }
   });
   if (el("export-records")) { el("export-records").addEventListener("click", exportRecords); }
   if (el("import-records") && el("import-records-file")) {
