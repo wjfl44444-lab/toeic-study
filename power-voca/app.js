@@ -3,11 +3,18 @@
 
   var originalData = window.POWER_VOCA_SAMPLE;
   var quickstartData = window.TOEIC_QUICKSTART || null;
+  var memoryPractice = window.POWER_VOCA_MEMORY_PRACTICE || null;
+  var memoryVersion = "20261023-memory3";
+  var memoryReady = memoryPractice && memoryPractice.version === memoryVersion &&
+    memoryPractice.stages && Array.isArray(memoryPractice.questions);
   // Never append to or annotate the original corpus: fingerprints for old
   // cards include the entire original object and must remain unchanged.
   var data = originalData && quickstartData ? Object.assign({}, originalData, {
     questions: originalData.questions.concat(quickstartData.questions || [])
   }) : originalData;
+  if (data && memoryReady) {
+    data = Object.assign({}, data, { questions: data.questions.concat(memoryPractice.questions) });
+  }
   var practice = window.POWER_VOCA_PRACTICE;
   var hardPractice = window.POWER_VOCA_HARD_PRACTICE;
   var practiceVersion = "20261019-hard2";
@@ -38,8 +45,11 @@
   var questionScopes = new Map();
   var groupCounts = Object.create(null);
   var scopeCounts = Object.create(null);
+  var mixedScope = "mixed-verb-patterns";
+  var mixedVerbScopes = ["second-pattern", "fourth-pattern", "fifth-pattern", "verb-arguments", "verb-that",
+    "verb-to-infinitive", "object-to-infinitive", "verb-gerund"];
   var groupDescriptions = {
-    "grammar-structures": "목적어·보어·전치사와 to V·V-ing 등 필요한 성분과 구조를 모았어요. depend on 같은 자동사 + 전치사도 여기에 있어요.",
+    "grammar-structures": "어떤 동사가 목적어·보어·that절·to V·V-ing를 받는지 단어별로 익혀요. depend on 같은 자동사 + 전치사도 여기에 있어요.",
     "collocations": "place an order, strongly recommend처럼 함께 쓰이는 특정 단어의 조합을 모았어요.",
     "word-forms": "대표 어형, 명사의 수, 분사형 형용사, 복합 명사와 수식 표현을 모았어요.",
     "time-expressions": "현재·과거·미래·완료 시제와 관련된 부사·시간 표현을 모았어요.",
@@ -138,7 +148,10 @@
     // Only unanswered replacement choices may adopt the new edition. A chosen
     // meaning, any graded card, or an already advanced old wrong answer pins
     // the entire saved round to its original choice meanings.
-    var version = saved.practiceVersion, latest = latestPracticeVersion();
+    // New memory editions can change a prompt, not just the option labels.
+    // Keep every existing round on its exact edition, even if unanswered.
+    // Retain the older, options-only migration solely when memory3 is absent.
+    var version = saved.practiceVersion, latest = memoryReady ? version : latestPracticeVersion();
     if ((!version || version === previousPracticeVersion) && latest !== legacyGatedVersion && version !== latest && saved.cards.every(function (stored) {
       var q = stored && questionMap.get(stored.id);
       if (!q || stored.graded || !Array.isArray(stored.stages) || stored.stages.length !== q.stages.length ||
@@ -376,12 +389,17 @@
         var option = node("option", "", scope.label + " (" + count.toLocaleString("ko-KR") + "문제)");
         option.value = scope.id; option.disabled = count === 0; target.append(option);
       });
+      if (memoryReady && section.id === "grammar-structures") {
+        var mixed = node("option", "", "동사 문형 섞어 복습 (" + (scopeCounts[mixedScope] || 0).toLocaleString("ko-KR") + "문제)");
+        mixed.value = mixedScope; target.append(mixed);
+      }
       if (group === "all") { select.append(target); }
     });
     select.value = Array.from(select.options).some(function (option) { return option.value === selected && !option.disabled; }) ? selected : "all";
   }
   function applyScopeSetting(value) {
     var normalized = taxonomy.normalizeLegacy(value);
+    if (memoryReady && value === mixedScope) { normalized = { group: "grammar-structures", scope: mixedScope }; }
     var group = normalized.group;
     if (String(value).indexOf("group-") === 0) { group = String(value).slice(6); normalized.scope = "all"; }
     el("group-filter").value = taxonomy.groups.some(function (item) { return item.id === group; }) ? group : "all";
@@ -391,7 +409,8 @@
     var scope = el("step-filter").value, group = el("group-filter").value;
     return data.questions.filter(function (q) {
       var assigned = scopeOf(q);
-      return (group === "all" || assigned.group === group) && (scope === "all" || assigned.scope === scope);
+      return (group === "all" || assigned.group === group) &&
+        (scope === "all" || scope === mixedScope && mixedVerbScopes.indexOf(assigned.scope) !== -1 || assigned.scope === scope);
     });
   }
   function updateSettings() {
@@ -399,6 +418,9 @@
     var count = size === "all" ? pool.length : Math.min(Number(size), pool.length);
     text("pool-summary", "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요. 각 카드에는 1~2단계가 있어요.");
     text("scope-description", groupDescriptions[el("group-filter").value] || "교재 구분 없이 학습 목표로 모았어요. 큰 분류와 세부 범위를 골라 연습하세요.");
+    if (el("step-filter").value === mixedScope) {
+      text("scope-description", "2·4·5형식, that절, to V·목적어 + to V·V-ing를 섞어요. 범위 이름으로 답을 짐작하지 않고 단어별로 필요한 구조를 떠올려 보세요.");
+    }
     if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
     text("start-button", el("shuffle-questions").checked || el("shuffle-options").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗");
     el("start-button").disabled = pool.length === 0;
@@ -422,23 +444,30 @@
   function hasPracticeOptions(version) {
     var previousReady = practice && practice.version === previousPracticeVersion && practice.stages && typeof practice.stages === "object";
     if (version === previousPracticeVersion) { return previousReady; }
+    if (version === memoryVersion) { return Boolean(memoryReady && hasPracticeOptions(practiceVersion)); }
     return version === practiceVersion && previousReady && hardPractice && hardPractice.version === practiceVersion &&
       hardPractice.stages && typeof hardPractice.stages === "object";
   }
   function latestPracticeVersion() {
-    return hasPracticeOptions(practiceVersion) ? practiceVersion : hasPracticeOptions(previousPracticeVersion) ? previousPracticeVersion : legacyGatedVersion;
+    return hasPracticeOptions(memoryVersion) ? memoryVersion : hasPracticeOptions(practiceVersion) ? practiceVersion : hasPracticeOptions(previousPracticeVersion) ? previousPracticeVersion : legacyGatedVersion;
   }
   function practiceStage(question, index, version) {
     var original = question.stages[index];
     if (!hasPracticeOptions(version)) { return original; }
     var patch = practice.stages[question.id] && practice.stages[question.id][index];
-    var harder = version === practiceVersion && hardPractice.stages[question.id] && hardPractice.stages[question.id][index];
-    if (!patch && !harder) { return original; }
-    var revised = Object.assign({}, original, patch || {}, harder || {}, { answer: original.answer });
+    var harder = (version === practiceVersion || version === memoryVersion) && hardPractice.stages[question.id] && hardPractice.stages[question.id][index];
+    var memory = version === memoryVersion && memoryPractice.stages[question.id] && memoryPractice.stages[question.id][index];
+    if (!patch && !harder && !memory) { return original; }
+    var revised = Object.assign({}, original, patch || {}, harder || {}, memory || {}, { answer: original.answer });
     return validStage(revised) && new Set(revised.options).size === 4 ? revised : original;
   }
   function isLinkedMeaningStage(card, index) {
-    return index > 0 && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
+    var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
+    return index > 0 && !(meta && meta.independent) && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
+  }
+  function questionDetail(card, key) {
+    var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
+    return meta && meta[key] || card.question[key];
   }
   function stagePrompt(card, index) {
     var prompt = card.stages[index].data.prompt, first = card.stages[0];
@@ -561,8 +590,9 @@
     text("feedback-title", allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
     text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
       card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
-    text("answer-summary-expression", card.question.answerSummary.expression);
-    text("answer-summary-meaning", card.question.answerSummary.meaning);
+    var summary = questionDetail(card, "answerSummary");
+    text("answer-summary-expression", summary.expression);
+    text("answer-summary-meaning", summary.meaning);
     el("answer-summary").hidden = false;
     var feedbackList = el("stage-feedback-list"); feedbackList.replaceChildren();
     card.stages.forEach(function (stage, stageIndex) {
@@ -591,7 +621,7 @@
       });
       reasons.append(list); box.append(reasons); feedbackList.append(box);
     });
-    text("learning-point", card.question.learningPoint);
+    text("learning-point", questionDetail(card, "learningPoint"));
     var q = card.question, source = q.source || {}, sourceParts = [];
     if (source.bookPage != null && source.bookPage !== "") { sourceParts.push((source.book === "quickstart" ? "퀵스타트 " : "파워토익 VOCA ") + String(source.bookPage).replace(/^p\.?\s*/i, "") + "쪽"); }
     if (source.entry != null && source.entry !== "") { sourceParts.push("항목 " + source.entry); }
@@ -691,7 +721,7 @@
       if (!card.graded) { status.textContent = "미채점"; }
       else if (isAllCorrect(card)) { status.textContent = "정답"; status.classList.add("correct"); }
       else { status.textContent = "오답"; status.classList.add("wrong"); }
-      button.append(node("span", "review-index", String(index + 1).padStart(2, "0")), node("span", "review-text", card.question.stages[0].prompt), status);
+      button.append(node("span", "review-index", String(index + 1).padStart(2, "0")), node("span", "review-text", stagePrompt(card, 0)), status);
       button.addEventListener("click", function () { session.index = index; renderQuestion(true); });
       item.append(button); list.append(item);
     });
@@ -714,6 +744,7 @@
     var assigned = taxonomy.classify(q); questionScopes.set(q.id, assigned);
     scopeCounts[assigned.scope] = (scopeCounts[assigned.scope] || 0) + 1;
     groupCounts[assigned.group] = (groupCounts[assigned.group] || 0) + 1;
+    if (mixedVerbScopes.indexOf(assigned.scope) !== -1) { scopeCounts[mixedScope] = (scopeCounts[mixedScope] || 0) + 1; }
   });
   taxonomy.groups.forEach(function (group) {
     var option = node("option", "", group.label + " (" + (groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제)");
@@ -726,11 +757,16 @@
   if (data.coverage && el("coverage-summary")) {
     text("coverage-summary", quickstartData ? "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + originalData.questions.length.toLocaleString("ko-KR") + "문제에 퀵스타트 " + quickstartData.questions.length.toLocaleString("ko-KR") + "문제를 더했어요. 같은 표현·학습 목표는 기존 문제에 연결하고, 구조·형태를 묻는 새 문제는 따로 연습해요. 전체 " + data.questions.length.toLocaleString("ko-KR") + "문제이며 문제 수는 단어 수와 달라요." : "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + data.questions.length.toLocaleString("ko-KR") + "문제예요. 퀵스타트 추가 자료를 불러오지 못했다면 새로고침해 주세요. 기존 기록은 유지돼요.");
   }
+  if (memoryReady && el("coverage-summary")) {
+    text("coverage-summary", "전체 " + data.questions.length.toLocaleString("ko-KR") + "문제 · 단어별 결합·문형 암기 연습. " +
+      Object.keys(memoryPractice.stages).length.toLocaleString("ko-KR") + "문제의 출제 방식을 개선하고, 빠진 쓰임 " + memoryPractice.questions.length + "문제를 더했어요. 저장된 풀이는 이전 문제 그대로 이어져요.");
+  }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
   el("group-filter").addEventListener("change", function () { populateSubscopes("all"); updateSettings(); saveState(); });
   el("step-filter").addEventListener("change", function () {
     var scope = taxonomy.subscopes.find(function (item) { return item.id === el("step-filter").value; });
+    if (memoryReady && el("step-filter").value === mixedScope) { scope = { id: mixedScope, group: "grammar-structures" }; }
     if (scope && el("group-filter").value === "all") { el("group-filter").value = scope.group; populateSubscopes(scope.id); }
   });
   ["shuffle-questions", "shuffle-options", "round-size", "step-filter"].forEach(function (id) {
@@ -771,7 +807,7 @@
     summarizePayload: summarizeStudyPayload,
     getSync: function () { return studySync; },
     fingerprint: fingerprint,
-    getCatalogStats: function () { return { original: originalData.questions.length, added: quickstartData ? quickstartData.questions.length : 0, total: data.questions.length }; }
+    getCatalogStats: function () { return { original: originalData.questions.length, added: quickstartData ? quickstartData.questions.length : 0, memory: memoryReady ? memoryPractice.questions.length : 0, total: data.questions.length }; }
   });
   if (el("export-records")) { el("export-records").addEventListener("click", exportRecords); }
   if (el("import-records") && el("import-records-file")) {
