@@ -33,6 +33,7 @@
     ["verb-gerund", "동사 + 동명사"],
     ["prep-gerund", "전치사 + 동명사"],
     ["gerund-patterns", "그 밖의 V-ing 구조"],
+    ["inversion", "도치"],
     ["other-grammar", "그 밖의 문형·구조"]
   ]);
   add("collocations", [
@@ -45,7 +46,8 @@
     ["countability", "가산·불가산명사"], ["noun-forms", "대표 명사 어형"],
     ["compound-nouns", "복합명사"], ["participial-adjectives", "분사형 형용사"],
     ["adjective-forms", "형용사 어형·수식"], ["noun-modifiers", "명사를 꾸미는 표현"],
-    ["quantity-forms", "수량 표현·명사 수식"], ["number-modifiers", "숫자를 수식하는 표현"]
+    ["quantity-forms", "수량 표현·명사 수식"], ["number-modifiers", "숫자를 수식하는 표현"],
+    ["comparison-modifiers", "비교급·최상급·원급 강조"]
   ]);
   add("time-expressions", [
     ["time-phrases", "시간·순서 표현"], ["tense-expressions", "시제와 관련된 표현"]
