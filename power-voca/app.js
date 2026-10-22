@@ -26,29 +26,20 @@
   var accountEpoch = 0;
   var letters = ["A", "B", "C", "D"];
   var views = ["loading", "error", "start", "quiz", "results"];
-  // Textbook contents, grouped without changing question data or saved signatures.
-  // Keep the existing settings.step field so older records and backups still load.
-  var textbookScopes = [
-    { id: "verb-noun", label: "동사 + 명사", steps: [1, 2, 3] },
-    { id: "adj-noun", label: "형용사 + 명사", steps: [4] },
-    { id: "adv-verb", label: "부사 + 동사", steps: [5, 6] },
-    { id: "adv-adj", label: "부사 + 형용사", steps: [7] },
-    { id: "verb-prep", label: "동사 + 전치사", steps: [8, 9] },
-    { id: "prep-noun", label: "전치사 + 명사", steps: [10, 11] },
-    { id: "noun-prep", label: "명사 + 전치사", steps: [12] },
-    { id: "adj-prep", label: "형용사 + 전치사", steps: [13, 14] },
-    { id: "multi-pos", label: "다품사 어휘", steps: [15, 16, 17] },
-    { id: "polysemy", label: "다의어", steps: [18, 19] },
-    { id: "compound-nouns", label: "복합 명사", steps: [20] },
-    { id: "verb-patterns", label: "혼동 문법 · to부정사·동명사", steps: [21] },
-    { id: "lc-vocabulary", label: "LC 빈출 어휘 · PART 1~4", steps: [22, 23, 24] },
-    { id: "rc-vocabulary", label: "RC 빈출 어휘 · PART 7", steps: [25, 26, 27] },
-    { id: "paraphrasing", label: "어휘 재표현 · 패러프레이징", steps: [28, 29, 30] }
-  ];
-  var scopeByStep = Object.create(null);
-  textbookScopes.forEach(function (scope) {
-    scope.steps.forEach(function (step) { scopeByStep[String(step)] = scope.id; });
-  });
+  // Taxonomy is external: do not alter any question object or saved fingerprint.
+  // One existing settings.step string stores either a subgroup or group-<id>.
+  var taxonomy = window.PowerVocaTaxonomy;
+  var questionScopes = new Map();
+  var groupCounts = Object.create(null);
+  var scopeCounts = Object.create(null);
+  var groupDescriptions = {
+    "grammar-structures": "목적어·보어·전치사와 to V·V-ing 등 필요한 성분과 구조를 모았어요. depend on 같은 자동사 + 전치사도 여기에 있어요.",
+    "collocations": "place an order, strongly recommend처럼 함께 쓰이는 특정 단어의 조합을 모았어요.",
+    "word-forms": "대표 어형, 명사의 수, 분사형 형용사, 복합 명사와 수식 표현을 모았어요.",
+    "time-expressions": "현재·과거·미래·완료 시제와 관련된 부사·시간 표현을 모았어요.",
+    "sentence-links": "전치사·접속사·접속부사가 나타내는 관계와 문장 연결 표현을 모았어요.",
+    "meanings": "다의어·다품사어와 혼동 어휘, 비슷한 뜻의 재표현을 함께 확인해요."
+  };
 
   function el(id) { return document.getElementById(id); }
   function text(id, value) { el(id).textContent = value; }
@@ -100,7 +91,8 @@
     return saved;
   }
   function currentSettings() {
-    return { roundSize: el("round-size").value, step: el("step-filter").value,
+    var scope = el("step-filter").value, group = el("group-filter").value;
+    return { roundSize: el("round-size").value, step: scope !== "all" ? scope : group === "all" ? "all" : "group-" + group,
       shuffleQuestions: el("shuffle-questions").checked, shuffleOptions: el("shuffle-options").checked };
   }
   function currentPayload(compact) {
@@ -211,7 +203,7 @@
       var settings = saved.settings;
       if (settings && typeof settings === "object") {
         if (["20", "50", "100", "all"].indexOf(settings.roundSize) !== -1) { el("round-size").value = settings.roundSize; }
-        el("step-filter").value = normalizedScope(settings.step);
+        applyScopeSetting(settings.step);
         if (typeof settings.shuffleQuestions === "boolean") { el("shuffle-questions").checked = settings.shuffleQuestions; }
         if (typeof settings.shuffleOptions === "boolean") { el("shuffle-options").checked = settings.shuffleOptions; }
       }
@@ -223,7 +215,7 @@
   }
   function applySettings(settings) {
     if (["20", "50", "100", "all"].indexOf(settings.roundSize) !== -1) { el("round-size").value = settings.roundSize; }
-    el("step-filter").value = normalizedScope(settings.step);
+    applyScopeSetting(settings.step);
     el("shuffle-questions").checked = settings.shuffleQuestions;
     el("shuffle-options").checked = settings.shuffleOptions;
   }
@@ -363,23 +355,45 @@
     var graded = items.reduce(function (sum, item) { return sum + item.stagesGraded; }, 0);
     text("history-summary", attempts ? "학습한 문제 " + new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
   }
-  function scopeForStep(value) {
-    var match = /^(?:step\s*)?(\d+)$/i.exec(String(value == null ? "" : value).trim());
-    return match && scopeByStep[String(Number(match[1]))] || "other-vocabulary";
+  function scopeOf(q) { return questionScopes.get(q.id); }
+  function populateSubscopes(selected) {
+    var group = el("group-filter").value, select = el("step-filter");
+    select.replaceChildren();
+    var all = node("option", "", group === "all" ? "모든 세부 범위" : "이 분류 전체");
+    all.value = "all"; select.append(all);
+    taxonomy.groups.forEach(function (section) {
+      if (group !== "all" && group !== section.id) { return; }
+      var target = select;
+      if (group === "all") { target = node("optgroup"); target.label = section.label; }
+      taxonomy.subscopes.filter(function (scope) { return scope.group === section.id; }).forEach(function (scope) {
+        var count = scopeCounts[scope.id] || 0;
+        var option = node("option", "", scope.label + " (" + count.toLocaleString("ko-KR") + "문제)");
+        option.value = scope.id; option.disabled = count === 0; target.append(option);
+      });
+      if (group === "all") { select.append(target); }
+    });
+    select.value = Array.from(select.options).some(function (option) { return option.value === selected && !option.disabled; }) ? selected : "all";
   }
-  function scopeOf(q) { return scopeForStep(q.source && q.source.step); }
-  function normalizedScope(value) {
-    var scope = /^(?:step\s*)?\d+$/i.test(String(value).trim()) ? scopeForStep(value) : value;
-    return Array.from(el("step-filter").options).some(function (option) { return option.value === scope; }) ? scope : "all";
+  function applyScopeSetting(value) {
+    var normalized = taxonomy.normalizeLegacy(value);
+    var group = normalized.group;
+    if (String(value).indexOf("group-") === 0) { group = String(value).slice(6); normalized.scope = "all"; }
+    el("group-filter").value = taxonomy.groups.some(function (item) { return item.id === group; }) ? group : "all";
+    populateSubscopes(normalized.scope);
   }
   function filteredQuestions() {
-    var scope = el("step-filter").value;
-    return data.questions.filter(function (q) { return scope === "all" || scopeOf(q) === scope; });
+    var scope = el("step-filter").value, group = el("group-filter").value;
+    return data.questions.filter(function (q) {
+      var assigned = scopeOf(q);
+      return (group === "all" || assigned.group === group) && (scope === "all" || assigned.scope === scope);
+    });
   }
   function updateSettings() {
     var pool = filteredQuestions(), size = el("round-size").value;
     var count = size === "all" ? pool.length : Math.min(Number(size), pool.length);
     text("pool-summary", "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요. 각 카드에는 1~2단계가 있어요.");
+    text("scope-description", groupDescriptions[el("group-filter").value] || "교재 구분 없이 학습 목표로 모았어요. 큰 분류와 세부 범위를 골라 연습하세요.");
+    if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
     text("start-button", el("shuffle-questions").checked || el("shuffle-options").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗");
     el("start-button").disabled = pool.length === 0;
   }
@@ -675,26 +689,34 @@
 
   el("reload-button").addEventListener("click", function () { window.location.reload(); });
   var error = validateData(data);
+  if (!taxonomy || !Array.isArray(taxonomy.groups) || !Array.isArray(taxonomy.subscopes) || typeof taxonomy.classify !== "function" || typeof taxonomy.normalizeLegacy !== "function") {
+    error = "학습 분류 파일(taxonomy.js)을 불러오지 못했어요. 새로고침하거나 파일이 함께 있는지 확인해 주세요.";
+  }
   if (error) { text("error-message", error); showView("error"); return; }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
-  var scopeCounts = Object.create(null);
   data.questions.forEach(function (q) {
-    var scope = scopeOf(q); scopeCounts[scope] = (scopeCounts[scope] || 0) + 1;
+    var assigned = taxonomy.classify(q); questionScopes.set(q.id, assigned);
+    scopeCounts[assigned.scope] = (scopeCounts[assigned.scope] || 0) + 1;
+    groupCounts[assigned.group] = (groupCounts[assigned.group] || 0) + 1;
   });
-  var availableScopes = textbookScopes.filter(function (scope) { return scopeCounts[scope.id]; });
-  if (scopeCounts["other-vocabulary"]) { availableScopes.push({ id: "other-vocabulary", label: "기타 어휘" }); }
-  availableScopes.forEach(function (scope) {
-    var option = node("option", "", scope.label + " (" + scopeCounts[scope.id].toLocaleString("ko-KR") + "문제)");
-    option.value = scope.id; el("step-filter").append(option);
+  taxonomy.groups.forEach(function (group) {
+    var option = node("option", "", group.label + " (" + (groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제)");
+    option.value = group.id; el("group-filter").append(option);
   });
-  el("step-filter-label").hidden = availableScopes.length < 2;
+  populateSubscopes("all");
+  el("step-filter-label").hidden = false;
   restoreState();
   document.querySelectorAll("[data-total]").forEach(function (item) { item.textContent = data.questions.length; });
   if (data.coverage && el("coverage-summary")) {
-    text("coverage-summary", "교재 목차 " + availableScopes.length + "개 분류 · 표제어 " + data.coverage.headwords.toLocaleString("ko-KR") + "개 · 추가 표현 " + data.coverage.extras.toLocaleString("ko-KR") + "개를 반영했어요. 다의어와 유사 표현을 나눠 전체 " + data.questions.length.toLocaleString("ko-KR") + "문제 카드로 연습해요. 문장 문제와 표현 자체를 완성하는 문제가 함께 있어요.");
+    text("coverage-summary", "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + data.questions.length.toLocaleString("ko-KR") + "문제 카드를 함께 연습해요. 현재 문제는 파워토익 VOCA의 인쇄 내용 기준이며, 퀵스타트 새 문제는 아직 포함하지 않았어요. 문제 수는 단어 수와 달라요.");
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
+  el("group-filter").addEventListener("change", function () { populateSubscopes("all"); updateSettings(); saveState(); });
+  el("step-filter").addEventListener("change", function () {
+    var scope = taxonomy.subscopes.find(function (item) { return item.id === el("step-filter").value; });
+    if (scope && el("group-filter").value === "all") { el("group-filter").value = scope.group; populateSubscopes(scope.id); }
+  });
   ["shuffle-questions", "shuffle-options", "round-size", "step-filter"].forEach(function (id) {
     el(id).addEventListener("change", function () { updateSettings(); saveState(); });
   });
