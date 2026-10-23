@@ -42,7 +42,7 @@ function errorText(error) {
  * replacing an open screen. Neither apply path may invoke the app's save path.
  */
 export function connectStudySync(options = {}) {
-  const appId = ["vocabulary", "quiz", "power-voca"].includes(options.appId) ? options.appId : null;
+  const appId = ["vocabulary", "quiz", "power-voca", "power-grammar"].includes(options.appId) ? options.appId : null;
   const prefix = appId ? `toeic-sync:v1:${appId}:` : null;
   let sdk = null;
   let user = null;
@@ -234,7 +234,7 @@ export function connectStudySync(options = {}) {
       const metadata = { reason, resetSession };
       // Keep existing adapters byte-for-byte compatible in behavior. A delayed
       // first auth restore is not an explicit account switch in the new module.
-      if (appId === "power-voca") metadata.accountSwitch = accountBoundaryPending;
+      if (appId === "power-voca" || appId === "power-grammar") metadata.accountSwitch = accountBoundaryPending;
       options.applyPayload?.(raw, metadata);
       accountBoundaryPending = false;
       return true;

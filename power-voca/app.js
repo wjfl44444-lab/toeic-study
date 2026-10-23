@@ -409,11 +409,19 @@
     var scope = el("step-filter").value, group = el("group-filter").value;
     return data.questions.filter(function (q) {
       var assigned = scopeOf(q);
+      if (window.PowerGrammarRoute) { return window.PowerGrammarRoute.include(group, scope, assigned); }
       return (group === "all" || assigned.group === group) &&
         (scope === "all" || scope === mixedScope && mixedVerbScopes.indexOf(assigned.scope) !== -1 || assigned.scope === scope);
     });
   }
   function updateSettings() {
+    if (window.PowerGrammarRoute && el("group-filter").value === "grammar-structures") {
+      el("step-filter-label").hidden = true;
+      text("scope-description", "개편된 문형·구조는 단어별 형식·연결·전치사·어순을 묻는 별도 화면에서 연습해요. 기존 기록과 이어 풀기는 아래에 그대로 보존돼요.");
+      text("pool-summary", "개편판 " + window.PowerGrammarRoute.count + "개 학습 단위 · 새 기록은 별도로 저장해요.");
+      text("start-button", "개편된 문형·구조 열기 ↗"); el("start-button").disabled = false; return;
+    }
+    el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value;
     var count = size === "all" ? pool.length : Math.min(Number(size), pool.length);
     text("pool-summary", "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요. 각 카드에는 1~2단계가 있어요.");
@@ -426,6 +434,8 @@
     el("start-button").disabled = pool.length === 0;
   }
   function startSelected() {
+    var grammarUrl = window.PowerGrammarRoute && window.PowerGrammarRoute.launch(el("group-filter").value, el("step-filter").value);
+    if (grammarUrl) { window.location.assign(grammarUrl); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     var pool = filteredQuestions(), size = el("round-size").value;
     if (el("shuffle-questions").checked) { pool = shuffled(pool); }
@@ -747,7 +757,7 @@
     if (mixedVerbScopes.indexOf(assigned.scope) !== -1) { scopeCounts[mixedScope] = (scopeCounts[mixedScope] || 0) + 1; }
   });
   taxonomy.groups.forEach(function (group) {
-    var option = node("option", "", group.label + " (" + (groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제)");
+    var option = node("option", "", group.label + " (" + (group.id === "grammar-structures" && window.PowerGrammarRoute ? window.PowerGrammarRoute.count.toLocaleString("ko-KR") + "개편 학습 단위" : (groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제") + ")");
     option.value = group.id; el("group-filter").append(option);
   });
   populateSubscopes("all");
