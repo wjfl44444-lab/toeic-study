@@ -13,8 +13,8 @@
   <script src="memory-practice.js?v=20261023-memory3" defer></script>
   <script src="sync-model.js?v=20261023-memory3" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
-  <script src="grammar-route.js?v=20261024-routing1" defer></script>
-  <script src="app.js?v=20261024-routing1" defer></script>
+  <script src="grammar-route.js?v=20261024-menu1" defer></script>
+  <script src="app.js?v=20261024-menu1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -52,13 +52,12 @@
         <div class="panel intro-panel">
           <p class="eyebrow">WORDS IN CONTEXT</p>
           <h1 id="start-title">뜻을 넘어,<br>쓰임까지 익혀요.</h1>
-          <p class="intro-copy">문형·구조, 어울리는 단어, 비슷한 뜻까지.<br class="desktop-break"> 문형·구조는 새 방식으로, 다른 범위는 기존 방식 그대로 연습해요.</p>
-          <div class="sample-notice"><strong>문형·구조가 새로워졌어요.</strong><span>형식 모두 선택, 단어 뒤 연결, 전치사와 어순을 직접 회상해요. 기존 점수와 저장된 풀이는 이 화면에 그대로 남아 있어요. <a href="grammar/">개편된 문형·구조 556개 연습하기 →</a></span></div>
+          <p class="intro-copy">문형·구조, 어울리는 단어, 비슷한 뜻까지.<br class="desktop-break"> 큰 분류와 세부 범위를 골라 함께 연습해요.</p>
           <div class="sample-notice"><strong>문법을 아는 데서, 단어별 쓰임을 외우는 데로.</strong><span>어떤 단어가 to V·V-ing·목적어·보어를 받는지, 어떤 전치사·짝단어와 쓰이는지 직접 떠올려요. 손글씨는 제외하고 교재의 인쇄된 내용을 연습해요.</span></div>
           <p class="settings-note" id="coverage-summary"></p>
           <div class="two-step-note"><span class="two-step-number">1 → 2</span><p><strong>첫 답을 맞히면 다음 단계로 넘어가요.</strong><br>표현 고르기 → 뜻 고르기, 뜻 고르기 → 유의어 고르기처럼 연결해요. 첫 답이 틀리면 바로 오답 처리하고 해설을 보여줘요.</p></div>
           <div class="round-settings">
-            <label for="group-filter" class="main-scope-label">큰 분류<select id="group-filter"><option value="all">기존 5개 분류 전체 · 문형·구조 별도</option></select></label>
+            <label for="group-filter" class="main-scope-label">큰 분류<select id="group-filter"><option value="all">문형·구조 외 5개 분류 함께 풀기</option></select></label>
             <label for="step-filter" id="step-filter-label">세부 범위<select id="step-filter"><option value="all">모든 세부 범위</option></select></label>
             <p id="scope-description" class="settings-note scope-description"></p>
             <label for="round-size">이번에 풀 문제 수<select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label>
@@ -67,12 +66,13 @@
           <div class="start-settings">
             <fieldset>
               <legend>문제 순서 설정</legend>
-              <label class="check-label"><input type="checkbox" id="shuffle-questions" checked><span>문제 순서 섞기</span></label>
-              <label class="check-label"><input type="checkbox" id="shuffle-options" checked><span>선택지도 함께 섞기</span></label>
+              <label class="check-label"><input type="checkbox" id="shuffle-questions" checked><span id="question-shuffle-label">문제 순서 섞기</span></label>
+              <label class="check-label" id="option-shuffle-setting"><input type="checkbox" id="shuffle-options" checked><span>선택지도 함께 섞기</span></label>
             </fieldset>
             <p class="settings-note">문제 유형과 교재 위치는 채점한 뒤에만 보여요.<br>첫 단계는 <strong>답 확인</strong>, 마지막은 <strong>채점하기</strong>로 진행해요.</p>
           </div>
           <button class="primary-button start-button" id="start-button">섞어서 시작하기 <span aria-hidden="true">↗</span></button>
+          <button class="secondary-button" id="grammar-resume-button" hidden>문형·구조 이어서 풀기</button>
           <p class="privacy-note">사이트에서 같은 Google 계정으로 로그인하면 학습 기록도 자동으로 이어져요.<br class="desktop-break"> 기존 파워보카 기록은 그대로 연결돼요. 단어장·문제집 기록은 따로 안전하게 유지해요.</p>
         </div>
         <div class="panel resume-panel" id="resume-panel" hidden>

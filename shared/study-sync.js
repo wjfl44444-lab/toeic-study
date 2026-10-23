@@ -128,6 +128,14 @@ export function connectStudySync(options = {}) {
     if (user && !guestBackupReady) message += " · 로그인 전 원본의 추가 백업을 저장하지 못했어요. 원래 기기 기록은 그대로 보관됩니다.";
     if (storageFailed && !message.includes("공간")) message += " · 기기 저장 공간 부족, 기록 백업 필요";
     render();
+    if (typeof options.onStatusChange === "function") {
+      // A status label alone is not readiness: wait for authentication, the
+      // first authoritative snapshot, no uncertain commit, and matching UI data.
+      const ready = authInitialized && (!user ? phase === "guest" :
+        phase === "linked" && Boolean(account?.linked) && (!independent || serverInitialized) &&
+        !account.lastSent && uploadAllowed() && semantic(getRaw()) === semantic(account.payload));
+      try { options.onStatusChange({ phase, ready: Boolean(ready) }); } catch { /* Consumer UI must not interrupt synchronization. */ }
+    }
   }
 
   function cacheKey(uid) { return `${prefix}account:${encodeURIComponent(uid)}`; }

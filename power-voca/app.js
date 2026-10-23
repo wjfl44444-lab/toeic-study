@@ -37,6 +37,7 @@
   var unreadableOriginal = null;
   var originalBackupKey = storageKey + ":unreadable-backup:" + Date.now();
   var accountEpoch = 0;
+  var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
   var letters = ["A", "B", "C", "D"];
   var views = ["loading", "error", "start", "quiz", "results"];
   // Taxonomy is external: do not alter any question object or saved fingerprint.
@@ -380,6 +381,13 @@
     select.replaceChildren();
     var all = node("option", "", group === "all" ? "모든 세부 범위" : "이 분류 전체");
     all.value = "all"; select.append(all);
+    if (group === "grammar-structures" && window.PowerGrammarRoute) {
+      window.PowerGrammarRoute.choices.forEach(function (scope) {
+        var option = node("option", "", scope.label + " (" + scope.count + "문제)");
+        option.value = scope.id; select.append(option);
+      });
+      select.value = window.PowerGrammarRoute.normalizeScope(selected); return;
+    }
     taxonomy.groups.forEach(function (section) {
       if (group !== "all" && group !== section.id) { return; }
       var target = select;
@@ -415,11 +423,18 @@
     });
   }
   function updateSettings() {
+    var grammar = Boolean(window.PowerGrammarRoute && el("group-filter").value === "grammar-structures");
+    el("step-filter-label").hidden = false;
+    el("grammar-resume-button").hidden = !grammar;
+    el("option-shuffle-setting").hidden = grammar;
+    text("question-shuffle-label", grammar ? "문제·보기 순서 함께 섞기" : "문제 순서 섞기");
     if (window.PowerGrammarRoute && el("group-filter").value === "grammar-structures") {
-      el("step-filter-label").hidden = true;
-      text("scope-description", "개편된 문형·구조는 단어별 형식·연결·전치사·어순을 묻는 별도 화면에서 연습해요. 기존 기록과 이어 풀기는 아래에 그대로 보존돼요.");
-      text("pool-summary", "개편판 " + window.PowerGrammarRoute.count + "개 학습 단위 · 새 기록은 별도로 저장해요.");
-      text("start-button", "개편된 문형·구조 열기 ↗"); el("start-button").disabled = false; return;
+      var chosen = window.PowerGrammarRoute.choices.find(function (scope) { return scope.id === el("step-filter").value; });
+      var total = chosen ? chosen.count : window.PowerGrammarRoute.count;
+      var size = el("round-size").value, count = size === "all" ? total : Math.min(Number(size), total);
+      text("scope-description", "형식·단어 뒤 연결·전치사·어순을 단어별로 확인해요. 1V~5V 보기는 고정 순서이며, 예전 풀이와 기록은 그대로 보존해요.");
+      text("pool-summary", "선택 범위 " + total + "문제 중 이번에는 " + count + "문제를 풀어요.");
+      text("start-button", el("shuffle-questions").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗"); el("start-button").disabled = false; return;
     }
     el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value;
@@ -434,7 +449,7 @@
     el("start-button").disabled = pool.length === 0;
   }
   function startSelected() {
-    var grammarUrl = window.PowerGrammarRoute && window.PowerGrammarRoute.launch(el("group-filter").value, el("step-filter").value);
+    var grammarUrl = window.PowerGrammarRoute && window.PowerGrammarRoute.launch(el("group-filter").value, el("step-filter").value, { count: el("round-size").value, shuffle: el("shuffle-questions").checked });
     if (grammarUrl) { window.location.assign(grammarUrl); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     var pool = filteredQuestions(), size = el("round-size").value;
@@ -522,6 +537,7 @@
     return result;
   }
   function showStart() {
+    if (requestedCategory) { el("group-filter").value = "grammar-structures"; populateSubscopes("all"); }
     showView("start");
     if (session) {
       var count = totals();
@@ -757,7 +773,7 @@
     if (mixedVerbScopes.indexOf(assigned.scope) !== -1) { scopeCounts[mixedScope] = (scopeCounts[mixedScope] || 0) + 1; }
   });
   taxonomy.groups.forEach(function (group) {
-    var option = node("option", "", group.label + " (" + (group.id === "grammar-structures" && window.PowerGrammarRoute ? window.PowerGrammarRoute.count.toLocaleString("ko-KR") + "개편 학습 단위" : (groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제") + ")");
+    var option = node("option", "", group.label + " (" + (group.id === "grammar-structures" && window.PowerGrammarRoute ? window.PowerGrammarRoute.count : groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제)");
     option.value = group.id; el("group-filter").append(option);
   });
   populateSubscopes("all");
@@ -773,7 +789,8 @@
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
-  el("group-filter").addEventListener("change", function () { populateSubscopes("all"); updateSettings(); saveState(); });
+  el("group-filter").addEventListener("change", function () { requestedCategory = false; if (window.history && window.location.search) window.history.replaceState(null, "", window.location.pathname); populateSubscopes("all"); updateSettings(); saveState(); });
+  el("grammar-resume-button").addEventListener("click", function () { window.location.assign(window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value, {mode:"resume"})); });
   el("step-filter").addEventListener("change", function () {
     var scope = taxonomy.subscopes.find(function (item) { return item.id === el("step-filter").value; });
     if (memoryReady && el("step-filter").value === mixedScope) { scope = { id: mixedScope, group: "grammar-structures" }; }
