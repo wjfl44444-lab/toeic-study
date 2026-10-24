@@ -37,10 +37,17 @@
   if (data && semanticReady) {
     data = Object.assign({}, data, { questions: data.questions.concat(semanticReview.questions) });
   }
+  var timeReview = window.POWER_VOCA_TIME_REVIEW;
+  var timeReady = timeReview && timeReview.version === "20261024-time1" &&
+    Array.isArray(timeReview.questions) && timeReview.replacements && timeReview.assignments;
+  if (data && timeReady) {
+    data = Object.assign({}, data, { questions: data.questions.concat(timeReview.questions) });
+  }
   function activeQuestion(q) {
     return (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
       (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id)) &&
-      (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id));
+      (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id)) &&
+      (!timeReady || !Object.prototype.hasOwnProperty.call(timeReview.replacements, q.id));
   }
   var activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var practice = window.POWER_VOCA_PRACTICE;
@@ -107,7 +114,7 @@
       .map(function (choice) { return letters[stage.choices.indexOf(choice)] + " · " + choice.text; }).join(" / ");
   }
   function classifyQuestion(q) {
-    return semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
@@ -499,7 +506,7 @@
     el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value;
     var count = size === "all" ? pool.length : Math.min(Number(size), pool.length);
-    text("pool-summary", "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요. 각 카드에는 1~2단계가 있어요.");
+    text("pool-summary", "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요. 문제에 따라 학습 단계 수가 달라요.");
     text("scope-description", groupDescriptions[el("group-filter").value] || "교재 구분 없이 학습 목표로 모았어요. 큰 분류와 세부 범위를 골라 연습하세요.");
     if (el("step-filter").value === mixedScope) {
       text("scope-description", "2·4·5형식, that절, to V·목적어 + to V·V-ing를 섞어요. 범위 이름으로 답을 짐작하지 않고 단어별로 필요한 구조를 떠올려 보세요.");
@@ -890,6 +897,9 @@
   }
   if (semanticReady && el("coverage-summary")) {
     text("coverage-summary", "다품사어·다의어는 단어별로, 혼동 어휘는 비교 세트로 연습해요. 해당하는 뜻을 모두 고르고 세트 마지막에 한 번에 채점해요. 기존에 저장한 풀이와 점수는 유지돼요.");
+  }
+  if (timeReady && timeReview.report && el("coverage-summary")) {
+    el("coverage-summary").append(document.createTextNode(" 시제·시간 표현 87개를 모두 점검하고, " + timeReview.report.revisedCards + "문제의 문맥과 보기를 보완했어요."));
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
