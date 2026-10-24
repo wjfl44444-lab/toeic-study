@@ -15,6 +15,18 @@
   if (data && memoryReady) {
     data = Object.assign({}, data, { questions: data.questions.concat(memoryPractice.questions) });
   }
+  var lexicalReview = window.POWER_VOCA_LEXICAL_REVIEW;
+  var lexicalReady = lexicalReview && lexicalReview.version === "20261024-lexical1" &&
+    Array.isArray(lexicalReview.questions) && lexicalReview.replacements && typeof lexicalReview.replacements === "object";
+  // Old IDs and immutable question objects remain available to saved rounds.
+  // Only fresh rounds substitute reviewed cards; additions do not inflate counts.
+  if (data && lexicalReady) {
+    data = Object.assign({}, data, { questions: data.questions.concat(lexicalReview.questions) });
+  }
+  function activeQuestion(q) {
+    return !lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id);
+  }
+  var activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var practice = window.POWER_VOCA_PRACTICE;
   var hardPractice = window.POWER_VOCA_HARD_PRACTICE;
   var practiceVersion = "20261019-hard2";
@@ -416,6 +428,7 @@
   function filteredQuestions() {
     var scope = el("step-filter").value, group = el("group-filter").value;
     return data.questions.filter(function (q) {
+      if (!activeQuestion(q)) { return false; }
       var assigned = scopeOf(q);
       if (window.PowerGrammarRoute) { return window.PowerGrammarRoute.include(group, scope, assigned); }
       return (group === "all" || assigned.group === group) &&
@@ -768,6 +781,7 @@
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
   data.questions.forEach(function (q) {
     var assigned = taxonomy.classify(q); questionScopes.set(q.id, assigned);
+    if (!activeQuestion(q)) { return; }
     scopeCounts[assigned.scope] = (scopeCounts[assigned.scope] || 0) + 1;
     groupCounts[assigned.group] = (groupCounts[assigned.group] || 0) + 1;
     if (mixedVerbScopes.indexOf(assigned.scope) !== -1) { scopeCounts[mixedScope] = (scopeCounts[mixedScope] || 0) + 1; }
@@ -779,13 +793,16 @@
   populateSubscopes("all");
   el("step-filter-label").hidden = false;
   restoreState();
-  document.querySelectorAll("[data-total]").forEach(function (item) { item.textContent = data.questions.length; });
+  document.querySelectorAll("[data-total]").forEach(function (item) { item.textContent = activeCount; });
   if (data.coverage && el("coverage-summary")) {
     text("coverage-summary", quickstartData ? "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + originalData.questions.length.toLocaleString("ko-KR") + "문제에 퀵스타트 " + quickstartData.questions.length.toLocaleString("ko-KR") + "문제를 더했어요. 같은 표현·학습 목표는 기존 문제에 연결하고, 구조·형태를 묻는 새 문제는 따로 연습해요. 전체 " + data.questions.length.toLocaleString("ko-KR") + "문제이며 문제 수는 단어 수와 달라요." : "학습 목표에 따른 " + taxonomy.groups.length + "개 큰 분류 · 기존 " + data.questions.length.toLocaleString("ko-KR") + "문제예요. 퀵스타트 추가 자료를 불러오지 못했다면 새로고침해 주세요. 기존 기록은 유지돼요.");
   }
   if (memoryReady && el("coverage-summary")) {
-    text("coverage-summary", "전체 " + data.questions.length.toLocaleString("ko-KR") + "문제 · 단어별 결합·문형 암기 연습. " +
+    text("coverage-summary", "전체 " + activeCount.toLocaleString("ko-KR") + "문제 · 단어별 결합·문형 암기 연습. " +
       Object.keys(memoryPractice.stages).length.toLocaleString("ko-KR") + "문제의 출제 방식을 개선하고, 빠진 쓰임 " + memoryPractice.questions.length + "문제를 더했어요. 저장된 풀이는 이전 문제 그대로 이어져요.");
+  }
+  if (lexicalReady && lexicalReview.report && el("coverage-summary")) {
+    text("coverage-summary", "교재 표현과 분류는 그대로 · " + lexicalReview.report.revisedCards + "문제의 뜻 보기·결합 단계를 보완했어요. 저장된 풀이와 기존 점수는 이전 문제 그대로 유지돼요.");
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
@@ -834,7 +851,7 @@
     summarizePayload: summarizeStudyPayload,
     getSync: function () { return studySync; },
     fingerprint: fingerprint,
-    getCatalogStats: function () { return { original: originalData.questions.length, added: quickstartData ? quickstartData.questions.length : 0, memory: memoryReady ? memoryPractice.questions.length : 0, total: data.questions.length }; }
+    getCatalogStats: function () { return { original: originalData.questions.length, added: quickstartData ? quickstartData.questions.length : 0, memory: memoryReady ? memoryPractice.questions.length : 0, total: activeCount }; }
   });
   if (el("export-records")) { el("export-records").addEventListener("click", exportRecords); }
   if (el("import-records") && el("import-records-file")) {
