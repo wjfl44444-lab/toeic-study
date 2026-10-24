@@ -23,8 +23,17 @@
   if (data && lexicalReady) {
     data = Object.assign({}, data, { questions: data.questions.concat(lexicalReview.questions) });
   }
+  var usageReview = window.POWER_VOCA_USAGE_REVIEW;
+  var usageReady = usageReview && usageReview.version === "20261024-usage1" &&
+    Array.isArray(usageReview.questions) && usageReview.replacements && usageReview.assignments &&
+    Array.isArray(usageReview.subscopes) && window.PowerVocaUsageRouting &&
+    typeof window.PowerVocaUsageRouting.createTaxonomy === "function";
+  if (data && usageReady) {
+    data = Object.assign({}, data, { questions: data.questions.concat(usageReview.questions) });
+  }
   function activeQuestion(q) {
-    return !lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id);
+    return (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
+      (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id));
   }
   var activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var practice = window.POWER_VOCA_PRACTICE;
@@ -55,6 +64,7 @@
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
   var taxonomy = window.PowerVocaTaxonomy;
+  if (usageReady) { taxonomy = window.PowerVocaUsageRouting.createTaxonomy(taxonomy, usageReview); }
   var questionScopes = new Map();
   var groupCounts = Object.create(null);
   var scopeCounts = Object.create(null);
@@ -64,9 +74,9 @@
   var groupDescriptions = {
     "grammar-structures": "어떤 동사가 목적어·보어·that절·to V·V-ing를 받는지 단어별로 익혀요. depend on 같은 자동사 + 전치사도 여기에 있어요.",
     "collocations": "place an order, strongly recommend처럼 함께 쓰이는 특정 단어의 조합을 모았어요.",
-    "word-forms": "대표 어형, 명사의 수, 분사형 형용사, 복합 명사와 수식 표현을 모았어요.",
+    "word-forms": "명사 쓰임·어형·복합명사·수식 표현을 단어별로 익혀요. 어떤 형태와 결합이 가능한지 직접 확인해요.",
     "time-expressions": "현재·과거·미래·완료 시제와 관련된 부사·시간 표현을 모았어요.",
-    "sentence-links": "전치사·접속사·접속부사가 나타내는 관계와 문장 연결 표현을 모았어요.",
+    "sentence-links": "원인·양보·조건 등 의미 관계 안에서 전치사·접속사·접속부사를 함께 연습해요. 표현의 뜻과 실제 연결 방식을 확인해요.",
     "meanings": "다의어·다품사어와 혼동 어휘, 비슷한 뜻의 재표현을 함께 확인해요."
   };
 
@@ -803,6 +813,9 @@
   }
   if (lexicalReady && lexicalReview.report && el("coverage-summary")) {
     text("coverage-summary", "교재 표현과 분류는 그대로 · " + lexicalReview.report.revisedCards + "문제의 뜻 보기·결합 단계를 보완했어요. 저장된 풀이와 기존 점수는 이전 문제 그대로 유지돼요.");
+  }
+  if (usageReady && usageReview.report && el("coverage-summary")) {
+    text("coverage-summary", "문장 연결은 의미 관계로, 어형·수식은 단어별 쓰임으로 정리했어요. " + usageReview.report.revisedCards + "문제를 보완했으며 시제·시간 표현과 저장된 풀이·점수는 그대로 유지해요.");
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
