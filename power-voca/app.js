@@ -31,9 +31,16 @@
   if (data && usageReady) {
     data = Object.assign({}, data, { questions: data.questions.concat(usageReview.questions) });
   }
+  var semanticReview = window.POWER_VOCA_SEMANTIC_REVIEW;
+  var semanticReady = semanticReview && semanticReview.version === "20261024-semantic1" &&
+    Array.isArray(semanticReview.questions) && semanticReview.replacements && semanticReview.assignments;
+  if (data && semanticReady) {
+    data = Object.assign({}, data, { questions: data.questions.concat(semanticReview.questions) });
+  }
   function activeQuestion(q) {
     return (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
-      (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id));
+      (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id)) &&
+      (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id));
   }
   var activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var practice = window.POWER_VOCA_PRACTICE;
@@ -59,7 +66,7 @@
   var originalBackupKey = storageKey + ":unreadable-backup:" + Date.now();
   var accountEpoch = 0;
   var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
-  var letters = ["A", "B", "C", "D"];
+  var letters = ["A", "B", "C", "D", "E", "F", "G", "H"];
   var views = ["loading", "error", "start", "quiz", "results"];
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
@@ -79,6 +86,29 @@
     "sentence-links": "원인·양보·조건 등 의미 관계 안에서 전치사·접속사·접속부사를 함께 연습해요. 표현의 뜻과 실제 연결 방식을 확인해요.",
     "meanings": "다의어·다품사어와 혼동 어휘, 비슷한 뜻의 재표현을 함께 확인해요."
   };
+
+  function nativeQuestion(q) { return q && q.format === "semantic-set1" && /^semantic1-/.test(q.id); }
+  function blindSet(card) { return nativeQuestion(card.question) && card.question.stageMode === "set"; }
+  function answerIndices(stage) { return stage.multiple ? stage.answers : [stage.answer]; }
+  function selectedIndices(stage) { return stage.selected === null ? [] : Array.isArray(stage.selected) ? stage.selected : [stage.selected]; }
+  function chose(stage, index) { return selectedIndices(stage).indexOf(index) !== -1; }
+  function stageCorrect(stage) {
+    var selected = selectedIndices(stage), answers = answerIndices(stage.data);
+    return selected.length === answers.length && answers.every(function (n) { return selected.indexOf(n) !== -1; });
+  }
+  function validSelection(selected, data) {
+    if (selected === null) { return true; }
+    var values = data.multiple ? selected : [selected];
+    return Array.isArray(values) && values.length > 0 && new Set(values).size === values.length &&
+      values.every(function (n) { return Number.isInteger(n) && n >= 0 && n < data.options.length; });
+  }
+  function describeChoices(stage, indices) {
+    return stage.choices.filter(function (choice) { return indices.indexOf(choice.originalIndex) !== -1; })
+      .map(function (choice) { return letters[stage.choices.indexOf(choice)] + " · " + choice.text; }).join(" / ");
+  }
+  function classifyQuestion(q) {
+    return semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+  }
 
   function el(id) { return document.getElementById(id); }
   function text(id, value) { el(id).textContent = value; }
@@ -194,18 +224,25 @@
           !Array.isArray(stored.stages) || stored.stages.length !== q.stages.length ||
           !Number.isInteger(stored.stageIndex) || stored.stageIndex < 0 || stored.stageIndex >= q.stages.length ||
           typeof stored.graded !== "boolean") { return null; }
-      var earlyEnd = stored.graded && saved.practiceVersion && stored.stageIndex === 0 && q.stages.length === 2 &&
+      var earlyEnd = q.stageMode !== "set" && stored.graded && saved.practiceVersion && stored.stageIndex === 0 && q.stages.length === 2 &&
         stored.stages[0] && stored.stages[0].selected !== null && stored.stages[0].selected !== q.stages[0].answer &&
         stored.stages[1] && stored.stages[1].selected === null;
       var stages = [];
       for (var j = 0; j < q.stages.length; j += 1) {
         var stage = stored.stages[j], order = stage && stage.order, stageData = practiceStage(q, j, version);
-        if (!stage || !Array.isArray(order) || order.length !== 4 || new Set(order).size !== 4 ||
-            !order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < 4; }) ||
-            !(stage.selected === null || Number.isInteger(stage.selected) && stage.selected >= 0 && stage.selected < 4) ||
+        if (!stage || !Array.isArray(order) || order.length !== stageData.options.length || new Set(order).size !== order.length ||
+            !order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < order.length; }) ||
+            !validSelection(stage.selected, stageData) ||
             stored.graded && stage.selected === null && !(earlyEnd && j === 1)) { return null; }
         stages.push({ data: stageData, selected: stage.selected, choices: order.map(function (n) { return { text: stageData.options[n], originalIndex: n }; }) });
       }
+      var sharedOrders = Object.create(null);
+      if (stages.some(function (s) {
+        var key = s.data.choiceGroup, order = s.choices.map(function (c) { return c.originalIndex; }).join("");
+        if (!key) { return false; }
+        if (sharedOrders[key] && sharedOrders[key] !== order) { return true; }
+        sharedOrders[key] = order; return false;
+      })) { return null; }
       cards.push({ question: q, stageIndex: stored.stageIndex, graded: stored.graded, deferred: stored.deferred === true, stages: stages });
       ids.add(q.id);
     }
@@ -386,7 +423,7 @@
     item.attempts += 1;
     if (isAllCorrect(card)) { item.correct += 1; }
     item.stagesGraded += card.stages.filter(function (stage) { return stage.selected !== null; }).length;
-    item.stagesCorrect += card.stages.filter(function (stage) { return stage.selected === stage.data.answer; }).length;
+    item.stagesCorrect += card.stages.filter(stageCorrect).length;
     item.lastCorrect = isAllCorrect(card); item.lastStudiedAt = new Date().toISOString();
     history[id] = item;
   }
@@ -480,13 +517,17 @@
     if (size !== "all") { pool = pool.slice(0, Number(size)); }
     if (pool.length) { begin(pool, "all", false); }
   }
-  function validStage(stage) {
+  function validStage(stage, native) {
     return stage && typeof stage.prompt === "string" && stage.prompt.trim() &&
-      Array.isArray(stage.options) && stage.options.length === 4 &&
+      Array.isArray(stage.options) && stage.options.length >= 4 && stage.options.length <= (native ? 8 : 4) &&
+      new Set(stage.options).size === stage.options.length &&
       stage.options.every(function (value) { return typeof value === "string" && value.trim(); }) &&
-      Number.isInteger(stage.answer) && stage.answer >= 0 && stage.answer < 4 &&
+      (native && stage.multiple ? Array.isArray(stage.answers) && stage.answers.length > 0 &&
+        stage.answers.length < stage.options.length && new Set(stage.answers).size === stage.answers.length &&
+        stage.answers.every(function (n) { return Number.isInteger(n) && n >= 0 && n < stage.options.length; }) :
+        Number.isInteger(stage.answer) && stage.answer >= 0 && stage.answer < stage.options.length) &&
       typeof stage.explanation === "string" && stage.explanation.trim() &&
-      Array.isArray(stage.optionReasons) && stage.optionReasons.length === 4 &&
+      Array.isArray(stage.optionReasons) && stage.optionReasons.length === stage.options.length &&
       stage.optionReasons.every(function (value) { return typeof value === "string" && value.trim(); });
   }
   function hasPracticeOptions(version) {
@@ -511,7 +552,7 @@
   }
   function isLinkedMeaningStage(card, index) {
     var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
-    return index > 0 && !(meta && meta.independent) && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
+    return index > 0 && !blindSet(card) && !(meta && meta.independent) && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
   }
   function questionDetail(card, key) {
     var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
@@ -533,7 +574,7 @@
     for (var i = 0; i < value.questions.length; i += 1) {
       var q = value.questions[i];
       if (!q || !q.id || ids.has(q.id) || !Array.isArray(q.stages) ||
-          q.stages.length < 1 || q.stages.length > 2 || !q.stages.every(validStage) ||
+          q.stages.length < 1 || q.stages.length > (nativeQuestion(q) ? 12 : 2) || !q.stages.every(function (s) { return validStage(s, nativeQuestion(q)); }) ||
           typeof q.learningPoint !== "string" || !q.answerSummary ||
           typeof q.answerSummary.expression !== "string" || !q.answerSummary.expression.trim() ||
           typeof q.answerSummary.meaning !== "string" || !q.answerSummary.meaning.trim()) {
@@ -544,7 +585,7 @@
     return null;
   }
   function isAllCorrect(card) {
-    return card.graded && card.stages.every(function (stage) { return stage.selected === stage.data.answer; });
+    return card.graded && card.stages.every(stageCorrect);
   }
   function totals() {
     var result = { correct: 0, wrong: 0, ungraded: 0, stagesCorrect: 0, stagesGraded: 0 };
@@ -554,7 +595,7 @@
       card.stages.forEach(function (stage) {
         if (stage.selected === null) { return; }
         result.stagesGraded += 1;
-        if (stage.selected === stage.data.answer) { result.stagesCorrect += 1; }
+        if (stageCorrect(stage)) { result.stagesCorrect += 1; }
       });
     });
     return result;
@@ -582,11 +623,17 @@
     var ordered = mixQuestions ? shuffled(questions) : questions.slice();
     var version = latestPracticeVersion();
     session = { mode: mode, index: 0, startedAt: new Date().toISOString(), practiceVersion: version, cards: ordered.map(function (question) {
+      var sharedChoices = Object.create(null);
       return { question: question, stageIndex: 0, graded: false, deferred: false,
         stages: question.stages.map(function (_, index) {
           var stage = practiceStage(question, index, version);
           var choices = stage.options.map(function (option, index) { return { text: option, originalIndex: index }; });
-          return { data: stage, choices: mixOptions ? shuffled(choices) : choices, selected: null };
+          choices = mixOptions ? shuffled(choices) : choices;
+          if (stage.choiceGroup) {
+            if (sharedChoices[stage.choiceGroup]) { choices = sharedChoices[stage.choiceGroup].map(function (i) { return { text: stage.options[i], originalIndex: i }; }); }
+            else { sharedChoices[stage.choiceGroup] = choices.map(function (choice) { return choice.originalIndex; }); }
+          }
+          return { data: stage, choices: choices, selected: null };
         }) };
     }) };
     renderQuestion(true);
@@ -595,34 +642,39 @@
   function currentStage() { var card = currentCard(); return card.stages[card.stageIndex]; }
   function createOption(card, stage, choice, displayIndex) {
     var label = node("label", "option");
-    if (stage.selected === choice.originalIndex) { label.classList.add("selected"); }
+    if (chose(stage, choice.originalIndex)) { label.classList.add("selected"); }
     if (card.graded) {
       label.classList.add("locked");
-      if (choice.originalIndex === stage.data.answer) { label.classList.add("correct"); }
-      else if (stage.selected === choice.originalIndex) { label.classList.add("incorrect"); }
+      if (answerIndices(stage.data).indexOf(choice.originalIndex) !== -1) { label.classList.add("correct"); }
+      else if (chose(stage, choice.originalIndex)) { label.classList.add("incorrect"); }
     }
     var input = document.createElement("input");
-    input.type = "radio"; input.name = "answer"; input.value = String(choice.originalIndex);
-    input.checked = stage.selected === choice.originalIndex; input.disabled = card.graded;
+    input.type = stage.data.multiple ? "checkbox" : "radio"; input.name = "answer"; input.value = String(choice.originalIndex);
+    input.checked = chose(stage, choice.originalIndex); input.disabled = card.graded;
     input.setAttribute("aria-label", letters[displayIndex] + ". " + choice.text);
     var letter = node("span", "option-letter", letters[displayIndex]); letter.setAttribute("aria-hidden", "true");
     label.append(input, letter, node("span", "option-text", choice.text));
-    if (card.graded && (choice.originalIndex === stage.data.answer || choice.originalIndex === stage.selected)) {
-      label.append(node("span", "option-tag", choice.originalIndex === stage.data.answer ? "정답" : "선택한 답"));
+    if (card.graded && (answerIndices(stage.data).indexOf(choice.originalIndex) !== -1 || chose(stage, choice.originalIndex))) {
+      label.append(node("span", "option-tag", answerIndices(stage.data).indexOf(choice.originalIndex) !== -1 ? "정답" : "선택한 답"));
     }
     input.addEventListener("change", function () {
       if (card.graded) { return; }
-      if (card.stageIndex === 0 && stage.selected !== choice.originalIndex) {
+      if (!blindSet(card) && card.stageIndex === 0 && stage.selected !== choice.originalIndex) {
         card.stages.slice(1).forEach(function (later) { later.selected = null; });
       }
-      stage.selected = choice.originalIndex; card.deferred = false;
+      if (stage.data.multiple) {
+        var selected = selectedIndices(stage).filter(function (n) { return n !== choice.originalIndex; });
+        if (input.checked) { selected.push(choice.originalIndex); }
+        stage.selected = selected.length ? selected.sort(function (a,b) { return a-b; }) : null;
+      } else { stage.selected = choice.originalIndex; }
+      card.deferred = false;
       saveState();
       Array.prototype.forEach.call(el("options-list").children, function (item) {
         item.classList.toggle("selected", item.querySelector("input").checked);
       });
-      el("grade-button").disabled = false;
-      text("question-state", "선택 완료 · 아직 미채점");
-      announce(letters[displayIndex] + "번을 선택했어요. " + (card.stageIndex < card.stages.length - 1 ? "답 확인을 누르면 맞았을 때만 다음 단계로 넘어가요." : "채점하기를 누르면 해설이 공개돼요."));
+      el("grade-button").disabled = stage.selected === null;
+      text("question-state", stage.selected === null ? "미채점" : "선택 완료 · 아직 미채점");
+      announce(letters[displayIndex] + (input.checked ? "번을 선택했어요. " : "번 선택을 해제했어요. ") + (blindSet(card) ? "세트가 끝난 뒤 한 번에 채점해요." : card.stageIndex < card.stages.length - 1 ? "답 확인을 누르면 맞았을 때만 다음 단계로 넘어가요." : "채점하기를 누르면 해설이 공개돼요."));
     });
     return label;
   }
@@ -632,7 +684,7 @@
     return section;
   }
   function renderFeedback(card) {
-    var correctCount = card.stages.filter(function (stage) { return stage.selected === stage.data.answer; }).length;
+    var correctCount = card.stages.filter(stageCorrect).length;
     var allCorrect = correctCount === card.stages.length;
     var attempted = card.stages.filter(function (stage) { return stage.selected !== null; }).length;
     el("feedback-panel").classList.toggle("wrong", !allCorrect);
@@ -647,25 +699,30 @@
     card.stages.forEach(function (stage, stageIndex) {
       var stageData = stage.data;
       var box = node("section", "stage-feedback");
-      var isCorrect = stage.selected === stageData.answer;
+      var isCorrect = stageCorrect(stage);
       var skipped = stage.selected === null;
       box.append(node("h3", "stage-feedback-title" + (skipped ? "" : isCorrect ? " correct" : " wrong"), (stageIndex + 1) + "단계 · " + (skipped ? "미진행 · 복습용 해설" : isCorrect ? "정답" : "오답")));
       box.append(node("p", "stage-feedback-prompt", stagePrompt(card, stageIndex)));
-      var answerIndex = stage.choices.findIndex(function (choice) { return choice.originalIndex === stageData.answer; });
-      var selectedIndex = stage.choices.findIndex(function (choice) { return choice.originalIndex === stage.selected; });
-      box.append(node("p", "stage-answer-line", "정답 " + letters[answerIndex] + " · " + stageData.options[stageData.answer]));
+      box.append(node("p", "stage-answer-line", "정답 " + describeChoices(stage, answerIndices(stageData))));
       box.append(node("p", "stage-selected-line", skipped ? "1단계에서 틀려 진행하지 않았어요. 이 단계는 채점 횟수에 포함하지 않아요." :
-        "선택한 답 " + letters[selectedIndex] + " · " + stageData.options[stage.selected]));
+        "선택한 답 " + describeChoices(stage, selectedIndices(stage))));
+      if (stageData.multiple && !skipped) {
+        var missing = answerIndices(stageData).filter(function (n) { return !chose(stage,n); });
+        var extra = selectedIndices(stage).filter(function (n) { return answerIndices(stageData).indexOf(n) === -1; });
+        if (missing.length) { box.append(node("p", "stage-selected-line", "빠뜨린 뜻 · " + describeChoices(stage, missing))); }
+        if (extra.length) { box.append(node("p", "stage-selected-line", "다시 볼 선택 · " + describeChoices(stage, extra))); }
+      }
       if (stageData.translation) { box.append(feedbackSection("문장 해석", stageData.translation)); }
       box.append(feedbackSection("정답 근거", stageData.explanation));
       var reasons = node("div", "feedback-section"); reasons.append(node("h3", "", "선택지 하나씩 확인하기"));
       var list = node("ol", "reason-list");
       stage.choices.forEach(function (choice, index) {
-        var item = node("li", "reason-item" + (choice.originalIndex === stageData.answer ? " is-answer" : ""));
+        var correctChoice = answerIndices(stageData).indexOf(choice.originalIndex) !== -1;
+        var item = node("li", "reason-item" + (correctChoice ? " is-answer" : ""));
         var heading = node("div", "reason-item-heading");
         heading.append(node("span", "reason-letter", letters[index]), node("span", "reason-option", choice.text));
-        if (choice.originalIndex === stageData.answer) { heading.append(node("span", "reason-mark", "정답")); }
-        else if (choice.originalIndex === stage.selected) { heading.append(node("span", "reason-mark", "선택한 답")); }
+        if (correctChoice) { heading.append(node("span", "reason-mark", "정답")); }
+        else if (chose(stage, choice.originalIndex)) { heading.append(node("span", "reason-mark", "선택한 답")); }
         item.append(heading, node("p", "", stageData.optionReasons[choice.originalIndex])); list.append(item);
       });
       reasons.append(list); box.append(reasons); feedbackList.append(box);
@@ -702,22 +759,36 @@
     el("progress-fill").style.width = (progress / session.cards.length * 100) + "%";
     text("question-number", "QUESTION " + String(session.index + 1).padStart(2, "0"));
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
-    text("stage-indicator", (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (card.stages.length > 1 && !card.graded ? " · 첫 답을 맞히면 다음 단계" : ""));
+    text("stage-indicator", (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (!card.graded ? blindSet(card) ? " · 세트 마지막에 한 번에 채점" : card.stages.length > 1 ? " · 첫 답을 맞히면 다음 단계" : "" : ""));
     el("previous-stage-button").hidden = card.stageIndex === 0;
     text("question-instruction", isLinkedMeaningStage(card, card.stageIndex) ? "완성된 표현의 뜻을 고르세요." :
       stage.data.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.");
     text("question-heading", stagePrompt(card, card.stageIndex));
+    var wordList = el("semantic-words"); wordList.replaceChildren();
+    wordList.hidden = !Array.isArray(card.question.words);
+    if (!wordList.hidden) {
+      card.question.words.forEach(function (word) {
+        var active = word === stage.data.focusWord;
+        var chip = node(active ? "strong" : "span", "semantic-word" + (active ? " active" : ""), word);
+        if (active) { chip.setAttribute("aria-current", "step"); }
+        wordList.append(chip);
+      });
+    }
     var list = el("options-list"); list.replaceChildren();
+    list.classList.toggle("options-grid", stage.choices.length > 4);
+    list.style.gridTemplateRows = stage.choices.length > 4 ? "repeat(" + Math.ceil(stage.choices.length / 2) + ", auto)" : "";
+    text("options-legend", stage.data.multiple ? "해당하는 답을 모두 선택하세요." : "정답을 하나 선택하세요.");
     stage.choices.forEach(function (choice, index) { list.append(createOption(card, stage, choice, index)); });
     el("previous-button").disabled = session.index === 0;
     el("skip-button").hidden = card.graded;
     el("grade-button").hidden = card.graded;
     el("grade-button").disabled = stage.selected == null;
-    text("grade-button", card.stageIndex < card.stages.length - 1 ? "답 확인 →" : "채점하기");
+    text("grade-button", card.stageIndex < card.stages.length - 1 ? blindSet(card) ? "다음 단계 →" : "답 확인 →" : blindSet(card) ? "세트 채점하기" : "채점하기");
     el("next-button").hidden = !card.graded;
     var nextLabel = session.index === session.cards.length - 1 ? "풀이 결과 보기" : "다음 문제 →";
     text("next-button", nextLabel); text("feedback-next-button", nextLabel);
-    text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : card.stages.length > 1 ?
+    text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : blindSet(card) ?
+      (stage.data.multiple ? "해당하는 답을 모두 선택하세요. " : "") + "중간에는 정오답을 표시하지 않아요. 세트를 마친 뒤 선택한 답과 정답을 함께 확인해요." : card.stages.length > 1 ?
       "첫 답이 틀리면 바로 오답 처리해요. 맞히면 다음 단계로 넘어가고, 마지막 채점 후 해설을 보여줘요." : "선택만으로 정답이 공개되지 않아요.");
     el("feedback-panel").hidden = !card.graded;
     if (card.graded) { renderFeedback(card); } else { clearFeedback(); }
@@ -727,7 +798,7 @@
   function submitStage() {
     var card = currentCard(), stage = currentStage();
     if (card.graded || stage.selected == null) { return; }
-    if (card.stageIndex === 0 && card.stages.length > 1 && stage.selected !== stage.data.answer) {
+    if (!blindSet(card) && card.stageIndex === 0 && card.stages.length > 1 && !stageCorrect(stage)) {
       card.stages.slice(1).forEach(function (later) { later.selected = null; });
       if (!session.practiceVersion) { session.practiceVersion = legacyGatedVersion; }
       finishCard(card);
@@ -736,7 +807,7 @@
     }
     if (card.stageIndex < card.stages.length - 1) {
       card.stageIndex += 1; renderQuestion(true);
-      announce("1단계 정답이에요. " + (card.stageIndex + 1) + "단계의 답을 골라 주세요.");
+      announce((blindSet(card) ? "선택을 저장했어요. " : "1단계 정답이에요. ") + (card.stageIndex + 1) + "단계의 답을 골라 주세요.");
       return;
     }
     var missing = card.stages.findIndex(function (item) { return item.selected == null; });
@@ -790,7 +861,7 @@
   if (error) { text("error-message", error); showView("error"); return; }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
   data.questions.forEach(function (q) {
-    var assigned = taxonomy.classify(q); questionScopes.set(q.id, assigned);
+    var assigned = classifyQuestion(q); questionScopes.set(q.id, assigned);
     if (!activeQuestion(q)) { return; }
     scopeCounts[assigned.scope] = (scopeCounts[assigned.scope] || 0) + 1;
     groupCounts[assigned.group] = (groupCounts[assigned.group] || 0) + 1;
@@ -816,6 +887,9 @@
   }
   if (usageReady && usageReview.report && el("coverage-summary")) {
     text("coverage-summary", "문장 연결은 의미 관계로, 어형·수식은 단어별 쓰임으로 정리했어요. " + usageReview.report.revisedCards + "문제를 보완했으며 시제·시간 표현과 저장된 풀이·점수는 그대로 유지해요.");
+  }
+  if (semanticReady && el("coverage-summary")) {
+    text("coverage-summary", "다품사어·다의어는 단어별로, 혼동 어휘는 비교 세트로 연습해요. 해당하는 뜻을 모두 고르고 세트 마지막에 한 번에 채점해요. 기존에 저장한 풀이와 점수는 유지돼요.");
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
