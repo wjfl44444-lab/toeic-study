@@ -43,11 +43,18 @@
   if (data && timeReady) {
     data = Object.assign({}, data, { questions: data.questions.concat(timeReview.questions) });
   }
+  var experienceReview = window.POWER_VOCA_EXPERIENCE_REVIEW;
+  var experienceReady = experienceReview && experienceReview.version === "20261025-experience1" &&
+    Array.isArray(experienceReview.questions) && experienceReview.replacements && experienceReview.assignments;
+  if (data && experienceReady) {
+    data = Object.assign({}, data, { questions: data.questions.concat(experienceReview.questions) });
+  }
   function activeQuestion(q) {
-    return (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
+    return !q.internalRoute && (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
       (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id)) &&
       (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id)) &&
-      (!timeReady || !Object.prototype.hasOwnProperty.call(timeReview.replacements, q.id));
+      (!timeReady || !Object.prototype.hasOwnProperty.call(timeReview.replacements, q.id)) &&
+      (!experienceReady || !Object.prototype.hasOwnProperty.call(experienceReview.replacements, q.id));
   }
   var activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var practice = window.POWER_VOCA_PRACTICE;
@@ -75,6 +82,9 @@
   var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
   var letters = ["A", "B", "C", "D", "E", "F", "G", "H"];
   var views = ["loading", "error", "start", "quiz", "results"];
+  var grammarEmbedded = null;
+  var grammarEmbeddedReady = Boolean(window.PowerGrammarEmbedded && window.GRAMMAR_PREVIEW && el("grammar-view"));
+  if (grammarEmbeddedReady) { views.push("grammar"); }
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
   var taxonomy = window.PowerVocaTaxonomy;
@@ -111,10 +121,21 @@
   }
   function describeChoices(stage, indices) {
     return stage.choices.filter(function (choice) { return indices.indexOf(choice.originalIndex) !== -1; })
-      .map(function (choice) { return letters[stage.choices.indexOf(choice)] + " · " + choice.text; }).join(" / ");
+      .map(function (choice) { return letters[stage.choices.indexOf(choice)] + " · " + cleanOption(choice.text); }).join(" / ");
+  }
+  function cleanOption(value) { return String(value).replace(/^뜻은\s*[「『\[](.+)[」』\]](?:이다)?\.?$/, "$1"); }
+  function visiblePrompt(card, index) {
+    var raw = stagePrompt(card,index), match = raw.match(/\n\s*대상 표현:\s*([^\n]+)\s*$/);
+    return match ? raw.slice(0,match.index).trim() || match[1] : raw;
+  }
+  function visibleInstruction(card, index) {
+    var s = card.stages[index].data, raw = stagePrompt(card,index), match = raw.match(/대상 표현:\s*([^\n]+)\s*$/);
+    if (match && /뜻|의미/.test(s.instruction || "")) { return match[1] + "의 뜻을 고르세요."; }
+    if (match && /유사|비슷|가까운/.test(s.instruction || "")) { return match[1] + "와 비슷한 표현을 고르세요."; }
+    return s.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.";
   }
   function classifyQuestion(q) {
-    return timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
@@ -133,7 +154,18 @@
   }
   function focusHeading(id) {
     el(id).focus({ preventScroll: true });
-    window.scrollTo({ top: 0, behavior: "auto" });
+    (el(id).closest(".question-panel") || el(id)).scrollIntoView({ block: "start", behavior: "auto" });
+  }
+  function launchEmbeddedGrammar(mode) {
+    if (!grammarEmbedded) {
+      grammarEmbedded = window.PowerGrammarEmbedded.create({ container: el("grammar-view"), onHome: showStart,
+        onNotice: announce, onReady: function () { if (view === "start") { updateSettings(); } } });
+    }
+    showView("grammar");
+    if (mode === "resume") { grammarEmbedded.resume(); return; }
+    var url = window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value,
+      { count: el("round-size").value, shuffle: el("shuffle-questions").checked });
+    grammarEmbedded.start(window.PowerGrammarRoute.request(url.slice(url.indexOf("?") + 1)));
   }
   function shuffled(items) {
     var copy = items.slice();
@@ -250,6 +282,11 @@
         if (sharedOrders[key] && sharedOrders[key] !== order) { return true; }
         sharedOrders[key] = order; return false;
       })) { return null; }
+      if (q.routeRoot && (stored.graded || stored.stageIndex > 0)) {
+        var rootQuestion = questionMap.get(q.routeRoot), picked = selectedIndices(stages[0]);
+        if (!rootQuestion || posRouteId(rootQuestion,picked) !== q.id ||
+            picked.some(function (n) { return answerIndices(stages[0].data).indexOf(n) === -1; })) { return null; }
+      }
       cards.push({ question: q, stageIndex: stored.stageIndex, graded: stored.graded, deferred: stored.deferred === true, stages: stages });
       ids.add(q.id);
     }
@@ -420,7 +457,7 @@
     }
   }
   function recordCard(card) {
-    var id = card.question.id;
+    var id = card.question.historyKey || card.question.id;
     var item = history[id];
     if (!item || item.signature !== signatures.get(id)) {
       if (item && syncModel) { archivedHistory.push(Object.assign({ id: id }, item)); }
@@ -516,6 +553,7 @@
     el("start-button").disabled = pool.length === 0;
   }
   function startSelected() {
+    if (grammarEmbeddedReady && el("group-filter").value === "grammar-structures") { launchEmbeddedGrammar("new"); return; }
     var grammarUrl = window.PowerGrammarRoute && window.PowerGrammarRoute.launch(el("group-filter").value, el("step-filter").value, { count: el("round-size").value, shuffle: el("shuffle-questions").checked });
     if (grammarUrl) { window.location.assign(grammarUrl); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
@@ -627,6 +665,7 @@
     unavailableSession = null;
     var mixQuestions = forceShuffle || el("shuffle-questions").checked;
     var mixOptions = forceShuffle || el("shuffle-options").checked;
+    questions = questions.map(function (q) { return q.routeRoot && questionMap.get(q.routeRoot) || q; });
     var ordered = mixQuestions ? shuffled(questions) : questions.slice();
     var version = latestPracticeVersion();
     session = { mode: mode, index: 0, startedAt: new Date().toISOString(), practiceVersion: version, cards: ordered.map(function (question) {
@@ -635,7 +674,7 @@
         stages: question.stages.map(function (_, index) {
           var stage = practiceStage(question, index, version);
           var choices = stage.options.map(function (option, index) { return { text: option, originalIndex: index }; });
-          choices = mixOptions ? shuffled(choices) : choices;
+          choices = mixOptions && !stage.fixedOrder ? shuffled(choices) : choices;
           if (stage.choiceGroup) {
             if (sharedChoices[stage.choiceGroup]) { choices = sharedChoices[stage.choiceGroup].map(function (i) { return { text: stage.options[i], originalIndex: i }; }); }
             else { sharedChoices[stage.choiceGroup] = choices.map(function (choice) { return choice.originalIndex; }); }
@@ -647,6 +686,32 @@
   }
   function currentCard() { return session.cards[session.index]; }
   function currentStage() { var card = currentCard(); return card.stages[card.stageIndex]; }
+  function posFlowRoot(card) {
+    var q = card.question.routeRoot ? questionMap.get(card.question.routeRoot) : card.question;
+    return q && q.flow === "chosen-pos" ? q : null;
+  }
+  function posRouteId(root, selected) { return root.id + "-r" + selected.reduce(function (mask, n) { return mask | 1 << n; }, 0); }
+  function submitPosChoice(card) {
+    var root = posFlowRoot(card), first = card.stages[0];
+    if (!root || card.stageIndex !== 0) { return false; }
+    var picked = selectedIndices(first), answers = answerIndices(first.data);
+    if (picked.some(function (n) { return answers.indexOf(n) === -1; })) {
+      card.question = root; card.stages = [first]; card.stageIndex = 0; finishCard(card);
+      announce("학습한 품사에 해당하지 않는 선택이 있어 이 문제를 종료했어요. 정답과 뜻을 확인해 보세요."); return true;
+    }
+    var routed = questionMap.get(posRouteId(root, picked));
+    if (!routed) { announce("선택한 품사의 문제를 준비하지 못했어요. 답은 그대로 보관돼요."); return true; }
+    if (card.question.id !== routed.id) {
+      var mixOptions = el("shuffle-options").checked;
+      card.question = routed;
+      card.stages = [first].concat(routed.stages.slice(1).map(function (s) {
+        var choices = s.options.map(function (text, n) { return { text: text, originalIndex: n }; });
+        return { data: s, choices: mixOptions && !s.fixedOrder ? shuffled(choices) : choices, selected: null };
+      }));
+    }
+    card.stageIndex = 1; renderQuestion(true);
+    announce("선택한 품사의 뜻을 이어서 골라 주세요."); return true;
+  }
   function createOption(card, stage, choice, displayIndex) {
     var label = node("label", "option");
     if (chose(stage, choice.originalIndex)) { label.classList.add("selected"); }
@@ -660,7 +725,7 @@
     input.checked = chose(stage, choice.originalIndex); input.disabled = card.graded;
     input.setAttribute("aria-label", letters[displayIndex] + ". " + choice.text);
     var letter = node("span", "option-letter", letters[displayIndex]); letter.setAttribute("aria-hidden", "true");
-    label.append(input, letter, node("span", "option-text", choice.text));
+    label.append(input, letter, node("span", "option-text", cleanOption(choice.text)));
     if (card.graded && (answerIndices(stage.data).indexOf(choice.originalIndex) !== -1 || chose(stage, choice.originalIndex))) {
       label.append(node("span", "option-tag", answerIndices(stage.data).indexOf(choice.originalIndex) !== -1 ? "정답" : "선택한 답"));
     }
@@ -675,13 +740,14 @@
         stage.selected = selected.length ? selected.sort(function (a,b) { return a-b; }) : null;
       } else { stage.selected = choice.originalIndex; }
       card.deferred = false;
+      if (posFlowRoot(card) && card.stageIndex === 0) { card.stages.slice(1).forEach(function (s) { s.selected = null; }); }
       saveState();
       Array.prototype.forEach.call(el("options-list").children, function (item) {
         item.classList.toggle("selected", item.querySelector("input").checked);
       });
       el("grade-button").disabled = stage.selected === null;
       text("question-state", stage.selected === null ? "미채점" : "선택 완료 · 아직 미채점");
-      announce(letters[displayIndex] + (input.checked ? "번을 선택했어요. " : "번 선택을 해제했어요. ") + (blindSet(card) ? "세트가 끝난 뒤 한 번에 채점해요." : card.stageIndex < card.stages.length - 1 ? "답 확인을 누르면 맞았을 때만 다음 단계로 넘어가요." : "채점하기를 누르면 해설이 공개돼요."));
+      announce(letters[displayIndex] + (input.checked ? "번을 선택했어요. " : "번 선택을 해제했어요. ") + (posFlowRoot(card) && card.stageIndex === 0 ? "답 확인을 누르면 선택한 품사에 맞춰 진행해요." : blindSet(card) ? "세트가 끝난 뒤 한 번에 채점해요." : card.stageIndex < card.stages.length - 1 ? "답 확인을 누르면 맞았을 때만 다음 단계로 넘어가요." : "채점하기를 누르면 해설이 공개돼요."));
     });
     return label;
   }
@@ -699,7 +765,7 @@
     text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
       card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
     var summary = questionDetail(card, "answerSummary");
-    text("answer-summary-expression", summary.expression);
+    text("answer-summary-expression", card.question.displayExpression || summary.expression);
     text("answer-summary-meaning", summary.meaning);
     el("answer-summary").hidden = false;
     var feedbackList = el("stage-feedback-list"); feedbackList.replaceChildren();
@@ -709,14 +775,14 @@
       var isCorrect = stageCorrect(stage);
       var skipped = stage.selected === null;
       box.append(node("h3", "stage-feedback-title" + (skipped ? "" : isCorrect ? " correct" : " wrong"), (stageIndex + 1) + "단계 · " + (skipped ? "미진행 · 복습용 해설" : isCorrect ? "정답" : "오답")));
-      box.append(node("p", "stage-feedback-prompt", stagePrompt(card, stageIndex)));
+      box.append(node("p", "stage-feedback-prompt", visiblePrompt(card, stageIndex)));
       box.append(node("p", "stage-answer-line", "정답 " + describeChoices(stage, answerIndices(stageData))));
       box.append(node("p", "stage-selected-line", skipped ? "1단계에서 틀려 진행하지 않았어요. 이 단계는 채점 횟수에 포함하지 않아요." :
         "선택한 답 " + describeChoices(stage, selectedIndices(stage))));
       if (stageData.multiple && !skipped) {
         var missing = answerIndices(stageData).filter(function (n) { return !chose(stage,n); });
         var extra = selectedIndices(stage).filter(function (n) { return answerIndices(stageData).indexOf(n) === -1; });
-        if (missing.length) { box.append(node("p", "stage-selected-line", "빠뜨린 뜻 · " + describeChoices(stage, missing))); }
+        if (missing.length) { box.append(node("p", "stage-selected-line", (stageData.kind === "semantic-pos" ? "빠뜨린 품사 · " : "빠뜨린 뜻 · ") + describeChoices(stage, missing))); }
         if (extra.length) { box.append(node("p", "stage-selected-line", "다시 볼 선택 · " + describeChoices(stage, extra))); }
       }
       if (stageData.translation) { box.append(feedbackSection("문장 해석", stageData.translation)); }
@@ -727,7 +793,7 @@
         var correctChoice = answerIndices(stageData).indexOf(choice.originalIndex) !== -1;
         var item = node("li", "reason-item" + (correctChoice ? " is-answer" : ""));
         var heading = node("div", "reason-item-heading");
-        heading.append(node("span", "reason-letter", letters[index]), node("span", "reason-option", choice.text));
+        heading.append(node("span", "reason-letter", letters[index]), node("span", "reason-option", cleanOption(choice.text)));
         if (correctChoice) { heading.append(node("span", "reason-mark", "정답")); }
         else if (chose(stage, choice.originalIndex)) { heading.append(node("span", "reason-mark", "선택한 답")); }
         item.append(heading, node("p", "", stageData.optionReasons[choice.originalIndex])); list.append(item);
@@ -766,11 +832,12 @@
     el("progress-fill").style.width = (progress / session.cards.length * 100) + "%";
     text("question-number", "QUESTION " + String(session.index + 1).padStart(2, "0"));
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
-    text("stage-indicator", (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (!card.graded ? blindSet(card) ? " · 세트 마지막에 한 번에 채점" : card.stages.length > 1 ? " · 첫 답을 맞히면 다음 단계" : "" : ""));
+    var posFirst = Boolean(posFlowRoot(card) && card.stageIndex === 0 && !card.graded);
+    text("stage-indicator", posFirst ? "품사 선택 · 선택한 품사의 뜻으로 이어져요" : (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (!card.graded ? blindSet(card) ? " · 세트 마지막에 한 번에 채점" : card.stages.length > 1 ? " · 첫 답을 맞히면 다음 단계" : "" : ""));
     el("previous-stage-button").hidden = card.stageIndex === 0;
     text("question-instruction", isLinkedMeaningStage(card, card.stageIndex) ? "완성된 표현의 뜻을 고르세요." :
-      stage.data.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.");
-    text("question-heading", stagePrompt(card, card.stageIndex));
+      visibleInstruction(card, card.stageIndex));
+    text("question-heading", visiblePrompt(card, card.stageIndex));
     var wordList = el("semantic-words"); wordList.replaceChildren();
     wordList.hidden = !Array.isArray(card.question.words);
     if (!wordList.hidden) {
@@ -787,14 +854,14 @@
     text("options-legend", stage.data.multiple ? "해당하는 답을 모두 선택하세요." : "정답을 하나 선택하세요.");
     stage.choices.forEach(function (choice, index) { list.append(createOption(card, stage, choice, index)); });
     el("previous-button").disabled = session.index === 0;
-    el("skip-button").hidden = card.graded;
     el("grade-button").hidden = card.graded;
     el("grade-button").disabled = stage.selected == null;
-    text("grade-button", card.stageIndex < card.stages.length - 1 ? blindSet(card) ? "다음 단계 →" : "답 확인 →" : blindSet(card) ? "세트 채점하기" : "채점하기");
+    text("grade-button", posFirst ? "답 확인 →" : card.stageIndex < card.stages.length - 1 ? blindSet(card) ? "다음 단계 →" : "답 확인 →" : blindSet(card) ? "세트 채점하기" : "채점하기");
     el("next-button").hidden = !card.graded;
+    el("next-button").disabled = !card.graded;
     var nextLabel = session.index === session.cards.length - 1 ? "풀이 결과 보기" : "다음 문제 →";
     text("next-button", nextLabel); text("feedback-next-button", nextLabel);
-    text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : blindSet(card) ?
+    text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : posFirst ? "학습한 품사가 아닌 것을 고르면 이 문제를 종료해요. 선택한 정답 품사의 뜻만 이어서 물어요." : blindSet(card) ?
       (stage.data.multiple ? "해당하는 답을 모두 선택하세요. " : "") + "중간에는 정오답을 표시하지 않아요. 세트를 마친 뒤 선택한 답과 정답을 함께 확인해요." : card.stages.length > 1 ?
       "첫 답이 틀리면 바로 오답 처리해요. 맞히면 다음 단계로 넘어가고, 마지막 채점 후 해설을 보여줘요." : "선택만으로 정답이 공개되지 않아요.");
     el("feedback-panel").hidden = !card.graded;
@@ -805,6 +872,7 @@
   function submitStage() {
     var card = currentCard(), stage = currentStage();
     if (card.graded || stage.selected == null) { return; }
+    if (submitPosChoice(card)) { return; }
     if (!blindSet(card) && card.stageIndex === 0 && card.stages.length > 1 && !stageCorrect(stage)) {
       card.stages.slice(1).forEach(function (later) { later.selected = null; });
       if (!session.practiceVersion) { session.practiceVersion = legacyGatedVersion; }
@@ -828,6 +896,7 @@
     el("feedback-panel").scrollIntoView({ block: "start", behavior: "auto" });
   }
   function next() {
+    if (!currentCard().graded) { return; }
     if (session.index < session.cards.length - 1) { session.index += 1; renderQuestion(true); }
     else { showResults(); }
   }
@@ -901,10 +970,16 @@
   if (timeReady && timeReview.report && el("coverage-summary")) {
     el("coverage-summary").append(document.createTextNode(" 시제·시간 표현 87개를 모두 점검하고, " + timeReview.report.revisedCards + "문제의 문맥과 보기를 보완했어요."));
   }
+  if (experienceReady && el("coverage-summary")) {
+    text("coverage-summary", "문형·구조도 같은 화면에서 풀어요. 연결 구조는 낱개 복수 선택으로, 뜻과 어형은 단어별 쓰임을 구별하도록 보완했어요. 저장된 이전 풀이와 기록은 유지돼요.");
+  }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
   el("group-filter").addEventListener("change", function () { requestedCategory = false; if (window.history && window.location.search) window.history.replaceState(null, "", window.location.pathname); populateSubscopes("all"); updateSettings(); saveState(); });
-  el("grammar-resume-button").addEventListener("click", function () { window.location.assign(window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value, {mode:"resume"})); });
+  el("grammar-resume-button").addEventListener("click", function () {
+    if (grammarEmbeddedReady) { launchEmbeddedGrammar("resume"); }
+    else { window.location.assign(window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value, {mode:"resume"})); }
+  });
   el("step-filter").addEventListener("change", function () {
     var scope = taxonomy.subscopes.find(function (item) { return item.id === el("step-filter").value; });
     if (memoryReady && el("step-filter").value === mixedScope) { scope = { id: mixedScope, group: "grammar-structures" }; }
@@ -919,7 +994,6 @@
   el("grade-button").addEventListener("click", submitStage);
   el("previous-stage-button").addEventListener("click", function () { if (currentCard().stageIndex > 0) { currentCard().stageIndex -= 1; renderQuestion(true); } });
   el("previous-button").addEventListener("click", function () { if (session.index > 0) { session.index -= 1; renderQuestion(true); } });
-  el("skip-button").addEventListener("click", function () { if (!currentCard().graded) { currentCard().deferred = true; } next(); });
   el("next-button").addEventListener("click", next);
   el("feedback-next-button").addEventListener("click", next);
   el("results-button").addEventListener("click", showResults);

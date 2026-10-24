@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#142b26">
   <title>표현·구조 훈련 · 나의 토익 스터디</title>
-  <link rel="stylesheet" href="styles.css?v=20261024-semantic1">
+  <link rel="stylesheet" href="styles.css?v=20261025-experience1">
+  <link rel="stylesheet" href="grammar-embedded.css?v=20261025-experience1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
   <script src="practice-options.js?v=20261019-linked1" defer></script>
@@ -16,10 +17,16 @@
   <script src="usage-routing.js?v=20261024-usage1" defer></script>
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
+  <script src="experience-review.js?v=20261025-experience1" defer></script>
   <script src="sync-model.js?v=20261024-semantic1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
-  <script src="app.js?v=20261024-time1" defer></script>
+  <script src="grammar/data.js?v=20261024-grammar1" defer></script>
+  <script src="grammar/engine.js?v=20261024-grammar1" defer></script>
+  <script src="grammar/sync-model.js?v=20261024-site1" defer></script>
+  <script src="grammar/site-state.js?v=20261024-site1" defer></script>
+  <script src="grammar-embedded.js?v=20261025-experience1" defer></script>
+  <script src="app.js?v=20261025-experience1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -96,14 +103,14 @@
         <div class="progress-track" role="progressbar" id="progress-bar" aria-label="채점 완료" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0"><span id="progress-fill"></span></div>
         <article class="panel question-panel">
           <div class="question-heading-line"><p class="eyebrow" id="question-number">QUESTION 01</p><span class="question-state" id="question-state"></span></div>
-          <div class="stage-topline"><p class="stage-indicator" id="stage-indicator"></p><button class="text-button" id="previous-stage-button" hidden>← 이전 단계</button></div>
+          <div class="stage-topline"><p class="stage-indicator" id="stage-indicator"></p></div>
           <h1 class="instruction" id="question-instruction" tabindex="-1"></h1>
           <div class="semantic-words" id="semantic-words" aria-label="이번 세트의 단어" hidden></div>
           <p class="question-example" id="question-heading"></p>
           <fieldset class="options-fieldset"><legend class="sr-only" id="options-legend">정답을 하나 선택하세요.</legend><div id="options-list"></div></fieldset>
           <div class="question-actions" id="question-actions">
             <button class="secondary-button" id="previous-button">이전 문제</button>
-            <button class="text-button skip-button" id="skip-button">나중에 풀기</button>
+            <button class="text-button previous-stage-action" id="previous-stage-button" hidden>← 이전 단계</button>
             <button class="primary-button" id="grade-button" disabled>채점하기</button>
             <button class="primary-button" id="next-button" hidden>다음 문제 <span aria-hidden="true">→</span></button>
           </div>
@@ -124,6 +131,8 @@
           <button class="secondary-button feedback-next" id="feedback-next-button">다음 문제 <span aria-hidden="true">→</span></button>
         </section>
       </section>
+
+      <section id="grammar-view" hidden aria-label="문형·구조 문제"></section>
 
       <section id="results-view" hidden aria-labelledby="results-title">
         <div class="panel results-panel">

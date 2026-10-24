@@ -1,0 +1,8 @@
+.grammar-embedded .grammar-summary-item + .grammar-summary-item{border-top:1px solid var(--border);margin-top:20px;padding-top:20px}
+.grammar-embedded .answer-summary-expression{white-space:pre-line}
+.grammar-embedded .question-actions .text-button{font-size:14px;white-space:nowrap}
+.grammar-embedded .question-actions>.primary-button:last-child{margin-left:auto}
+.grammar-embedded .question-example{white-space:pre-line}
+.grammar-embedded .loading-panel .text-button{margin-left:15px}
+.grammar-embedded .feedback-panel,.grammar-embedded .question-panel,.grammar-embedded .results-panel{scroll-margin-top:20px}
+@media(max-width:640px){.grammar-embedded .question-actions{gap:7px}.grammar-embedded .question-actions .text-button{font-size:14px}.grammar-embedded .question-actions .primary-button{min-width:103px}.grammar-embedded .grammar-summary-item + .grammar-summary-item{margin-top:17px;padding-top:17px}}

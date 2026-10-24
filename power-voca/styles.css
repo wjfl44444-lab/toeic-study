@@ -28,6 +28,9 @@
 .semantic-words[hidden]{display:none}
 .semantic-word{border:1px solid var(--border);border-radius:9px;padding:6px 12px;font-size:16px;color:var(--muted)}
 .semantic-word.active{border-color:var(--mint);color:var(--mint-strong);background:#b6dec514}
+.question-panel,.feedback-panel{scroll-margin-top:18px}
+.question-actions .previous-stage-action{font-size:14px;font-weight:600;line-height:1.5;padding:10px 8px;min-height:44px;background:none;border:none;border-radius:0;color:var(--muted)}
+.question-actions .previous-stage-action:hover{color:var(--mint-strong)}
 @media(max-width:640px){#options-list.options-grid{gap:8px}#options-list.options-grid .option{padding:12px 10px;gap:7px}#options-list.options-grid .option-text{font-size:13px}.semantic-word{font-size:14px;padding:5px 10px}}
 @media(max-width:420px){#options-list.options-grid{grid-template-columns:minmax(0,1fr);grid-template-rows:none!important;grid-auto-flow:row}}
 
