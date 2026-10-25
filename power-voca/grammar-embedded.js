@@ -40,11 +40,18 @@
   }
   function feedback(card, q, nextLabel) {
     const answers = q.feedback.answers, passed = q.feedback.passed;
+    const keywords = window.PowerFeedbackCore && window.PowerFeedbackView;
+    const core = keywords ? window.PowerFeedbackView.renderCore(window.PowerFeedbackCore.build({
+      id: card.id, word: card.target, passed, grammar: true, question: card,
+      summaryRows: card.summary || [],
+      stages: card.stages.map((stage, i) => ({ ...stage, selected: answers[i]?.selected || [], skipped: !answers[i] }))
+    })) : '';
     const summary = (card.summary || []).map(item => `<div class="grammar-summary-item"><h3 class="answer-summary-expression">${esc(display(item.structure))}</h3><p class="answer-summary-meaning">${esc(display(item.meaning))}</p></div>`).join('');
-    return `<section class="panel feedback-panel${passed ? '' : ' wrong'}" id="grammar-feedback-panel" aria-labelledby="grammar-feedback-title">
-      <p class="eyebrow">ANSWER &amp; EXPLANATION</p><h2 id="grammar-feedback-title" tabindex="-1">${passed ? '모두 정확하게 풀었어요.' : '이 쓰임을 다시 확인해요.'}</h2>
+    return `<section class="panel feedback-panel${passed ? '' : ' wrong'}${keywords ? ' keyword-feedback-panel' : ''}" id="grammar-feedback-panel" aria-labelledby="grammar-feedback-title">
+      <p class="eyebrow">ANSWER &amp; EXPLANATION</p><h2 id="grammar-feedback-title" tabindex="-1">${keywords ? passed ? '✓ 정답' : '↺ 다시 확인' : passed ? '모두 정확하게 풀었어요.' : '이 쓰임을 다시 확인해요.'}</h2>
+      ${core}<details class="feedback-details"${keywords ? '' : ' open'}><summary>내 답 · 전체 보기</summary>
       <p class="correct-answer">${answers.length < card.stages.length ? '1단계 오답으로 이 문제를 종료했어요. 이후 단계는 채점에 포함하지 않아요.' : card.stages.length + '단계 중 ' + answers.filter(answer => answer.correct).length + '단계 정답 · 아래에서 각 선택지를 확인해 보세요.'}</p>
-      <section class="answer-summary" aria-label="표현과 뜻"><p class="answer-summary-label">${esc(display(card.target))} · 표현과 뜻</p>${summary}</section>
+      ${keywords ? '' : `<section class="answer-summary" aria-label="표현과 뜻"><p class="answer-summary-label">${esc(display(card.target))} · 표현과 뜻</p>${summary}</section>`}
       ${card.stages.map((stage, index) => {
         const answer = answers[index], skipped = !answer, order = q.orders?.[index] || stage.options.map((_, i) => i);
         const selected = answer ? answer.selected.map(i => display(stage.options[i])).join(' / ') : '';
@@ -57,8 +64,9 @@
             return `<li class="reason-item${correct ? ' is-answer' : ''}"><div class="reason-item-heading"><span class="reason-letter">${String.fromCharCode(65 + position)}</span><span class="reason-option">${esc(display(stage.options[original]))}</span>${correct ? '<span class="reason-mark">정답</span>' : picked ? '<span class="reason-mark">선택한 답</span>' : ''}</div><p>${esc(display(stage.reasons[original]))}</p></li>`;
           }).join('')}</ol></div></section>`;
       }).join('')}
-      ${card.note ? `<div class="learning-point"><span>기억할 쓰임</span><p>${esc(display(card.note))}</p></div>` : ''}
-      <p class="question-source">${[...new Set((card.sources || []).map(sourceText))].map(esc).join(' · ')}</p>
+      </details>
+      ${card.note ? `<details class="feedback-details"${keywords ? '' : ' open'}><summary>설명 · 예문</summary><div class="learning-point"><p>${esc(display(card.note))}</p></div></details>` : ''}
+      <details class="feedback-details"${keywords ? '' : ' open'}><summary>교재 위치</summary><p class="question-source">${[...new Set((card.sources || []).map(sourceText))].map(esc).join(' · ')}</p></details>
       ${button('next', nextLabel, 'secondary-button feedback-next')}
     </section>`;
   }

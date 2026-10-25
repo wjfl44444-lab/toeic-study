@@ -7,6 +7,7 @@
   <title>표현·구조 훈련 · 나의 토익 스터디</title>
   <link rel="stylesheet" href="styles.css?v=20261025-experience1">
   <link rel="stylesheet" href="grammar-embedded.css?v=20261025-experience1">
+  <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
   <script src="practice-options.js?v=20261019-linked1" defer></script>
@@ -25,8 +26,10 @@
   <script src="grammar/engine.js?v=20261024-grammar1" defer></script>
   <script src="grammar/sync-model.js?v=20261024-site1" defer></script>
   <script src="grammar/site-state.js?v=20261024-site1" defer></script>
-  <script src="grammar-embedded.js?v=20261025-experience1" defer></script>
-  <script src="app.js?v=20261025-experience1" defer></script>
+  <script src="feedback-core.js?v=20261025-feedback1" defer></script>
+  <script src="feedback-view.js?v=20261025-feedback1" defer></script>
+  <script src="grammar-embedded.js?v=20261025-feedback1" defer></script>
+  <script src="app.js?v=20261025-feedback1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -119,6 +122,9 @@
         <section class="panel feedback-panel" id="feedback-panel" hidden aria-labelledby="feedback-title">
           <p class="eyebrow" id="feedback-eyebrow">ANSWER &amp; EXPLANATION</p>
           <h2 id="feedback-title" tabindex="-1"></h2>
+          <div id="feedback-keywords"></div>
+          <details class="feedback-details" id="feedback-answer-details">
+          <summary>내 답 · 전체 보기</summary>
           <p class="correct-answer" id="correct-answer"></p>
           <section class="answer-summary" id="answer-summary" hidden aria-labelledby="answer-summary-expression">
             <p class="answer-summary-label">표현과 뜻</p>
@@ -126,8 +132,15 @@
             <p class="answer-summary-meaning" id="answer-summary-meaning"></p>
           </section>
           <div id="stage-feedback-list"></div>
+          </details>
+          <details class="feedback-details" id="feedback-explanation-details">
+          <summary>설명 · 예문</summary>
           <div class="learning-point"><span>기억할 쓰임</span><p id="learning-point"></p></div>
+          </details>
+          <details class="feedback-details" id="feedback-source-details">
+          <summary>교재 위치</summary>
           <p class="question-source" id="question-source"></p>
+          </details>
           <button class="secondary-button feedback-next" id="feedback-next-button">다음 문제 <span aria-hidden="true">→</span></button>
         </section>
       </section>

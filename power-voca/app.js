@@ -756,18 +756,37 @@
     section.append(node("h3", "", title), node("p", "", content));
     return section;
   }
+  var feedbackLexicon = null;
+  function keywordFeedback(card, summary, passed) {
+    if (!window.PowerFeedbackCore || !window.PowerFeedbackView) { return false; }
+    if (!feedbackLexicon) { feedbackLexicon = window.PowerFeedbackCore.createLexicon(data.questions.filter(activeQuestion)); }
+    var assigned = scopeOf(card.question) || {};
+    var model = window.PowerFeedbackCore.build({
+      id: card.question.id, word: card.question.displayExpression || summary.expression,
+      meaning: summary.meaning, passed: passed, question: card.question,
+      scope: assigned.scope, group: assigned.group,
+      stages: card.stages.map(function (stage) {
+        return Object.assign({}, stage.data, { correct: answerIndices(stage.data), selected: selectedIndices(stage), skipped: stage.selected === null });
+      })
+    }, feedbackLexicon);
+    el("feedback-keywords").innerHTML = window.PowerFeedbackView.renderCore(model);
+    return true;
+  }
   function renderFeedback(card) {
     var correctCount = card.stages.filter(stageCorrect).length;
     var allCorrect = correctCount === card.stages.length;
     var attempted = card.stages.filter(function (stage) { return stage.selected !== null; }).length;
     el("feedback-panel").classList.toggle("wrong", !allCorrect);
-    text("feedback-title", allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
+    var summary = questionDetail(card, "answerSummary");
+    var keywords = keywordFeedback(card, summary, allCorrect);
+    el("feedback-panel").classList.toggle("keyword-feedback-panel", keywords);
+    ["feedback-answer-details", "feedback-explanation-details", "feedback-source-details"].forEach(function (id) { el(id).open = !keywords; });
+    text("feedback-title", keywords ? allCorrect ? "✓ 정답" : "↺ 다시 확인" : allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
     text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
       card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
-    var summary = questionDetail(card, "answerSummary");
     text("answer-summary-expression", card.question.displayExpression || summary.expression);
     text("answer-summary-meaning", summary.meaning);
-    el("answer-summary").hidden = false;
+    el("answer-summary").hidden = keywords;
     var feedbackList = el("stage-feedback-list"); feedbackList.replaceChildren();
     card.stages.forEach(function (stage, stageIndex) {
       var stageData = stage.data;
@@ -782,7 +801,7 @@
       if (stageData.multiple && !skipped) {
         var missing = answerIndices(stageData).filter(function (n) { return !chose(stage,n); });
         var extra = selectedIndices(stage).filter(function (n) { return answerIndices(stageData).indexOf(n) === -1; });
-        if (missing.length) { box.append(node("p", "stage-selected-line", (stageData.kind === "semantic-pos" ? "빠뜨린 품사 · " : "빠뜨린 뜻 · ") + describeChoices(stage, missing))); }
+        if (missing.length) { box.append(node("p", "stage-selected-line", (stageData.kind === "semantic-pos" ? "빠뜨린 품사 · " : stageData.options.indexOf("명사구") !== -1 && stageData.options.indexOf("S + V") !== -1 ? "빠뜨린 연결 · " : "빠뜨린 뜻 · ") + describeChoices(stage, missing))); }
         if (extra.length) { box.append(node("p", "stage-selected-line", "다시 볼 선택 · " + describeChoices(stage, extra))); }
       }
       if (stageData.translation) { box.append(feedbackSection("문장 해석", stageData.translation)); }
@@ -818,6 +837,7 @@
   function clearFeedback() {
     ["feedback-title", "correct-answer", "answer-summary-expression", "answer-summary-meaning", "learning-point", "question-source"].forEach(function (id) { text(id, ""); });
     el("answer-summary").hidden = true;
+    el("feedback-keywords").replaceChildren();
     el("stage-feedback-list").replaceChildren();
   }
   function renderQuestion(focus) {
