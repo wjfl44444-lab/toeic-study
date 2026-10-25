@@ -52,13 +52,15 @@
   var unifiedGrammar = window.PowerGrammarAdapter && window.GRAMMAR_PREVIEW && window.PowerGrammarEmbedded ?
     window.PowerGrammarAdapter.create(window.GRAMMAR_PREVIEW.cards, window.PowerGrammarEmbedded) : null;
   if (data && unifiedGrammar) { data = Object.assign({}, data, { questions: data.questions.concat(unifiedGrammar.questions) }); }
+  var questionReview = null;
   function activeQuestion(q) {
     if (unifiedGrammar && !q.grammarOriginId && classifyQuestion(q).group === "grammar-structures") { return false; }
     return !q.internalRoute && (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
       (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id)) &&
       (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id)) &&
       (!timeReady || !Object.prototype.hasOwnProperty.call(timeReview.replacements, q.id)) &&
-      (!experienceReady || !Object.prototype.hasOwnProperty.call(experienceReview.replacements, q.id));
+      (!experienceReady || !Object.prototype.hasOwnProperty.call(experienceReview.replacements, q.id)) &&
+      (!questionReview || !Object.prototype.hasOwnProperty.call(questionReview.replacements, q.id));
   }
   var activeCount = 0;
   var practice = window.POWER_VOCA_PRACTICE;
@@ -102,7 +104,19 @@
   if (unifiedGrammar) {
     taxonomy = Object.assign({}, taxonomy, { subscopes: taxonomy.subscopes.filter(function (item) { return item.group !== "grammar-structures"; }).concat(unifiedGrammar.subscopes) });
   }
+  if (data && window.PowerVocaQuestionReview && typeof window.PowerVocaQuestionReview.create === "function") {
+    questionReview = window.PowerVocaQuestionReview.create(data.questions, classifyQuestion);
+    data = Object.assign({}, data, { questions: data.questions.concat(questionReview.questions) });
+  }
   activeCount = data ? data.questions.filter(activeQuestion).length : 0;
+  var wrongReview = window.PowerVocaWrongReview && data ? window.PowerVocaWrongReview.create({
+    questions: data.questions, isActive: activeQuestion, grammar: unifiedGrammar, label: wrongReviewLabel,
+    replacements: [lexicalReady && lexicalReview.replacements, usageReady && usageReview.replacements,
+      semanticReady && semanticReview.replacements, timeReady && timeReview.replacements,
+      experienceReady && experienceReview.replacements, questionReview && questionReview.replacements]
+  }) : null;
+  var wrongReviewPage = 0;
+  var wrongReviewPageSize = 10;
   var questionScopes = new Map();
   var groupCounts = Object.create(null);
   var scopeCounts = Object.create(null);
@@ -148,8 +162,19 @@
     if (match && /유사|비슷|가까운/.test(s.instruction || "")) { return match[1] + "와 비슷한 표현을 고르세요."; }
     return s.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.";
   }
+  function questionPresentation(card, index) {
+    var content = { instruction: isLinkedMeaningStage(card, index) ? "완성된 표현의 뜻을 고르세요." : visibleInstruction(card, index),
+      prompt: visiblePrompt(card, index), context: card.stages[index].data.context || "" };
+    return window.PowerVocaQuestionView && typeof window.PowerVocaQuestionView.present === "function" ?
+      window.PowerVocaQuestionView.present(card.question, index, content) : content;
+  }
+  function wrongReviewLabel(question) {
+    var preview = { question: question, stages: [{ data: practiceStage(question, 0, latestPracticeVersion()) }] };
+    var content = questionPresentation(preview, 0);
+    return content.prompt || content.instruction;
+  }
   function classifyQuestion(q) {
-    return unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
@@ -385,6 +410,11 @@
         grammarImportOwner = merged.grammarImportOwner || null;
         syncReceipts = merged._studySync || null;
         renderHistory();
+        renderWrongReview();
+        if (view === "quiz" && session) {
+          text("question-wrong-count", "누적 오답 " + cumulativeWrongCount(currentCard().question) + "회");
+          if (currentCard().graded) { text("feedback-wrong-count", "이 문제 누적 오답 " + cumulativeWrongCount(currentCard().question) + "회"); }
+        }
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
         grammarImported = saved.grammarImported === true;
@@ -615,6 +645,45 @@
     var learned = new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size;
     text("history-summary", attempts ? "학습한 문제 " + learned + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
   }
+  function wrongReviewEntries() {
+    if (!wrongReview) { return []; }
+    var minimum = window.PowerVocaWrongReview.threshold(el("wrong-review-min").value);
+    return wrongReview.aggregate(history, archivedHistory).entries.filter(function (entry) { return entry.wrongCount >= minimum; });
+  }
+  function cumulativeWrongCount(question) {
+    if (!wrongReview) { return 0; }
+    var active = wrongReview.resolve(question.historyKey || question.id);
+    var entry = active && wrongReview.aggregate(history, archivedHistory).byId.get(active.id);
+    return entry ? entry.wrongCount : 0;
+  }
+  function renderWrongReview() {
+    if (!el("wrong-review-panel")) { return; }
+    var entries = wrongReviewEntries(), minimum = window.PowerVocaWrongReview ? window.PowerVocaWrongReview.threshold(el("wrong-review-min").value) : 1;
+    var pages = Math.max(1, Math.ceil(entries.length / wrongReviewPageSize));
+    wrongReviewPage = Math.min(wrongReviewPage, pages - 1);
+    var total = entries.reduce(function (sum, entry) { return sum + entry.wrongCount; }, 0);
+    text("wrong-review-summary", entries.length ? "누적 " + minimum + "회 이상 틀린 문제 " + entries.length + "개 · 오답 " + total + "회" : "누적 " + minimum + "회 이상 틀린 문제가 아직 없어요.");
+    var list = el("wrong-review-list"); list.replaceChildren();
+    entries.slice(wrongReviewPage * wrongReviewPageSize, (wrongReviewPage + 1) * wrongReviewPageSize).forEach(function (entry) {
+      var row = node("li", "wrong-review-row");
+      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회"));
+      list.append(row);
+    });
+    list.hidden = !entries.length;
+    el("wrong-review-pagination").hidden = pages === 1;
+    text("wrong-review-page", (wrongReviewPage + 1) + " / " + pages);
+    el("wrong-review-previous").disabled = wrongReviewPage === 0;
+    el("wrong-review-next").disabled = wrongReviewPage >= pages - 1;
+    text("wrong-review-start", entries.length ? "오답 " + entries.length + "문제 풀기" : "오답 풀기");
+    el("wrong-review-start").disabled = !entries.length || !unifiedImportReady;
+  }
+  function startWrongReview() {
+    if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
+    var entries = wrongReviewEntries();
+    if (!entries.length) { return; }
+    if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
+    begin(entries.map(function (entry) { return entry.question; }), "wrong", false);
+  }
   function scopeOf(q) { return questionScopes.get(q.id); }
   function populateSubscopes(selected) {
     var group = el("group-filter").value, select = el("step-filter");
@@ -679,6 +748,7 @@
     text("start-button", el("shuffle-questions").checked || el("shuffle-options").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗");
     el("start-button").disabled = pool.length === 0 || !unifiedImportReady;
     renderResume();
+    renderWrongReview();
   }
   function startSelected() {
     if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
@@ -926,6 +996,7 @@
     el("feedback-panel").classList.toggle("keyword-feedback-panel", keywords);
     ["feedback-answer-details", "feedback-explanation-details", "feedback-source-details"].forEach(function (id) { el(id).open = !keywords; });
     text("feedback-title", keywords ? allCorrect ? "✓ 정답" : "↺ 다시 확인" : allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
+    text("feedback-wrong-count", "이 문제 누적 오답 " + cumulativeWrongCount(card.question) + "회");
     text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
       card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
     text("answer-summary-expression", card.question.displayExpression || summary.expression);
@@ -996,14 +1067,15 @@
     el("progress-fill").style.width = (progress / session.cards.length * 100) + "%";
     text("question-number", "QUESTION " + String(session.index + 1).padStart(2, "0"));
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
+    text("question-wrong-count", "누적 오답 " + cumulativeWrongCount(card.question) + "회");
     var posFirst = Boolean(posFlowRoot(card) && card.stageIndex === 0 && !card.graded);
     text("stage-indicator", posFirst ? "품사 선택 · 선택한 품사의 뜻으로 이어져요" : (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (!card.graded ? blindSet(card) ? " · 세트 마지막에 한 번에 채점" : card.stages.length > 1 ? " · 첫 답을 맞히면 다음 단계" : "" : ""));
     el("previous-stage-button").hidden = card.stageIndex === 0;
-    text("question-instruction", isLinkedMeaningStage(card, card.stageIndex) ? "완성된 표현의 뜻을 고르세요." :
-      visibleInstruction(card, card.stageIndex));
-    text("question-heading", visiblePrompt(card, card.stageIndex));
-    text("question-context", stage.data.context || "");
-    el("question-context").hidden = !stage.data.context;
+    var content = questionPresentation(card, card.stageIndex);
+    text("question-instruction", content.instruction);
+    text("question-heading", content.prompt);
+    text("question-context", content.context);
+    el("question-context").hidden = !content.context;
     var wordList = el("semantic-words"); wordList.replaceChildren();
     wordList.hidden = !Array.isArray(card.question.words);
     if (!wordList.hidden) {
@@ -1142,6 +1214,13 @@
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
+  el("wrong-review-start").addEventListener("click", startWrongReview);
+  el("wrong-review-min").addEventListener("change", function () {
+    el("wrong-review-min").value = String(window.PowerVocaWrongReview ? window.PowerVocaWrongReview.threshold(el("wrong-review-min").value) : 1);
+    wrongReviewPage = 0; renderWrongReview();
+  });
+  el("wrong-review-previous").addEventListener("click", function () { wrongReviewPage = Math.max(0, wrongReviewPage - 1); renderWrongReview(); });
+  el("wrong-review-next").addEventListener("click", function () { wrongReviewPage += 1; renderWrongReview(); });
   el("migration-retry-button").addEventListener("click", function () { void prepareUnifiedPractice(); });
   el("migration-cloud-button").addEventListener("click", function () {
     if (window.confirm("미확인 기기 풀이 원본은 백업에 남기고, 계정에서 확인된 기록을 기준으로 통합할까요?")) { void prepareUnifiedPractice(true); }
