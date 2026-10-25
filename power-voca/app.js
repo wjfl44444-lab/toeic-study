@@ -156,13 +156,27 @@
     el(id).focus({ preventScroll: true });
     (el(id).closest(".question-panel") || el(id)).scrollIntoView({ block: "start", behavior: "auto" });
   }
-  function launchEmbeddedGrammar(mode) {
+  function refreshSavedPractice() {
+    renderResume(); renderHistory();
+  }
+  function ensureEmbeddedGrammar() {
+    if (!grammarEmbeddedReady) { return null; }
     if (!grammarEmbedded) {
-      grammarEmbedded = window.PowerGrammarEmbedded.create({ container: el("grammar-view"), onHome: showStart,
-        onNotice: announce, onReady: function () { if (view === "start") { updateSettings(); } } });
+      grammarEmbedded = window.PowerGrammarEmbedded.create({ container: el("grammar-view"),
+        onHome: function () { if (view === "grammar") { showStart(); } else { refreshSavedPractice(); } },
+        onNotice: function (message) { if (view === "grammar") { announce(message); } },
+        onChange: refreshSavedPractice, onReady: refreshSavedPractice });
+      refreshSavedPractice();
     }
+    return grammarEmbedded;
+  }
+  function launchEmbeddedGrammar(mode) {
+    ensureEmbeddedGrammar();
     showView("grammar");
-    if (mode === "resume") { grammarEmbedded.resume(); return; }
+    if (mode === "resume") {
+      var saved = grammarEmbedded.getStatus && grammarEmbedded.getStatus().resume;
+      grammarEmbedded.resume(saved && !saved.remaining ? { view: "result" } : undefined); return;
+    }
     var url = window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value,
       { count: el("round-size").value, shuffle: el("shuffle-questions").checked });
     grammarEmbedded.start(window.PowerGrammarRoute.request(url.slice(url.indexOf("?") + 1)));
@@ -476,7 +490,13 @@
     var attempts = items.reduce(function (sum, item) { return sum + item.attempts; }, 0);
     var correct = items.reduce(function (sum, item) { return sum + item.stagesCorrect; }, 0);
     var graded = items.reduce(function (sum, item) { return sum + item.stagesGraded; }, 0);
-    text("history-summary", attempts ? "학습한 문제 " + new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
+    var learned = new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size;
+    var grammar = grammarEmbedded && grammarEmbedded.getStatus ? grammarEmbedded.getStatus() : null;
+    if (grammar && grammar.ready && grammar.totals) {
+      attempts += grammar.totals.attempts; correct += grammar.totals.stagesCorrect;
+      graded += grammar.totals.stagesGraded; learned += grammar.learnedCount || 0;
+    }
+    text("history-summary", attempts ? "학습한 문제 " + learned + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
   }
   function scopeOf(q) { return questionScopes.get(q.id); }
   function populateSubscopes(selected) {
@@ -529,7 +549,6 @@
   function updateSettings() {
     var grammar = Boolean(window.PowerGrammarRoute && el("group-filter").value === "grammar-structures");
     el("step-filter-label").hidden = false;
-    el("grammar-resume-button").hidden = !grammar;
     el("option-shuffle-setting").hidden = grammar;
     text("question-shuffle-label", grammar ? "문제·보기 순서 함께 섞기" : "문제 순서 섞기");
     if (window.PowerGrammarRoute && el("group-filter").value === "grammar-structures") {
@@ -538,7 +557,7 @@
       var size = el("round-size").value, count = size === "all" ? total : Math.min(Number(size), total);
       text("scope-description", "형식·단어 뒤 연결·전치사·어순을 단어별로 확인해요. 1V~5V 보기는 고정 순서이며, 예전 풀이와 기록은 그대로 보존해요.");
       text("pool-summary", "선택 범위 " + total + "문제 중 이번에는 " + count + "문제를 풀어요.");
-      text("start-button", el("shuffle-questions").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗"); el("start-button").disabled = false; return;
+      text("start-button", el("shuffle-questions").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗"); el("start-button").disabled = false; renderResume(); return;
     }
     el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value;
@@ -551,6 +570,7 @@
     if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
     text("start-button", el("shuffle-questions").checked || el("shuffle-options").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗");
     el("start-button").disabled = pool.length === 0;
+    renderResume();
   }
   function startSelected() {
     if (grammarEmbeddedReady && el("group-filter").value === "grammar-structures") { launchEmbeddedGrammar("new"); return; }
@@ -645,18 +665,42 @@
     });
     return result;
   }
-  function showStart() {
-    if (requestedCategory) { el("group-filter").value = "grammar-structures"; populateSubscopes("all"); }
-    showView("start");
+  function nativeResumeLabel() {
+    var assigned = session.cards.map(function (card) { return scopeOf(card.question); }).filter(Boolean);
+    var groups = Array.from(new Set(assigned.map(function (item) { return item.group; })));
+    var scopes = Array.from(new Set(assigned.map(function (item) { return item.scope; })));
+    var group = groups.length === 1 && taxonomy.groups.find(function (item) { return item.id === groups[0]; });
+    var scope = scopes.length === 1 && taxonomy.subscopes.find(function (item) { return item.id === scopes[0]; });
+    return scope ? (group ? group.label + " · " : "") + scope.label : group ? group.label + " · 전체 혼합" : "여러 분류 섞어 풀기";
+  }
+  function renderResume() {
     if (session) {
       var count = totals();
-      el("resume-panel").hidden = false;
+      text("resume-scope", nativeResumeLabel());
       text("resume-summary", session.cards.length + "문제 중 " + (count.correct + count.wrong) + "문제 채점 · 모두 맞힌 문제 " + count.correct + " · 다시 볼 문제 " + count.wrong);
       if (session.practiceVersion !== latestPracticeVersion()) {
         el("resume-summary").append(document.createTextNode(" · 이미 고른 답을 보존한 이전 보기 풀이예요. 개선된 보기로 풀려면 새 연습을 시작해 주세요."));
       }
       text("resume-button", count.ungraded ? "이어서 풀기" : "풀이 결과 보기");
-    } else { el("resume-panel").hidden = true; }
+    }
+    el("native-resume-row").hidden = !session;
+    var grammar = grammarEmbedded && grammarEmbedded.getStatus ? grammarEmbedded.getStatus() : null;
+    var savedGrammar = grammar && grammar.ready && grammar.resume;
+    el("grammar-resume-row").hidden = !savedGrammar;
+    if (savedGrammar) {
+      text("grammar-resume-scope", "문형·구조 · " + savedGrammar.label.replace(/^문형·구조\s*/, ""));
+      text("grammar-resume-summary", savedGrammar.total + "문제 중 " + savedGrammar.done + "문제 채점 · 모두 맞힌 문제 " + savedGrammar.correct + " · 다시 볼 문제 " + savedGrammar.wrong);
+      text("grammar-resume-button", savedGrammar.remaining ? "이어서 풀기" : "풀이 결과 보기");
+    }
+    var pending = grammar && !grammar.ready;
+    el("resume-status").hidden = !pending;
+    text("resume-status", pending ? grammar.phase === "error" ? "일부 저장 기록을 확인하지 못했어요. 새로고침한 뒤 다시 확인해 주세요." : "저장된 풀이를 확인하고 있어요." : "");
+    el("resume-panel").hidden = !session && !savedGrammar && !pending;
+  }
+  function showStart() {
+    if (requestedCategory) { el("group-filter").value = "grammar-structures"; populateSubscopes("all"); }
+    showView("start");
+    renderResume();
     renderHistory();
     updateSettings();
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -1049,5 +1093,6 @@
     el("import-records").addEventListener("click", function () { el("import-records-file").click(); });
     el("import-records-file").addEventListener("change", importRecords);
   }
+  ensureEmbeddedGrammar();
   connectAccountSync();
 }());

@@ -6,8 +6,9 @@
   <meta name="theme-color" content="#142b26">
   <title>표현·구조 훈련 · 나의 토익 스터디</title>
   <link rel="stylesheet" href="styles.css?v=20261025-experience1">
-  <link rel="stylesheet" href="grammar-embedded.css?v=20261025-experience1">
+  <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
   <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
+  <link rel="stylesheet" href="practice-shell.css?v=20261025-integration1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
   <script src="practice-options.js?v=20261019-linked1" defer></script>
@@ -28,8 +29,8 @@
   <script src="grammar/site-state.js?v=20261024-site1" defer></script>
   <script src="feedback-core.js?v=20261025-feedback1" defer></script>
   <script src="feedback-view.js?v=20261025-feedback1" defer></script>
-  <script src="grammar-embedded.js?v=20261025-feedback1" defer></script>
-  <script src="app.js?v=20261025-feedback1" defer></script>
+  <script src="grammar-embedded.js?v=20261025-integration1" defer></script>
+  <script src="app.js?v=20261025-integration1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -87,12 +88,19 @@
             <p class="settings-note">교재 위치와 해설은 채점한 뒤에 보여요.<br>세트 문제는 <strong>다음 단계</strong>로 진행하고 마지막에 <strong>세트 채점하기</strong>를 눌러요.</p>
           </div>
           <button class="primary-button start-button" id="start-button">섞어서 시작하기 <span aria-hidden="true">↗</span></button>
-          <button class="secondary-button" id="grammar-resume-button" hidden>문형·구조 이어서 풀기</button>
           <p class="privacy-note">사이트에서 같은 Google 계정으로 로그인하면 학습 기록도 자동으로 이어져요.<br class="desktop-break"> 기존 파워보카 기록은 그대로 연결돼요. 단어장·문제집 기록은 따로 안전하게 유지해요.</p>
         </div>
         <div class="panel resume-panel" id="resume-panel" hidden>
-          <div><h2>저장된 풀이가 있어요.</h2><p id="resume-summary"></p></div>
-          <button class="secondary-button" id="resume-button">이어서 풀기</button>
+          <h2>저장된 풀이</h2>
+          <div class="saved-round" id="native-resume-row" hidden>
+            <div><h3 id="resume-scope"></h3><p id="resume-summary"></p></div>
+            <button class="secondary-button" id="resume-button">이어서 풀기</button>
+          </div>
+          <div class="saved-round" id="grammar-resume-row" hidden>
+            <div><h3 id="grammar-resume-scope"></h3><p id="grammar-resume-summary"></p></div>
+            <button class="secondary-button" id="grammar-resume-button">이어서 풀기</button>
+          </div>
+          <p class="settings-note" id="resume-status" hidden></p>
         </div>
         <div class="panel history-panel"><h2>누적 학습</h2><p id="history-summary">아직 채점한 문제가 없어요.</p></div>
         <details class="panel record-tools"><summary>백업과 기록 가져오기</summary><p>파일 미리보기에서 공부한 기록은 여기서 백업한 뒤 사이트에서 가져올 수 있어요. 같은 기록을 다시 가져와도 학습 횟수를 중복으로 더하지 않아요.</p><div><button class="secondary-button" id="export-records">교재 기록 백업</button><button class="secondary-button" id="import-records">교재 기록 가져오기</button></div><input type="file" id="import-records-file" accept=".json,application/json" hidden></details>
