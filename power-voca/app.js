@@ -95,7 +95,8 @@
   var originalBackupKey = storageKey + ":unreadable-backup:" + Date.now();
   var accountEpoch = 0;
   var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
-  var letters = ["A", "B", "C", "D", "E", "F", "G", "H"];
+  var letters = ["1", "2", "3", "4", "5", "6", "7", "8"];
+  var keyboardComposing = false;
   var views = ["loading", "error", "start", "quiz", "results"];
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
@@ -1139,6 +1140,37 @@
     if (session.index < session.cards.length - 1) { session.index += 1; renderQuestion(true); }
     else { showResults(); }
   }
+  function shortcutTargetAllowed(target, key) {
+    if (!(target instanceof Element)) { return true; }
+    var editable = target.closest("[contenteditable]");
+    if (target.isContentEditable || editable && editable.getAttribute("contenteditable") !== "false") { return false; }
+    var field = target.closest("input, textarea, select");
+    if (field && !(el("options-list").contains(field) && (field.type === "radio" || field.type === "checkbox"))) { return false; }
+    var control = target.closest("button, a, summary, [role='button']");
+    return !control || key === "Enter" && ["grade-button", "next-button", "feedback-next-button"].indexOf(control.id) !== -1;
+  }
+  function handleQuizShortcut(event) {
+    if (event.defaultPrevented || view !== "quiz" || !session || !unifiedImportReady ||
+        event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+        event.isComposing || keyboardComposing || event.keyCode === 229 || document.querySelector("dialog[open]")) { return; }
+    var digit = /^[1-8]$/.test(event.key), enter = event.key === "Enter";
+    if ((!digit && !enter) || !shortcutTargetAllowed(event.target, event.key)) { return; }
+    // Suppress held-key repetitions as well as the native button activation;
+    // a fresh Enter is required to leave the explanation after grading.
+    if (event.repeat) { event.preventDefault(); return; }
+    var card = currentCard();
+    if (digit) {
+      if (card.graded) { return; }
+      var input = el("options-list").querySelectorAll("input")[Number(event.key) - 1];
+      if (!input || input.disabled) { return; }
+      event.preventDefault();
+      input.click();
+    } else {
+      event.preventDefault();
+      if (card.graded) { next(); }
+      else { submitStage(); }
+    }
+  }
   function showResults() {
     if (!session) { return; }
     var count = totals(); showView("results");
@@ -1214,6 +1246,9 @@
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
+  window.addEventListener("compositionstart", function () { keyboardComposing = true; });
+  window.addEventListener("compositionend", function () { keyboardComposing = false; });
+  window.addEventListener("keydown", handleQuizShortcut);
   el("wrong-review-start").addEventListener("click", startWrongReview);
   el("wrong-review-min").addEventListener("change", function () {
     el("wrong-review-min").value = String(window.PowerVocaWrongReview ? window.PowerVocaWrongReview.threshold(el("wrong-review-min").value) : 1);
