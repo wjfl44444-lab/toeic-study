@@ -49,6 +49,8 @@
       var endedAfterFirst = ["20261019-linked1", "20261019-hard2", "20261019-gated-legacy1", "20261023-memory3"].includes(value.practiceVersion) && card.graded && card.stageIndex === 0 &&
         card.stages.length === 2 && card.stages[0] && Number.isInteger(card.stages[0].selected) &&
         card.stages[1] && card.stages[1].selected === null;
+      var grammarEnded = /^semantic1-grammar-/.test(card.id) && card.graded && card.stageIndex === 0 && card.stages.length > 1 &&
+        card.stages[0] && card.stages[0].selected !== null && card.stages.slice(1).every(function (s) { return s && s.selected === null; });
       return { id: card.id, signature: card.signature, stageIndex: card.stageIndex, graded: card.graded, deferred: card.deferred === true,
         stages: card.stages.map(function (s, stageIndex) {
           var native = nativeId(card.id), size = s && Array.isArray(s.order) ? s.order.length : 0;
@@ -56,7 +58,7 @@
           var validSelection = selected === null || Number.isInteger(selected) && selected >= 0 && selected < size ||
             native && Array.isArray(selected) && selected.length > 0 && selected.length <= size && new Set(selected).size === selected.length &&
             selected.every(function (n) { return Number.isInteger(n) && n >= 0 && n < size; });
-          if (!object(s) || !validSelection || card.graded && selected === null && !(endedAfterFirst && stageIndex === 1) ||
+          if (!object(s) || !validSelection || card.graded && selected === null && !(endedAfterFirst && stageIndex === 1 || grammarEnded && stageIndex > 0) ||
               !Array.isArray(s.order) || size < 4 || size > (native ? 8 : 4) || new Set(s.order).size !== size ||
               !s.order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < size; })) { throw new Error("Invalid stage"); }
           return { selected: Array.isArray(selected) ? selected.slice().sort(function (a,b) { return a-b; }) : selected, order: s.order.slice() };
@@ -116,6 +118,14 @@
             !ledger.commits.every(function (id) { return typeof id === "string" && /^[a-zA-Z0-9-]{8,100}$/.test(id); }) || new Set(ledger.commits).size !== ledger.commits.length) { return null; }
         result._studySync = { version: 1, commits: ledger.commits.slice() };
       }
+      if (value.grammarImported !== undefined) {
+        if (value.grammarImported !== true) { return null; }
+        result.grammarImported = true;
+      }
+      if (value.grammarImportOwner !== undefined) {
+        if (!result.grammarImported || !signature(value.grammarImportOwner)) { return null; }
+        result.grammarImportOwner = value.grammarImportOwner;
+      }
       return result;
     } catch (_) { return null; }
   }
@@ -138,6 +148,8 @@
       result.archivedHistory = value.archivedHistory.slice().sort(function (a, b) { return (a.id + a.signature).localeCompare(b.id + b.signature); }).map(function (record) { return compact ? tuple(record.id, record) : record; });
     }
     if (value._studySync) { result._studySync = value._studySync; }
+    if (value.grammarImported === true) { result.grammarImported = true; }
+    if (value.grammarImportOwner) { result.grammarImportOwner = value.grammarImportOwner; }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
     return raw;
@@ -164,7 +176,10 @@
       var l = ls.get(revision), r = rs.get(revision), b = bs.get(revision), chosen = l || r || b, record = { signature: chosen.signature };
       counters.forEach(function (name) {
         var left = l ? l[name] : b ? b[name] : 0, right = r ? r[name] : b ? b[name] : 0;
-        record[name] = base ? Math.max(right, b ? b[name] : 0) + Math.max(0, left - (b ? b[name] : 0)) : Math.max(left, right);
+        // Imported snapshots are the same historical events on every device.
+        // New practice uses the converted question fingerprint, a separate revision.
+        var legacyGrammar = /^semantic1-grammar-/.test(chosen.id) && /^legacyg_/.test(chosen.signature);
+        record[name] = base && !legacyGrammar ? Math.max(right, b ? b[name] : 0) + Math.max(0, left - (b ? b[name] : 0)) : Math.max(left, right);
         if (!count(record[name])) { throw new Error("VOCA counter overflow; original records retained"); }
       });
       var latest = [l, r, b].filter(Boolean).sort(function (a, z) {
@@ -180,6 +195,8 @@
     });
     var receipts = [].concat(base && base._studySync ? base._studySync.commits : [], local._studySync ? local._studySync.commits : [], remote._studySync ? remote._studySync.commits : []);
     if (receipts.length) { result._studySync = { version: 1, commits: Array.from(new Set(receipts)).slice(-256) }; }
+    if (local.grammarImported || remote.grammarImported || base && base.grammarImported) { result.grammarImported = true; }
+    if (local.grammarImportOwner || remote.grammarImportOwner || base && base.grammarImportOwner) { result.grammarImportOwner = local.grammarImportOwner || remote.grammarImportOwner || base.grammarImportOwner; }
     return stringify(result, true);
   }
   return Object.freeze({ parse: parse, stringify: stringify, semantic: semantic, merge: merge, empty: empty, maxBytes: MAX_BYTES, counterLimit: LIMIT });

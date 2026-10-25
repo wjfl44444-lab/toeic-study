@@ -662,9 +662,13 @@ export function connectStudySync(options = {}) {
         return ok;
       }
       const changed = semantic(raw) !== semantic(account.payload);
-      if (!changed) return !storageFailed;
-      account.payload = raw;
-      account.pending = account.linked ? pendingNow() : true;
+      if (!changed && !storageFailed) return true;
+      // A failed cache write keeps the dirty payload in memory. Retrying that
+      // same payload must persist it before the normal upload path can resume.
+      if (changed) {
+        account.payload = raw;
+        account.pending = account.linked ? pendingNow() : true;
+      }
       const ok = persistAccount();
       if (!ok) setStatus(phase, "기기 저장 공간이 부족해요. 화면의 기록은 유지되지만 JSON 백업이 필요합니다.");
       else if (["linked", "saving"].includes(phase)) {
@@ -834,6 +838,7 @@ export function connectStudySync(options = {}) {
   return {
     saveLocal,
     isAccountActive: () => !disposed && Boolean(user),
+    getOwnerKey: () => !disposed && authInitialized ? user ? `account:${user.uid}` : "guest" : null,
     destroy() {
       disposed = true; ++epoch; stopDocument();
       if (unsubscribeAuth) unsubscribeAuth();
@@ -843,4 +848,81 @@ export function connectStudySync(options = {}) {
       bar?.remove();
     },
   };
+}
+
+/**
+ * Read the retired grammar record once for migration into the native app.
+ * This deliberately does not start a sync controller, settle old checkpoints,
+ * or write either the guest key, an account cache, or the server document.
+ * `sdk` is an optional dependency injection seam for deterministic local tests.
+ */
+export async function readLegacyGrammarRecord(options = {}) {
+  let unsubscribe = null;
+  let timeout = null;
+  let active = true;
+  let ownerUid = null;
+  let authSeen = false;
+  let ownerChanged = false;
+  let sdk = null;
+  const stale = () => Object.assign(new Error("계정이 바뀌어 이전 기록 확인을 멈췄어요. 다시 시도해 주세요."), { code: "sync/stale" });
+  const checkOwner = () => {
+    if (!active || ownerChanged || !authSeen || (sdk.auth.currentUser?.uid || null) !== ownerUid) throw stale();
+  };
+  const readOnly = async () => {
+    sdk = options.sdk || await loadFirebase();
+    if (!active) throw stale();
+    await new Promise((resolve, reject) => {
+      unsubscribe = sdk.authSdk.onAuthStateChanged(sdk.auth, (nextUser) => {
+        const uid = nextUser?.uid || null;
+        if (!authSeen) {
+          authSeen = true;
+          ownerUid = uid;
+          resolve();
+        } else if (uid !== ownerUid) {
+          ownerChanged = true;
+        }
+      }, reject);
+    });
+    checkOwner();
+    if (ownerUid === null) {
+      const payload = window.localStorage.getItem("toeic-power-grammar:v1");
+      checkOwner();
+      return { owner: "guest", payload, revision: 0 };
+    }
+    const uid = ownerUid;
+    const cacheRaw = window.localStorage.getItem(`toeic-sync:v1:power-grammar:account:${encodeURIComponent(uid)}`);
+    // Inspect only the documented envelope, never its payload or lastSent data.
+    // An unreadable envelope is treated as pending so migration can preserve it.
+    let pendingCache = false;
+    if (cacheRaw !== null) {
+      try {
+        const saved = JSON.parse(cacheRaw);
+        pendingCache = !saved || ![1, 2].includes(saved.version) || typeof saved.payload !== "string" ||
+          typeof saved.linked !== "boolean" || typeof saved.pending !== "boolean" || saved.pending ||
+          saved.version === 2 && saved.lastSent !== null;
+      } catch { pendingCache = true; }
+    }
+    checkOwner();
+    const ref = sdk.storeSdk.doc(sdk.db, "users", uid, "study", "power-grammar");
+    const snapshot = await sdk.storeSdk.getDocFromServer(ref);
+    checkOwner();
+    const record = parseCloudRecord(snapshot.exists() ? snapshot.data() : null);
+    checkOwner();
+    return { owner: `account:${uid}`, payload: record.payload, revision: record.revision, cacheRaw, pendingCache };
+  };
+  try {
+    return await Promise.race([
+      readOnly(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(Object.assign(new Error("이전 기록 확인이 지연됐어요. 잠시 후 다시 시도해 주세요."), { code: "sync/legacy-read-timeout" })), 15000);
+      }),
+    ]);
+  } catch (error) {
+    if (error?.code === "sync/stale" || error?.code === "sync/legacy-read-timeout") throw error;
+    throw Object.assign(new Error("이전 학습 기록을 확인하지 못했어요. 원본은 그대로 보관돼요."), { code: "sync/legacy-read-failed" });
+  } finally {
+    active = false;
+    clearTimeout(timeout);
+    if (unsubscribe) { try { unsubscribe(); } catch { /* A closed observer must not affect the record. */ } }
+  }
 }

@@ -49,14 +49,18 @@
   if (data && experienceReady) {
     data = Object.assign({}, data, { questions: data.questions.concat(experienceReview.questions) });
   }
+  var unifiedGrammar = window.PowerGrammarAdapter && window.GRAMMAR_PREVIEW && window.PowerGrammarEmbedded ?
+    window.PowerGrammarAdapter.create(window.GRAMMAR_PREVIEW.cards, window.PowerGrammarEmbedded) : null;
+  if (data && unifiedGrammar) { data = Object.assign({}, data, { questions: data.questions.concat(unifiedGrammar.questions) }); }
   function activeQuestion(q) {
+    if (unifiedGrammar && !q.grammarOriginId && classifyQuestion(q).group === "grammar-structures") { return false; }
     return !q.internalRoute && (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
       (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id)) &&
       (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id)) &&
       (!timeReady || !Object.prototype.hasOwnProperty.call(timeReview.replacements, q.id)) &&
       (!experienceReady || !Object.prototype.hasOwnProperty.call(experienceReview.replacements, q.id));
   }
-  var activeCount = data ? data.questions.filter(activeQuestion).length : 0;
+  var activeCount = 0;
   var practice = window.POWER_VOCA_PRACTICE;
   var hardPractice = window.POWER_VOCA_HARD_PRACTICE;
   var practiceVersion = "20261019-hard2";
@@ -76,19 +80,29 @@
   var unavailableSession = null;
   var view = "loading";
   var applyingPayload = false;
+  var grammarImported = false;
+  var grammarImportOwner = null;
+  var unifiedImportReady = !unifiedGrammar;
+  var unifiedImportRunning = false;
+  var unifiedImportEpoch = -1;
+  var syncReader = null;
+  var migrationOriginals = null;
+  var observedOwner = null;
+  var pendingLegacySource = null;
   var unreadableOriginal = null;
   var originalBackupKey = storageKey + ":unreadable-backup:" + Date.now();
   var accountEpoch = 0;
   var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
   var letters = ["A", "B", "C", "D", "E", "F", "G", "H"];
   var views = ["loading", "error", "start", "quiz", "results"];
-  var grammarEmbedded = null;
-  var grammarEmbeddedReady = Boolean(window.PowerGrammarEmbedded && window.GRAMMAR_PREVIEW && el("grammar-view"));
-  if (grammarEmbeddedReady) { views.push("grammar"); }
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
   var taxonomy = window.PowerVocaTaxonomy;
   if (usageReady) { taxonomy = window.PowerVocaUsageRouting.createTaxonomy(taxonomy, usageReview); }
+  if (unifiedGrammar) {
+    taxonomy = Object.assign({}, taxonomy, { subscopes: taxonomy.subscopes.filter(function (item) { return item.group !== "grammar-structures"; }).concat(unifiedGrammar.subscopes) });
+  }
+  activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var questionScopes = new Map();
   var groupCounts = Object.create(null);
   var scopeCounts = Object.create(null);
@@ -105,7 +119,7 @@
   };
 
   function nativeQuestion(q) { return q && q.format === "semantic-set1" && /^semantic1-/.test(q.id); }
-  function blindSet(card) { return nativeQuestion(card.question) && card.question.stageMode === "set"; }
+  function blindSet(card) { return nativeQuestion(card.question) && card.question.stageMode === "set" && (!card.question.firstAnswerGate || card.stageIndex > 0); }
   function answerIndices(stage) { return stage.multiple ? stage.answers : [stage.answer]; }
   function selectedIndices(stage) { return stage.selected === null ? [] : Array.isArray(stage.selected) ? stage.selected : [stage.selected]; }
   function chose(stage, index) { return selectedIndices(stage).indexOf(index) !== -1; }
@@ -135,11 +149,22 @@
     return s.instruction || "문맥에 가장 알맞은 답을 하나 고르세요.";
   }
   function classifyQuestion(q) {
-    return experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
-  function text(id, value) { el(id).textContent = value; }
+  function text(id, value) {
+    if (id === "start-button") { value = "연습 시작"; }
+    if (id === "pool-summary") {
+      var pool = String(value).match(/^선택 범위 ([\d,]+)문제 중 이번에는 ([\d,]+)문제/);
+      if (pool) { value = pool[1] === pool[2] ? "총 " + pool[1] + "문제" : "총 " + pool[1] + "문제 중 " + pool[2] + "문제"; }
+    }
+    if (id === "resume-summary") {
+      var progress = String(value).match(/^(\d+)문제 중 (\d+)문제 채점/);
+      if (progress) { value = progress[2] + " / " + progress[1] + "문제 완료"; }
+    }
+    el(id).textContent = value;
+  }
   function announce(message) { text("live-status", message); }
   function node(tag, className, value) {
     var result = document.createElement(tag);
@@ -155,31 +180,6 @@
   function focusHeading(id) {
     el(id).focus({ preventScroll: true });
     (el(id).closest(".question-panel") || el(id)).scrollIntoView({ block: "start", behavior: "auto" });
-  }
-  function refreshSavedPractice() {
-    renderResume(); renderHistory();
-  }
-  function ensureEmbeddedGrammar() {
-    if (!grammarEmbeddedReady) { return null; }
-    if (!grammarEmbedded) {
-      grammarEmbedded = window.PowerGrammarEmbedded.create({ container: el("grammar-view"),
-        onHome: function () { if (view === "grammar") { showStart(); } else { refreshSavedPractice(); } },
-        onNotice: function (message) { if (view === "grammar") { announce(message); } },
-        onChange: refreshSavedPractice, onReady: refreshSavedPractice });
-      refreshSavedPractice();
-    }
-    return grammarEmbedded;
-  }
-  function launchEmbeddedGrammar(mode) {
-    ensureEmbeddedGrammar();
-    showView("grammar");
-    if (mode === "resume") {
-      var saved = grammarEmbedded.getStatus && grammarEmbedded.getStatus().resume;
-      grammarEmbedded.resume(saved && !saved.remaining ? { view: "result" } : undefined); return;
-    }
-    var url = window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value,
-      { count: el("round-size").value, shuffle: el("shuffle-questions").checked });
-    grammarEmbedded.start(window.PowerGrammarRoute.request(url.slice(url.indexOf("?") + 1)));
   }
   function shuffled(items) {
     var copy = items.slice();
@@ -197,7 +197,7 @@
   function reportStorage(message) {
     storageWarning = message;
     text("storage-status", message || connectionWarning);
-    text("record-state", message ? "기록 저장 상태 확인" : connectionWarning ? "기기 저장만 사용 중" : studySync && studySync.isAccountActive() ? "Google 계정에 학습 기록 연결" : "이 브라우저에 기록 저장");
+    text("record-state", message ? "저장 상태 확인" : connectionWarning ? "기기 저장 중" : studySync && studySync.isAccountActive() ? "계정 연결" : "기기 저장");
   }
   function serializedSession() {
     if (!session) { return unavailableSession; }
@@ -221,6 +221,8 @@
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
     if (archivedHistory.length) { saved.archivedHistory = archivedHistory; }
     if (syncReceipts) { saved._studySync = syncReceipts; }
+    if (grammarImported) { saved.grammarImported = true; }
+    if (grammarImportOwner) { saved.grammarImportOwner = grammarImportOwner; }
     return syncModel ? syncModel.stringify(saved, compact) : JSON.stringify(saved);
   }
   function preserveOriginal() {
@@ -277,16 +279,20 @@
           !Array.isArray(stored.stages) || stored.stages.length !== q.stages.length ||
           !Number.isInteger(stored.stageIndex) || stored.stageIndex < 0 || stored.stageIndex >= q.stages.length ||
           typeof stored.graded !== "boolean") { return null; }
-      var earlyEnd = q.stageMode !== "set" && stored.graded && saved.practiceVersion && stored.stageIndex === 0 && q.stages.length === 2 &&
-        stored.stages[0] && stored.stages[0].selected !== null && stored.stages[0].selected !== q.stages[0].answer &&
-        stored.stages[1] && stored.stages[1].selected === null;
+      var firstPicked = stored.stages[0] && stored.stages[0].selected;
+      var firstValues = firstPicked === null ? [] : Array.isArray(firstPicked) ? firstPicked : [firstPicked];
+      var firstAnswers = answerIndices(q.stages[0]);
+      var wrongFirst = firstValues.length > 0 && (firstValues.length !== firstAnswers.length || firstAnswers.some(function (n) { return firstValues.indexOf(n) === -1; }));
+      var earlyEnd = stored.graded && stored.stageIndex === 0 && wrongFirst &&
+        (q.firstAnswerGate && q.stages.length > 1 || q.stageMode !== "set" && saved.practiceVersion && q.stages.length === 2) &&
+        stored.stages.slice(1).every(function (s) { return s && s.selected === null; });
       var stages = [];
       for (var j = 0; j < q.stages.length; j += 1) {
         var stage = stored.stages[j], order = stage && stage.order, stageData = practiceStage(q, j, version);
         if (!stage || !Array.isArray(order) || order.length !== stageData.options.length || new Set(order).size !== order.length ||
             !order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < order.length; }) ||
             !validSelection(stage.selected, stageData) ||
-            stored.graded && stage.selected === null && !(earlyEnd && j === 1)) { return null; }
+          stored.graded && stage.selected === null && !(earlyEnd && j > 0)) { return null; }
         stages.push({ data: stageData, selected: stage.selected, choices: order.map(function (n) { return { text: stageData.options[n], originalIndex: n }; }) });
       }
       var sharedOrders = Object.create(null);
@@ -318,6 +324,8 @@
         saved = syncModel.parse(raw);
         if (!saved) { throw new Error("invalid state"); }
         history = saved.history;
+        grammarImported = saved.grammarImported === true;
+        grammarImportOwner = saved.grammarImportOwner || null;
         archivedHistory = saved.archivedHistory;
         syncReceipts = saved._studySync || null;
       }
@@ -360,7 +368,7 @@
     var saved = syncModel && syncModel.parse(raw);
     if (!saved) { throw new Error("Invalid VOCA account record"); }
     options = options || {};
-    if (options.accountSwitch === true) { accountEpoch += 1; }
+    if (options.accountSwitch === true) { accountEpoch += 1; unifiedImportReady = !unifiedGrammar; unifiedImportEpoch = -1; migrationOriginals = null; }
     // A delayed first server response is not permission to navigate away from
     // an already opened question. Explicit login/logout/account changes are.
     var background = options.reason === "background" ||
@@ -373,10 +381,15 @@
         // not add attempts again and does not move the local round or settings.
         var merged = syncModel.parse(syncModel.merge(null, currentPayload(true), raw));
         history = merged.history; archivedHistory = merged.archivedHistory;
+        grammarImported = merged.grammarImported === true;
+        grammarImportOwner = merged.grammarImportOwner || null;
         syncReceipts = merged._studySync || null;
         renderHistory();
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
+        grammarImported = saved.grammarImported === true;
+        grammarImportOwner = saved.grammarImportOwner || null;
+        if (!options.deferReady && grammarImported && currentOwner() && grammarImportOwner === fingerprint(currentOwner())) { unifiedImportReady = true; }
         syncReceipts = saved._studySync || null;
         session = saved.session ? restoreSession(saved.session) : null;
         unavailableSession = saved.session && !session ? saved.session : null;
@@ -403,7 +416,8 @@
       reportStorage(storageWarning);
       return;
     }
-    import("../shared/study-sync.js?v=20261019-voca1").then(function (module) {
+    import("../shared/study-sync.js?v=20261025-unified1").then(function (module) {
+      syncReader = module.readLegacyGrammarRecord;
       // Lossless migration before the controller reads the legacy guest key.
       // Compact checkpoints also fit an entire-book round in one cloud record.
       try {
@@ -425,6 +439,15 @@
         hasLocalData: function (raw) {
           var saved = syncModel.parse(raw);
           return Boolean(saved && (saved.session || Object.keys(saved.history).length || saved.archivedHistory.length));
+        },
+        onStatusChange: function (status) {
+          var owner = currentOwner();
+          if (owner && observedOwner && owner !== observedOwner) {
+            accountEpoch += 1; unifiedImportEpoch = -1; unifiedImportReady = false; migrationOriginals = null; pendingLegacySource = null;
+            showView("loading");
+          }
+          if (owner) { observedOwner = owner; }
+          if (status.ready && unifiedImportEpoch !== accountEpoch) { void prepareUnifiedPractice(); }
         }
       });
       reportStorage(storageWarning);
@@ -432,6 +455,105 @@
       connectionWarning = "기기 저장 사용 중 · 계정 연결을 불러오지 못했어요. 인터넷 연결을 확인하고 다시 열어 주세요.";
       reportStorage(storageWarning);
     });
+  }
+  function currentOwner() {
+    return studySync && studySync.getOwnerKey ? studySync.getOwnerKey() : window.location.protocol !== "https:" && window.location.protocol !== "http:" ? "guest" : null;
+  }
+  async function prepareUnifiedPractice(cloudOnly) {
+    if (!unifiedGrammar) { unifiedImportReady = true; return; }
+    var expectedOwner = currentOwner();
+    if (grammarImported && expectedOwner && grammarImportOwner === fingerprint(expectedOwner)) {
+      unifiedImportReady = true; unifiedImportEpoch = accountEpoch;
+      var owner = expectedOwner;
+      if (owner) {
+        try {
+          var priorKey = window.localStorage.getItem("toeic-unified-originals:" + fingerprint(owner));
+          var prior = priorKey && priorKey.indexOf("toeic-unified-backup:") === 0 && JSON.parse(window.localStorage.getItem(priorKey));
+          if (prior && prior.owner === owner) { migrationOriginals = prior; el("legacy-restore").hidden = false; }
+        } catch (_) { /* A backup lookup never blocks an already unified round. */ }
+      }
+      updateSettings(); return;
+    }
+    if (unifiedImportRunning && unifiedImportEpoch === accountEpoch) { return; }
+    var ticket = accountEpoch;
+    unifiedImportRunning = true; unifiedImportEpoch = ticket; unifiedImportReady = false;
+    updateSettings();
+    try {
+      var hosted = window.location.protocol === "https:" || window.location.protocol === "http:";
+      var source = cloudOnly && pendingLegacySource || (hosted ? await syncReader() : { owner: "guest", payload: window.localStorage.getItem("toeic-power-grammar:v1"), revision: 0 });
+      if (ticket !== accountEpoch || !expectedOwner || source.owner !== expectedOwner || currentOwner() !== expectedOwner) { return; }
+      var before = currentPayload(true);
+      var backup = JSON.stringify({ kind: "toeic-unified-originals", version: 1, owner: source.owner, nativeRaw: before, grammarRaw: source.payload, grammarCacheRaw: source.cacheRaw || null });
+      var backupKey = "toeic-unified-backup:" + fingerprint({ owner: source.owner, native: before, grammar: source.payload, cache: source.cacheRaw || null });
+      var existing = window.localStorage.getItem(backupKey);
+      if (existing && existing !== backup) { backupKey += ":" + Date.now(); }
+      window.localStorage.setItem(backupKey, backup);
+      if (window.localStorage.getItem(backupKey) !== backup) { throw new Error("이전 풀이의 원본 백업을 저장하지 못했어요. 저장 공간을 확인해 주세요."); }
+      var pointerKey = "toeic-unified-originals:" + fingerprint(source.owner);
+      var pointer = window.localStorage.getItem(pointerKey);
+      var original = null;
+      if (pointer && pointer.indexOf("toeic-unified-backup:") === 0) {
+        try { original = JSON.parse(window.localStorage.getItem(pointer)); } catch (_) { /* Retain the fresh verified backup. */ }
+      }
+      if (!original || original.owner !== source.owner) {
+        window.localStorage.setItem(pointerKey, backupKey);
+        if (window.localStorage.getItem(pointerKey) !== backupKey) { throw new Error("이전 풀이의 백업 위치를 저장하지 못했어요."); }
+        original = JSON.parse(backup);
+      }
+      migrationOriginals = original;
+      var reconciled = window.PowerVocaUnifiedMigration.reconcileLegacySource(source);
+      if (!reconciled.resolved && !cloudOnly) {
+        pendingLegacySource = source; el("migration-cloud-button").hidden = false;
+        throw new Error("이전 기기의 미확인 풀이를 원본 백업에 보관했어요. 계정 기록으로 통합할지 선택해 주세요.");
+      }
+      var plan = window.PowerVocaUnifiedMigration.plan(before, reconciled.resolved ? reconciled.payload : source.payload, { adapter: unifiedGrammar, practiceVersion: latestPracticeVersion() });
+      plan.payload.grammarImportOwner = fingerprint(expectedOwner); plan.raw = syncModel.stringify(plan.payload, true);
+      if (ticket !== accountEpoch || currentOwner() !== expectedOwner) { return; }
+      applyStudyPayload(plan.raw, { reason: "restore", deferReady: true });
+      unifiedImportReady = false;
+      if (!saveState()) {
+        applyStudyPayload(before, { reason: "restore", deferReady: true }); unifiedImportReady = false;
+        throw new Error("통합한 풀이를 저장하지 못했어요. 이전 원본은 백업에 보관돼 있어요.");
+      }
+      if (ticket !== accountEpoch) { return; }
+      unifiedImportReady = true; reportStorage("");
+      el("migration-retry-button").hidden = true;
+      el("migration-cloud-button").hidden = true; pendingLegacySource = null;
+      el("legacy-restore").hidden = !migrationOriginals;
+      showStart();
+    } catch (error) {
+      if (ticket !== accountEpoch) { return; }
+      unifiedImportReady = false;
+      reportStorage(error.message || "이전 기록을 확인하지 못했어요. 원본 기록은 그대로 보관돼 있어요.");
+      el("migration-retry-button").hidden = false;
+    } finally {
+      if (ticket === accountEpoch) { unifiedImportRunning = false; updateSettings(); }
+    }
+  }
+  function restorePreviousDraft() {
+    if (!unifiedImportReady || !migrationOriginals) { return; }
+    var owner = currentOwner();
+    if (!owner || owner !== migrationOriginals.owner) { return; }
+    if (!window.confirm("진행 중인 연습을 선택한 이전 풀이로 바꿀까요? 현재 풀이를 백업하고 누적 기록은 유지해요.")) { return; }
+    try {
+      var current = currentPayload(true), next;
+      if (el("legacy-round-select").value === "grammar") {
+        next = window.PowerVocaUnifiedMigration.plan(current, migrationOriginals.grammarRaw, { adapter: unifiedGrammar, practiceVersion: latestPracticeVersion(), selectSession: "grammar" }).payload;
+      } else {
+        var old = syncModel.parse(migrationOriginals.nativeRaw);
+        if (!old || !old.session) { throw new Error("보관된 이전 풀이가 없어요."); }
+        next = syncModel.parse(syncModel.merge(null, current, migrationOriginals.nativeRaw));
+        next.session = old.session; next.settings = old.settings; next.grammarImported = true;
+      }
+      if (!next.session) { throw new Error("보관된 이전 풀이가 없어요."); }
+      var key = "toeic-unified-restore-backup:" + Date.now();
+      window.localStorage.setItem(key, current);
+      if (window.localStorage.getItem(key) !== current) { throw new Error("현재 풀이를 백업하지 못했어요."); }
+      if (currentOwner() !== owner) { return; }
+      applyStudyPayload(syncModel.stringify(next, true), { reason: "restore" });
+      if (saveState()) { showStart(); }
+      else { applyStudyPayload(current, { reason: "restore" }); throw new Error("풀이 전환을 저장하지 못해 기존 풀이로 돌아왔어요."); }
+    } catch (error) { reportStorage(error.message || "이전 풀이를 불러오지 못했어요."); }
   }
   function exportRecords() {
     try {
@@ -491,11 +613,6 @@
     var correct = items.reduce(function (sum, item) { return sum + item.stagesCorrect; }, 0);
     var graded = items.reduce(function (sum, item) { return sum + item.stagesGraded; }, 0);
     var learned = new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size;
-    var grammar = grammarEmbedded && grammarEmbedded.getStatus ? grammarEmbedded.getStatus() : null;
-    if (grammar && grammar.ready && grammar.totals) {
-      attempts += grammar.totals.attempts; correct += grammar.totals.stagesCorrect;
-      graded += grammar.totals.stagesGraded; learned += grammar.learnedCount || 0;
-    }
     text("history-summary", attempts ? "학습한 문제 " + learned + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
   }
   function scopeOf(q) { return questionScopes.get(q.id); }
@@ -504,12 +621,12 @@
     select.replaceChildren();
     var all = node("option", "", group === "all" ? "모든 세부 범위" : "이 분류 전체");
     all.value = "all"; select.append(all);
-    if (group === "grammar-structures" && window.PowerGrammarRoute) {
-      window.PowerGrammarRoute.choices.forEach(function (scope) {
-        var option = node("option", "", scope.label + " (" + scope.count + "문제)");
+    if (group === "grammar-structures" && unifiedGrammar) {
+      unifiedGrammar.subscopes.forEach(function (scope) {
+        var option = node("option", "", scope.label + " (" + (scopeCounts[scope.id] || 0) + "문제)");
         option.value = scope.id; select.append(option);
       });
-      select.value = window.PowerGrammarRoute.normalizeScope(selected); return;
+      select.value = unifiedGrammar.subscopes.some(function (s) { return s.id === selected; }) ? selected : "all"; return;
     }
     taxonomy.groups.forEach(function (section) {
       if (group !== "all" && group !== section.id) { return; }
@@ -530,6 +647,7 @@
   }
   function applyScopeSetting(value) {
     var normalized = taxonomy.normalizeLegacy(value);
+    if (unifiedGrammar && unifiedGrammar.subscopes.some(function (s) { return s.id === value; })) { normalized = { group: "grammar-structures", scope: value }; }
     if (memoryReady && value === mixedScope) { normalized = { group: "grammar-structures", scope: mixedScope }; }
     var group = normalized.group;
     if (String(value).indexOf("group-") === 0) { group = String(value).slice(6); normalized.scope = "all"; }
@@ -541,24 +659,14 @@
     return data.questions.filter(function (q) {
       if (!activeQuestion(q)) { return false; }
       var assigned = scopeOf(q);
-      if (window.PowerGrammarRoute) { return window.PowerGrammarRoute.include(group, scope, assigned); }
       return (group === "all" || assigned.group === group) &&
         (scope === "all" || scope === mixedScope && mixedVerbScopes.indexOf(assigned.scope) !== -1 || assigned.scope === scope);
     });
   }
   function updateSettings() {
-    var grammar = Boolean(window.PowerGrammarRoute && el("group-filter").value === "grammar-structures");
     el("step-filter-label").hidden = false;
-    el("option-shuffle-setting").hidden = grammar;
-    text("question-shuffle-label", grammar ? "문제·보기 순서 함께 섞기" : "문제 순서 섞기");
-    if (window.PowerGrammarRoute && el("group-filter").value === "grammar-structures") {
-      var chosen = window.PowerGrammarRoute.choices.find(function (scope) { return scope.id === el("step-filter").value; });
-      var total = chosen ? chosen.count : window.PowerGrammarRoute.count;
-      var size = el("round-size").value, count = size === "all" ? total : Math.min(Number(size), total);
-      text("scope-description", "형식·단어 뒤 연결·전치사·어순을 단어별로 확인해요. 1V~5V 보기는 고정 순서이며, 예전 풀이와 기록은 그대로 보존해요.");
-      text("pool-summary", "선택 범위 " + total + "문제 중 이번에는 " + count + "문제를 풀어요.");
-      text("start-button", el("shuffle-questions").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗"); el("start-button").disabled = false; renderResume(); return;
-    }
+    el("option-shuffle-setting").hidden = false;
+    text("question-shuffle-label", "문제 순서 섞기");
     el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value;
     var count = size === "all" ? pool.length : Math.min(Number(size), pool.length);
@@ -569,13 +677,11 @@
     }
     if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
     text("start-button", el("shuffle-questions").checked || el("shuffle-options").checked ? "섞어서 시작하기 ↗" : "시작하기 ↗");
-    el("start-button").disabled = pool.length === 0;
+    el("start-button").disabled = pool.length === 0 || !unifiedImportReady;
     renderResume();
   }
   function startSelected() {
-    if (grammarEmbeddedReady && el("group-filter").value === "grammar-structures") { launchEmbeddedGrammar("new"); return; }
-    var grammarUrl = window.PowerGrammarRoute && window.PowerGrammarRoute.launch(el("group-filter").value, el("step-filter").value, { count: el("round-size").value, shuffle: el("shuffle-questions").checked });
-    if (grammarUrl) { window.location.assign(grammarUrl); return; }
+    if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     var pool = filteredQuestions(), size = el("round-size").value;
     if (el("shuffle-questions").checked) { pool = shuffled(pool); }
@@ -616,6 +722,7 @@
     return validStage(revised) && new Set(revised.options).size === 4 ? revised : original;
   }
   function isLinkedMeaningStage(card, index) {
+    if (card.question.grammarOriginId) { return false; }
     var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
     return index > 0 && !blindSet(card) && !(meta && meta.independent) && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
   }
@@ -683,19 +790,12 @@
       }
       text("resume-button", count.ungraded ? "이어서 풀기" : "풀이 결과 보기");
     }
-    el("native-resume-row").hidden = !session;
-    var grammar = grammarEmbedded && grammarEmbedded.getStatus ? grammarEmbedded.getStatus() : null;
-    var savedGrammar = grammar && grammar.ready && grammar.resume;
-    el("grammar-resume-row").hidden = !savedGrammar;
-    if (savedGrammar) {
-      text("grammar-resume-scope", "문형·구조 · " + savedGrammar.label.replace(/^문형·구조\s*/, ""));
-      text("grammar-resume-summary", savedGrammar.total + "문제 중 " + savedGrammar.done + "문제 채점 · 모두 맞힌 문제 " + savedGrammar.correct + " · 다시 볼 문제 " + savedGrammar.wrong);
-      text("grammar-resume-button", savedGrammar.remaining ? "이어서 풀기" : "풀이 결과 보기");
-    }
-    var pending = grammar && !grammar.ready;
+    el("resume-row").hidden = !session;
+    var pending = !unifiedImportReady;
     el("resume-status").hidden = !pending;
-    text("resume-status", pending ? grammar.phase === "error" ? "일부 저장 기록을 확인하지 못했어요. 새로고침한 뒤 다시 확인해 주세요." : "저장된 풀이를 확인하고 있어요." : "");
-    el("resume-panel").hidden = !session && !savedGrammar && !pending;
+    text("resume-status", pending ? "이전 풀이를 안전하게 준비하고 있어요." : "");
+    el("resume-button").disabled = pending;
+    el("resume-panel").hidden = !session && !pending;
   }
   function showStart() {
     if (requestedCategory) { el("group-filter").value = "grammar-structures"; populateSubscopes("all"); }
@@ -808,7 +908,7 @@
     var model = window.PowerFeedbackCore.build({
       id: card.question.id, word: card.question.displayExpression || summary.expression,
       meaning: summary.meaning, passed: passed, question: card.question,
-      scope: assigned.scope, group: assigned.group,
+      scope: assigned.scope, group: assigned.group, grammar: Boolean(card.question.grammarOriginId), summaryRows: card.question.grammarSummary,
       stages: card.stages.map(function (stage) {
         return Object.assign({}, stage.data, { correct: answerIndices(stage.data), selected: selectedIndices(stage), skipped: stage.selected === null });
       })
@@ -902,6 +1002,8 @@
     text("question-instruction", isLinkedMeaningStage(card, card.stageIndex) ? "완성된 표현의 뜻을 고르세요." :
       visibleInstruction(card, card.stageIndex));
     text("question-heading", visiblePrompt(card, card.stageIndex));
+    text("question-context", stage.data.context || "");
+    el("question-context").hidden = !stage.data.context;
     var wordList = el("semantic-words"); wordList.replaceChildren();
     wordList.hidden = !Array.isArray(card.question.words);
     if (!wordList.hidden) {
@@ -934,6 +1036,7 @@
     if (focus) { focusHeading("question-instruction"); }
   }
   function submitStage() {
+    if (!unifiedImportReady) { return; }
     var card = currentCard(), stage = currentStage();
     if (card.graded || stage.selected == null) { return; }
     if (submitPosChoice(card)) { return; }
@@ -1008,7 +1111,7 @@
     if (mixedVerbScopes.indexOf(assigned.scope) !== -1) { scopeCounts[mixedScope] = (scopeCounts[mixedScope] || 0) + 1; }
   });
   taxonomy.groups.forEach(function (group) {
-    var option = node("option", "", group.label + " (" + (group.id === "grammar-structures" && window.PowerGrammarRoute ? window.PowerGrammarRoute.count : groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제)");
+    var option = node("option", "", group.label + " (" + (groupCounts[group.id] || 0).toLocaleString("ko-KR") + "문제)");
     option.value = group.id; el("group-filter").append(option);
   });
   populateSubscopes("all");
@@ -1039,11 +1142,12 @@
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
-  el("group-filter").addEventListener("change", function () { requestedCategory = false; if (window.history && window.location.search) window.history.replaceState(null, "", window.location.pathname); populateSubscopes("all"); updateSettings(); saveState(); });
-  el("grammar-resume-button").addEventListener("click", function () {
-    if (grammarEmbeddedReady) { launchEmbeddedGrammar("resume"); }
-    else { window.location.assign(window.PowerGrammarRoute.launch("grammar-structures", el("step-filter").value, {mode:"resume"})); }
+  el("migration-retry-button").addEventListener("click", function () { void prepareUnifiedPractice(); });
+  el("migration-cloud-button").addEventListener("click", function () {
+    if (window.confirm("미확인 기기 풀이 원본은 백업에 남기고, 계정에서 확인된 기록을 기준으로 통합할까요?")) { void prepareUnifiedPractice(true); }
   });
+  el("legacy-restore-button").addEventListener("click", restorePreviousDraft);
+  el("group-filter").addEventListener("change", function () { requestedCategory = false; if (window.history && window.location.search) window.history.replaceState(null, "", window.location.pathname); populateSubscopes("all"); updateSettings(); saveState(); });
   el("step-filter").addEventListener("change", function () {
     var scope = taxonomy.subscopes.find(function (item) { return item.id === el("step-filter").value; });
     if (memoryReady && el("step-filter").value === mixedScope) { scope = { id: mixedScope, group: "grammar-structures" }; }
@@ -1054,7 +1158,7 @@
   });
   el("home-link").addEventListener("click", function (event) { event.preventDefault(); showStart(); });
   el("home-button").addEventListener("click", showStart);
-  el("resume-button").addEventListener("click", function () { if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });
+  el("resume-button").addEventListener("click", function () { if (!unifiedImportReady || !session) { return; } if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });
   el("grade-button").addEventListener("click", submitStage);
   el("previous-stage-button").addEventListener("click", function () { if (currentCard().stageIndex > 0) { currentCard().stageIndex -= 1; renderQuestion(true); } });
   el("previous-button").addEventListener("click", function () { if (session.index > 0) { session.index -= 1; renderQuestion(true); } });
@@ -1093,6 +1197,6 @@
     el("import-records").addEventListener("click", function () { el("import-records-file").click(); });
     el("import-records-file").addEventListener("change", importRecords);
   }
-  ensureEmbeddedGrammar();
+  if (window.location.protocol !== "https:" && window.location.protocol !== "http:") { void prepareUnifiedPractice(); }
   connectAccountSync();
 }());

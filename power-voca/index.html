@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
   <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
   <link rel="stylesheet" href="practice-shell.css?v=20261025-integration1">
+  <link rel="stylesheet" href="home.css?v=20261025-unified1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
   <script src="practice-options.js?v=20261019-linked1" defer></script>
@@ -20,7 +21,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261024-semantic1" defer></script>
+  <script src="sync-model.js?v=20261025-unified1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -30,13 +31,15 @@
   <script src="feedback-core.js?v=20261025-feedback1" defer></script>
   <script src="feedback-view.js?v=20261025-feedback1" defer></script>
   <script src="grammar-embedded.js?v=20261025-integration1" defer></script>
-  <script src="app.js?v=20261025-integration1" defer></script>
+  <script src="grammar-adapter.js?v=20261025-unified1" defer></script>
+  <script src="unified-migration.js?v=20261025-unified1" defer></script>
+  <script src="app.js?v=20261025-unified1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
-    <a href="../">첫 화면</a>
-    <a href="../vocabulary/">토익 단어장</a>
-    <a href="../quiz/">랜덤 문제집</a>
+    <a href="https://wjfl44444-lab.github.io/toeic-study/">첫 화면</a>
+    <a href="https://wjfl44444-lab.github.io/toeic-study/vocabulary/">토익 단어장</a>
+    <a href="https://wjfl44444-lab.github.io/toeic-study/quiz/">랜덤 문제집</a>
     <a href="./" aria-current="page">표현·구조 훈련</a>
   </nav>
   <div id="account-sync"></div>
@@ -44,7 +47,7 @@
     <header class="site-header">
       <a class="brand" href="#" id="home-link" aria-label="표현·구조 훈련 시작 화면">
         <span class="brand-icon" aria-hidden="true">W<span>S</span></span>
-        <span>표현·구조 훈련<span class="brand-subtitle">결합·문형·의미를 연결해요</span></span>
+        <span>표현·구조 훈련</span>
       </a>
       <button class="text-button" id="home-button" hidden>시작 화면</button>
     </header>
@@ -64,48 +67,47 @@
       </section>
 
       <section id="start-view" hidden aria-labelledby="start-title">
-        <div class="intro-topline"><span class="pill">객관식 <span data-total>0</span>문제</span><span class="subtle" id="record-state">이 브라우저에 기록 저장</span></div>
         <div class="panel intro-panel">
-          <p class="eyebrow">WORDS IN CONTEXT</p>
-          <h1 id="start-title">뜻을 넘어,<br>쓰임까지 익혀요.</h1>
-          <p class="intro-copy">문형·구조, 어울리는 단어, 비슷한 뜻까지.<br class="desktop-break"> 큰 분류와 세부 범위를 골라 함께 연습해요.</p>
-          <div class="sample-notice"><strong>문법을 아는 데서, 단어별 쓰임을 외우는 데로.</strong><span>어떤 단어가 to V·V-ing·목적어·보어를 받는지, 어떤 전치사·짝단어와 쓰이는지 직접 떠올려요. 손글씨는 제외하고 교재의 인쇄된 내용을 연습해요.</span></div>
-          <p class="settings-note" id="coverage-summary"></p>
-          <div class="two-step-note"><span class="two-step-number">1 → … → ✓</span><p><strong>단어별 뜻과 쓰임을 연결해요.</strong><br>다품사어·다의어·혼동 어휘는 세트 마지막에 한 번에 채점해요. 결합 문제는 올바른 표현을 고른 뒤 뜻으로 이어져요.</p></div>
+          <div class="home-heading"><h1 id="start-title">새 연습</h1><span id="record-state" class="save-state">기기 저장</span></div>
           <div class="round-settings">
             <label for="group-filter" class="main-scope-label">큰 분류<select id="group-filter"><option value="all">문형·구조 외 5개 분류 함께 풀기</option></select></label>
             <label for="step-filter" id="step-filter-label">세부 범위<select id="step-filter"><option value="all">모든 세부 범위</option></select></label>
-            <p id="scope-description" class="settings-note scope-description"></p>
-            <label for="round-size">이번에 풀 문제 수<select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label>
-            <p id="pool-summary" class="settings-note"></p>
+            <label for="round-size">문제 수<select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label>
           </div>
           <div class="start-settings">
             <fieldset>
               <legend>문제 순서 설정</legend>
               <label class="check-label"><input type="checkbox" id="shuffle-questions" checked><span id="question-shuffle-label">문제 순서 섞기</span></label>
-              <label class="check-label" id="option-shuffle-setting"><input type="checkbox" id="shuffle-options" checked><span>선택지도 함께 섞기</span></label>
+              <label class="check-label" id="option-shuffle-setting"><input type="checkbox" id="shuffle-options" checked><span>선택지 섞기</span></label>
             </fieldset>
-            <p class="settings-note">교재 위치와 해설은 채점한 뒤에 보여요.<br>세트 문제는 <strong>다음 단계</strong>로 진행하고 마지막에 <strong>세트 채점하기</strong>를 눌러요.</p>
+
           </div>
-          <button class="primary-button start-button" id="start-button">섞어서 시작하기 <span aria-hidden="true">↗</span></button>
-          <p class="privacy-note">사이트에서 같은 Google 계정으로 로그인하면 학습 기록도 자동으로 이어져요.<br class="desktop-break"> 기존 파워보카 기록은 그대로 연결돼요. 단어장·문제집 기록은 따로 안전하게 유지해요.</p>
+          <div class="start-line"><p id="pool-summary" class="pool-count"></p><button class="primary-button start-button" id="start-button">연습 시작</button></div>
+
         </div>
         <div class="panel resume-panel" id="resume-panel" hidden>
           <h2>저장된 풀이</h2>
-          <div class="saved-round" id="native-resume-row" hidden>
+          <div class="saved-round" id="resume-row" hidden>
             <div><h3 id="resume-scope"></h3><p id="resume-summary"></p></div>
             <button class="secondary-button" id="resume-button">이어서 풀기</button>
           </div>
-          <div class="saved-round" id="grammar-resume-row" hidden>
-            <div><h3 id="grammar-resume-scope"></h3><p id="grammar-resume-summary"></p></div>
-            <button class="secondary-button" id="grammar-resume-button">이어서 풀기</button>
-          </div>
+
           <p class="settings-note" id="resume-status" hidden></p>
         </div>
         <div class="panel history-panel"><h2>누적 학습</h2><p id="history-summary">아직 채점한 문제가 없어요.</p></div>
-        <details class="panel record-tools"><summary>백업과 기록 가져오기</summary><p>파일 미리보기에서 공부한 기록은 여기서 백업한 뒤 사이트에서 가져올 수 있어요. 같은 기록을 다시 가져와도 학습 횟수를 중복으로 더하지 않아요.</p><div><button class="secondary-button" id="export-records">교재 기록 백업</button><button class="secondary-button" id="import-records">교재 기록 가져오기</button></div><input type="file" id="import-records-file" accept=".json,application/json" hidden></details>
         <p class="storage-status" id="storage-status" role="status"></p>
-        <p class="source-note" id="source-title"></p>
+        <button class="text-button" id="migration-retry-button" hidden>기록 다시 확인</button>
+        <button class="text-button" id="migration-cloud-button" hidden>백업 후 계정 기록으로 통합</button>
+        <details class="panel home-help" id="home-help">
+          <summary>도움말</summary>
+          <div class="help-content">
+            <section><h3>풀이·채점</h3><p>첫 답이 틀리면 종료되는 문제와, 세트 마지막에 채점하는 문제가 있어요. 화면의 단계 버튼을 따라 풀면 돼요. 정답과 해설은 채점 후에 보여요.</p></section>
+            <section><h3>선택한 범위</h3><p id="scope-description"></p></section>
+            <section><h3>기록 저장</h3><p>같은 Google 계정으로 연결하면 다른 기기에서도 기록을 이어갈 수 있어요. 통합 전 두 풀이의 원본은 이 기기에 보관해요.</p><div class="backup-actions"><button class="secondary-button" id="export-records">기록 백업</button><button class="secondary-button" id="import-records">백업 가져오기</button></div><input type="file" id="import-records-file" accept=".json,application/json" hidden></section>
+            <section id="legacy-restore" hidden><h3>통합 전 풀이</h3><p>이전 풀이로 전환해도 진행 중인 연습은 하나로 유지돼요. 누적 기록은 합쳐서 보관해요.</p><div class="backup-actions"><select id="legacy-round-select" aria-label="복원할 이전 풀이"><option value="native">이전 일반 풀이</option><option value="grammar">이전 문형·구조 풀이</option></select><button class="secondary-button" id="legacy-restore-button">이전 풀이로 전환</button></div></section><section><h3>학습 자료</h3><p id="source-title"></p></section>
+          </div>
+        </details>
+        <p id="coverage-summary" hidden></p>
       </section>
 
       <section id="quiz-view" hidden aria-labelledby="question-instruction">
@@ -118,6 +120,7 @@
           <h1 class="instruction" id="question-instruction" tabindex="-1"></h1>
           <div class="semantic-words" id="semantic-words" aria-label="이번 세트의 단어" hidden></div>
           <p class="question-example" id="question-heading"></p>
+          <p class="question-context" id="question-context" hidden></p>
           <fieldset class="options-fieldset"><legend class="sr-only" id="options-legend">정답을 하나 선택하세요.</legend><div id="options-list"></div></fieldset>
           <div class="question-actions" id="question-actions">
             <button class="secondary-button" id="previous-button">이전 문제</button>
@@ -153,9 +156,7 @@
         </section>
       </section>
 
-      <section id="grammar-view" hidden aria-label="문형·구조 문제"></section>
-
-      <section id="results-view" hidden aria-labelledby="results-title">
+<section id="results-view" hidden aria-labelledby="results-title">
         <div class="panel results-panel">
           <p class="eyebrow">YOUR PRACTICE</p>
           <h1 id="results-title" tabindex="-1">이번 풀이를 돌아봐요.</h1>
@@ -176,7 +177,7 @@
         <section class="panel review-panel" aria-labelledby="review-title"><h2 id="review-title">문제별 풀이 현황</h2><p class="review-caption">문제를 누르면 선택한 답과 해설을 다시 확인할 수 있어요.<br>미채점 문제의 정답은 채점하기 전까지 공개하지 않아요.</p><ol id="review-list" class="review-list"></ol></section>
       </section>
     </main>
-    <footer class="site-footer">개인 학습용 <span aria-hidden="true">·</span> Google 계정으로 교재 기록 자동 연결 · 로그인 전 기록 별도 보관</footer>
+
   </div>
   <div class="sr-only" id="live-status" aria-live="polite" aria-atomic="true"></div>
 </body>
