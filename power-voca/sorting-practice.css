@@ -1,0 +1,85 @@
+/* The sorting workspace shares the site's palette; every rule stays in its view. */
+#sorting-view .sort-title{margin:0 0 14px;font-size:22px;font-weight:700;line-height:1.55;letter-spacing:-.025em;overflow-wrap:anywhere}
+#sorting-view .sort-counter,#sorting-view .meaning-meta{color:var(--muted);font-size:15px;line-height:1.7}
+#sorting-view .sort-counter{margin:8px 0 18px}
+#sorting-view .table-instruction{font-size:15px;color:var(--muted);line-height:1.7;margin:8px 0 16px}
+#sorting-view .sort-workspace{display:block;padding:27px 28px;margin-top:20px}
+#sorting-view .sort-workspace .sort-counter{margin:0 0 9px}
+#sorting-view .sort-workspace .sort-title{font-size:22px;margin-bottom:5px}
+#sorting-view .classification-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:12px;max-height:62vh;scrollbar-color:#56715d transparent}
+#sorting-view .classification-table{width:100%;min-width:calc(155px + var(--bin-count,5)*64px);table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:16px}
+#sorting-view .classification-table th,#sorting-view .classification-table td{border-bottom:1px solid #b6dec51c;border-right:1px solid #b6dec51c;padding:0;text-align:center}
+#sorting-view .classification-table tr>*:last-child{border-right:0}
+#sorting-view .classification-table tbody tr:last-child>*{border-bottom:0}
+#sorting-view .classification-table thead th{position:sticky;top:0;z-index:2;background:#213e32;padding:12px 6px;color:var(--mint-strong);font-size:17px;font-weight:650}
+#sorting-view .classification-table th:first-child{width:30%;min-width:155px;position:sticky;left:0;background:#1c362d;text-align:left;z-index:1}
+#sorting-view .classification-table thead th:first-child{z-index:3;padding-left:16px;background:#213e32}
+#sorting-view .classification-table tr:focus-within{background:#b6dec508}
+#sorting-view .classification-table tr:focus-within th:first-child{background:#294438}
+#sorting-view .table-word{appearance:none;border:0;border-radius:0;background:none;color:var(--ink);font:inherit;font-size:17px;font-weight:600;text-align:left;width:100%;padding:11px 16px;line-height:1.4;overflow-wrap:anywhere}
+#sorting-view .table-word:focus-visible{outline:2px solid #f0d38f;outline-offset:-3px}
+#sorting-view .table-check{display:flex;align-items:center;justify-content:center;min-height:46px;width:100%;cursor:pointer}
+#sorting-view .table-check.checked{background:#b6dec510}
+#sorting-view .table-check input{appearance:none;-webkit-appearance:none;width:21px;height:21px;flex-shrink:0;border:1px solid #90a995;border-radius:4px;margin:0;background:transparent;cursor:pointer;display:grid;place-items:center}
+#sorting-view .table-check input:checked{background:var(--mint);border-color:var(--mint)}
+#sorting-view .table-check input:checked::after{content:'✓';font-size:17px;font-weight:800;line-height:1;color:#17372a}
+#sorting-view .table-check input:focus-visible{outline:3px solid #f0d38f;outline-offset:4px}
+#sorting-view .sort-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:25px;padding-top:21px;border-top:1px solid var(--border)}
+#sorting-view .sort-actions .primary-button,#sorting-view .sort-actions .secondary-button{min-height:49px;padding:11px 21px;font-size:16px}
+#sorting-view .sort-actions .primary-button{margin-left:auto}
+#sorting-view .sort-actions .text-button{font-size:15px}
+#sorting-view .table-actions{justify-content:space-between;gap:14px;margin-top:18px}
+#sorting-view .table-progress{font-size:15px;color:var(--muted)}
+#sorting-view .category-results{display:grid;grid-template-columns:repeat(var(--bin-count,2),minmax(0,1fr));gap:10px;margin:20px 0}
+#sorting-view .category-result{border:1px solid var(--border);border-radius:11px;padding:14px 12px;background:#10261d5c}
+#sorting-view .category-result h2{font-size:18px;color:var(--mint-strong);line-height:1.4;margin:0 0 12px}
+#sorting-view .category-words{display:flex;flex-direction:column;align-items:flex-start;gap:7px}
+#sorting-view .category-word{font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+#sorting-view .category-empty{font-size:13px;color:var(--muted);line-height:1.5}
+#sorting-view .sorting-note{margin:18px 0;padding:16px 20px;border:1px solid var(--border);border-radius:14px;background:#b6dec509;color:var(--muted);font-size:15px;line-height:1.8;white-space:pre-line}
+#sorting-view .meaning-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 15px;margin-bottom:15px}
+#sorting-view .meaning-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:25px 0;padding:0;list-style:none;border:0}
+#sorting-view .meaning-option{display:flex;align-items:center;gap:12px;width:100%;min-height:66px;min-width:0;padding:15px 17px;border:1px solid var(--border);border-radius:12px;background:#14281f30;color:var(--ink);font:inherit;font-size:17px;line-height:1.65;text-align:left;overflow-wrap:anywhere}
+#sorting-view .meaning-option:hover:not(:disabled){border-color:#8fba9b;background:#b6dec508}
+#sorting-view .meaning-option.selected{border-color:var(--mint);background:#b6dec512}
+#sorting-view .meaning-option:focus-visible{outline:3px solid #f0d38f;outline-offset:4px}
+#sorting-view .option-number{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:29px;height:29px;border:1px solid var(--border);border-radius:50%;color:var(--muted);font-size:14px;font-weight:600}
+#sorting-view .meaning-option.selected .option-number{background:var(--mint);border-color:var(--mint);color:#17372a}
+#sorting-view .meaning-option.correct{border-color:#87b992;background:var(--green-bg)}
+#sorting-view .meaning-option.incorrect{border-color:#bf8276;background:var(--red-bg)}
+#sorting-view .meaning-option.correct .option-number{background:var(--mint);color:#17372a;border-color:var(--mint)}
+#sorting-view .meaning-option.incorrect .option-number{background:var(--red);color:#41241b;border-color:var(--red)}
+#sorting-view .meaning-option:disabled{opacity:1}
+#sorting-view .card-results{display:grid;gap:15px;margin:24px 0}
+#sorting-view .card-result{padding:20px 22px;border:1px solid var(--border);border-radius:15px;background:var(--panel)}
+#sorting-view .card-result.correct{border-color:#6c9278}
+#sorting-view .card-result.incorrect{border-color:#a4776b}
+#sorting-view .card-result-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin-bottom:12px;color:var(--ink);font-size:21px;font-weight:650;line-height:1.5;overflow-wrap:anywhere}
+#sorting-view #sorting-sort-results .card-result{padding:15px 17px}
+#sorting-view #sorting-sort-results .card-result-head{font-size:18px;margin-bottom:6px}
+#sorting-view .status-tag{flex-shrink:0;padding:3px 10px;border:1px solid var(--border);border-radius:20px;color:var(--muted);font-size:14px;font-weight:500;white-space:nowrap}
+#sorting-view .status-tag.correct{border-color:#72947b;color:var(--mint)}
+#sorting-view .status-tag.incorrect{border-color:#a27769;color:var(--red)}
+#sorting-view .result-detail{color:#d1ddcf;font-size:16px;line-height:1.85;overflow-wrap:anywhere;white-space:pre-line}
+#sorting-view .result-detail+.result-detail{margin-top:10px}
+#sorting-view .answer-main{color:var(--mint-strong);font-size:18px;font-weight:650;line-height:1.7;margin:10px 0}
+#sorting-view .source-note{color:var(--muted);font-size:14px;line-height:1.8;text-align:left;margin-top:15px;overflow-wrap:anywhere}
+@media(max-width:640px){
+  #sorting-view .sort-workspace{padding:20px 14px;margin-top:16px}
+  #sorting-view .classification-table-wrap{max-height:64vh}
+  #sorting-view .classification-table{font-size:15px}
+  #sorting-view .classification-table thead th{font-size:16px;padding:10px 4px}
+  #sorting-view .table-word{font-size:16px;padding:10px 12px}
+  #sorting-view .table-check{min-height:44px}
+  #sorting-view .table-progress{font-size:14px}
+  #sorting-view .category-results{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #sorting-view .category-result{padding:12px}
+  #sorting-view .meaning-options{grid-template-columns:1fr;gap:10px;margin:21px 0}
+  #sorting-view .meaning-option{font-size:17px;min-height:63px;padding:13px 14px}
+  #sorting-view .sort-actions .primary-button,#sorting-view .sort-actions .secondary-button{flex:1;padding:11px 14px;font-size:16px}
+  #sorting-view .sort-actions .text-button{min-height:44px}
+  #sorting-view .table-actions .primary-button{flex:initial}
+  #sorting-view .card-result{padding:18px}
+  #sorting-view .card-result-head{font-size:20px}
+  #sorting-view .sorting-note{padding:14px 16px}
+}

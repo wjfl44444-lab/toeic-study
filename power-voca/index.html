@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
   <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
   <link rel="stylesheet" href="practice-shell.css?v=20261025-integration1">
+  <link rel="stylesheet" href="sorting-practice.css?v=20261026-sorting1">
   <link rel="stylesheet" href="home.css?v=20261026-progress1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
@@ -21,7 +22,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261026-progress1" defer></script>
+  <script src="sync-model.js?v=20261026-sorting1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -37,7 +38,9 @@
   <script src="question-view.js?v=20261026-quality1" defer></script>
   <script src="wrong-review.js?v=20261026-quality1" defer></script>
   <script src="study-progress.js?v=20261026-progress1" defer></script>
-  <script src="app.js?v=20261026-progress1" defer></script>
+  <script src="sorting-data.js?v=20261026-sorting1" defer></script>
+  <script src="sorting-practice.js?v=20261026-sorting1" defer></script>
+  <script src="app.js?v=20261026-sorting1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -70,6 +73,7 @@
         <button class="primary-button" id="reload-button">다시 불러오기</button>
       </section>
 
+      <section id="sorting-view" hidden aria-label="표로 분류하기"></section>
       <section id="start-view" hidden aria-labelledby="start-title">
         <div class="panel intro-panel">
           <div class="home-heading"><h1 id="start-title">새 연습</h1><span id="record-state" class="save-state">기기 저장</span></div>

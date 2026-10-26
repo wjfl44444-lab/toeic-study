@@ -36,6 +36,26 @@
   function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true }; }
   function empty() { return { version: 1, session: null, history: Object.create(null), archivedHistory: [], settings: defaults() }; }
   function nativeId(id) { return typeof id === "string" && /^semantic1-[a-zA-Z0-9_.:-]+$/.test(id); }
+  function sortingId(id) { return typeof id === "string" && /^semantic1-sorting-/.test(id); }
+  function sortingMetadata(value, cards) {
+    if (!object(value) || Object.keys(value).some(function (name) { return !["topic", "phase", "active", "checked"].includes(name); }) ||
+        !key(value.topic) || value.topic.length > 40 || !["sorting", "sort-feedback", "meaning", "meaning-feedback", "finished"].includes(value.phase) ||
+        !key(value.active) || !object(value.checked) || !cards.every(function (card) { return sortingId(card.id); }) ||
+        !cards.some(function (card) { return card.id === value.active; }) || Object.keys(value.checked).length > cards.length) {
+      throw new Error("Invalid sorting session");
+    }
+    var byId = new Map(cards.map(function (card) { return [card.id, card]; }));
+    var checked = Object.create(null);
+    Object.keys(value.checked).sort().forEach(function (id) {
+      var card = byId.get(id), indices = value.checked[id];
+      if (!card || !Array.isArray(indices) || indices.length >= card.stages.length || new Set(indices).size !== indices.length ||
+          indices.some(function (index) { return !Number.isInteger(index) || index < 1 || index >= card.stages.length || card.stages[index].selected === null; })) {
+        throw new Error("Invalid checked sorting stage");
+      }
+      checked[id] = indices.slice();
+    });
+    return { topic: value.topic, phase: value.phase, active: value.active, checked: checked };
+  }
   function item(value, id) {
     if (!object(value) || !signature(value.signature) || !counters.every(function (name) { return count(value[name]); }) ||
         value.correct > value.attempts || value.stagesCorrect > value.stagesGraded || value.stagesGraded < value.attempts ||
@@ -80,7 +100,7 @@
             native && Array.isArray(selected) && selected.length > 0 && selected.length <= size && new Set(selected).size === selected.length &&
             selected.every(function (n) { return Number.isInteger(n) && n >= 0 && n < size; });
           if (!object(s) || !validSelection || card.graded && selected === null && !(endedAfterFirst && stageIndex === 1 || grammarEnded && stageIndex > 0) ||
-              !Array.isArray(s.order) || size < 4 || size > (native ? 8 : 4) || new Set(s.order).size !== size ||
+              !Array.isArray(s.order) || size < (sortingId(card.id) && stageIndex === 0 ? 2 : 4) || size > (native ? 8 : 4) || new Set(s.order).size !== size ||
               !s.order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < size; })) { throw new Error("Invalid stage"); }
           return { selected: Array.isArray(selected) ? selected.slice().sort(function (a,b) { return a-b; }) : selected, order: s.order.slice() };
         }) };
@@ -92,6 +112,7 @@
       if (value.mode !== "all") { throw new Error("Invalid study run mode"); }
       result.studyRun = studyRun(value.studyRun);
     }
+    if (value.sorting !== undefined) { result.sorting = sortingMetadata(value.sorting, result.cards); }
     return result;
   }
   function fromTuple(tuple) {
@@ -169,6 +190,7 @@
         cards: value.session.cards.map(function (card) { return [card.id, card.signature, card.stageIndex, (card.graded ? 1 : 0) + (card.deferred ? 2 : 0), card.stages.map(function (s) { return [s.selected, s.order.join("")]; })]; }) };
       if (result.session && value.session.practiceVersion !== undefined) { result.session.practiceVersion = value.session.practiceVersion; }
       if (result.session && value.session.studyRun !== undefined) { result.session.studyRun = studyRun(value.session.studyRun); }
+      if (result.session && value.session.sorting !== undefined) { result.session.sorting = sortingMetadata(value.session.sorting, value.session.cards); }
       result.history = Object.keys(value.history).sort().map(function (id) { return tuple(id, value.history[id]); });
     }
     if (value.archivedHistory && value.archivedHistory.length) {

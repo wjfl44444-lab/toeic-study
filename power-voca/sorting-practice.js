@@ -1,0 +1,492 @@
+(function (root, factory) {
+  'use strict';
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.PowerVocaSorting = api;
+})(typeof window !== 'undefined' ? window : globalThis, function () {
+  'use strict';
+
+  const VERSION = '20261026-sorting1';
+  const PREFIX = 'semantic1-sorting-';
+  const TOPICS = ['verb-forms', 'noun-countability', 'suffix-forms', 'verb-complements', 'link-usage', 'comparison-modifiers'];
+  const PHASES = ['sorting', 'sort-feedback', 'meaning', 'meaning-feedback', 'finished'];
+  const clean = value => typeof value === 'string' ? value.trim() : '';
+  const copy = value => JSON.parse(JSON.stringify(value));
+  const positive = value => Number.isInteger(value) && value > 0;
+  function freeze(value) {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.keys(value).forEach(key => freeze(value[key]));
+      Object.freeze(value);
+    }
+    return value;
+  }
+  function idFor(topic, card) {
+    const id = PREFIX + topic + '-' + card;
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(id)) throw new Error('Invalid sorting question ID');
+    return id;
+  }
+  function sourceOf(raw, fallback) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const parent = fallback && typeof fallback === 'object' ? fallback : {};
+    const normalized = { book: source.book === 'quickstart' ? 'quickstart' : 'power-voca' };
+    const page = positive(source.bookPage) ? source.bookPage : positive(parent.bookPage) ? parent.bookPage : null;
+    if (page !== null) normalized.bookPage = page;
+    ['entry', 'scope', 'section', 'headword', 'unit', 'target'].forEach(key => {
+      if (clean(source[key])) normalized[key] = clean(source[key]);
+    });
+    if (positive(source.step)) normalized.step = source.step;
+    if (positive(source.pdfPage)) normalized.pdfPage = source.pdfPage;
+    if (Array.isArray(source.pages)) normalized.pages = Array.from(new Set(source.pages.filter(positive)));
+    return normalized;
+  }
+  function selection(stage) {
+    return stage.selected === null ? [] : Array.isArray(stage.selected) ? stage.selected : [stage.selected];
+  }
+  function answered(stage) { return selection(stage).length > 0; }
+  function correct(stage) {
+    const selected = selection(stage), answers = stage.data.multiple ? stage.data.answers : [stage.data.answer];
+    return selected.length === answers.length && answers.every(index => selected.includes(index));
+  }
+  function validSelection(stage) {
+    if (!stage || !stage.data || !Array.isArray(stage.data.options)) return false;
+    const value = stage.selected, selected = selection(stage);
+    return (value === null || (stage.data.multiple ? Array.isArray(value) && value.length > 0 : Number.isInteger(value))) &&
+      new Set(selected).size === selected.length && selected.every(index => Number.isInteger(index) && index >= 0 && index < stage.data.options.length);
+  }
+
+  function create(data) {
+    const input = Array.isArray(data) ? data : data && data.groups;
+    if (!Array.isArray(input) || !input.length) throw new Error('Sorting groups are required');
+    const groups = copy(input).sort((a, b) => TOPICS.indexOf(a.id) - TOPICS.indexOf(b.id));
+    const byTopic = new Map(), byId = new Map(), sourceCards = new Map();
+    const questions = [], assignments = Object.create(null);
+    groups.forEach(group => {
+      if (!group || !TOPICS.includes(group.id) || byTopic.has(group.id) || !clean(group.title) || !clean(group.instruction) ||
+          !Array.isArray(group.bins) || group.bins.length < 2 || group.bins.length > 5 ||
+          !group.bins.every(bin => bin && clean(bin.id) && clean(bin.label)) ||
+          new Set(group.bins.map(bin => bin.id)).size !== group.bins.length ||
+          new Set(group.bins.map(bin => bin.label)).size !== group.bins.length || !Array.isArray(group.cards) || !group.cards.length) {
+        throw new Error('Invalid sorting topic');
+      }
+      byTopic.set(group.id, group);
+      const cardIds = new Set();
+      group.cards.forEach(card => {
+        if (!card || !clean(card.id) || cardIds.has(card.id) || !clean(card.text) || !Array.isArray(card.correctBins) ||
+            !card.correctBins.length || new Set(card.correctBins).size !== card.correctBins.length ||
+            !card.correctBins.every(id => group.bins.some(bin => bin.id === id)) || !Array.isArray(card.steps) || card.steps.length > 11 ||
+            !Array.isArray(card.examples) || !card.examples.every(value => clean(value)) || typeof card.note !== 'string') {
+          throw new Error('Invalid sorting card: ' + (card && card.id));
+        }
+        cardIds.add(card.id);
+        const correctLabels = group.bins.filter(bin => card.correctBins.includes(bin.id)).map(bin => bin.label);
+        const references = card.source && Array.isArray(card.source.references) && card.source.references.length ? card.source.references : [card.source || {}];
+        const sources = references.map(source => sourceOf(source, card.source));
+        const mainSource = sources[0];
+        const id = idFor(group.id, card.id);
+        const stages = [{
+          kind: 'sorting-classification', sortingClassification: true, multiple: true, fixedOrder: true,
+          instruction: group.instruction, prompt: card.text, context: '',
+          options: group.bins.map(bin => bin.label),
+          answers: group.bins.map((bin, index) => card.correctBins.includes(bin.id) ? index : -1).filter(index => index >= 0),
+          explanation: card.text + ' → ' + correctLabels.join(' · ') + (clean(card.note) ? '\n' + clean(card.note) : ''),
+          optionReasons: group.bins.map(bin => card.correctBins.includes(bin.id) ? card.text + '의 핵심 쓰임은 ' + bin.label + '에 해당해요.' : card.text + '의 이번 핵심 쓰임은 ' + bin.label + '에 해당하지 않아요.')
+        }];
+        const stepIds = new Set();
+        card.steps.forEach(step => {
+          if (!step || !clean(step.id) || stepIds.has(step.id) || !clean(step.label) || !clean(step.prompt) ||
+              !Array.isArray(step.options) || step.options.length < 4 || step.options.length > 8 ||
+              !step.options.every(value => clean(value)) || new Set(step.options).size !== step.options.length ||
+              !Number.isInteger(step.answer) || step.answer < 0 || step.answer >= step.options.length) {
+            throw new Error('Invalid sorting meaning: ' + card.id);
+          }
+          stepIds.add(step.id);
+          const expression = clean(step.expression) || card.text, answer = step.options[step.answer];
+          stages.push({
+            kind: 'meaning', sortingStepId: step.id, sortingLabel: step.label,
+            instruction: step.prompt, prompt: expression, context: step.label,
+            options: step.options.slice(), answer: step.answer, fixedOrder: step.fixedOrder === true,
+            explanation: expression + ' → ' + answer + (clean(card.note) ? '\n' + clean(card.note) : ''),
+            optionReasons: step.options.map((option, index) => index === step.answer ? expression + '의 핵심 뜻은 ‘' + option + '’이에요.' : '이번 표현의 핵심 뜻은 ‘' + answer + '’이에요.')
+          });
+        });
+        const question = freeze({
+          id, format: 'semantic-set1', stageMode: 'set', sortingTopic: group.id, sortingCardId: card.id,
+          displayExpression: card.text, category: group.title,
+          answerSummary: { expression: card.text, meaning: correctLabels.join(' · ') + (card.steps.length ? ' / ' + card.steps.map(step => (clean(step.expression) || card.text) + ': ' + step.options[step.answer]).join(' / ') : '') },
+          learningPoint: [clean(card.note), card.examples.join('\n')].filter(Boolean).join('\n') || card.text + ' → ' + correctLabels.join(' · '),
+          source: mainSource, sources, sourceBook: mainSource.book, sourcePage: mainSource.bookPage || null, stages
+        });
+        questions.push(question); byId.set(id, question); sourceCards.set(id, card);
+        assignments[id] = freeze({ group: 'sorting-practice', scope: 'sorting-' + group.id });
+      });
+    });
+    freeze(groups); freeze(questions); freeze(assignments);
+    const has = question => Boolean(question && byId.has(question.id) && byId.get(question.id).sortingTopic === question.sortingTopic && byId.get(question.id).sortingCardId === question.sortingCardId);
+
+    function validateSession(session) {
+      if (!session || !session.sorting || !Array.isArray(session.cards) || !session.cards.length ||
+          !Number.isInteger(session.index) || session.index < 0 || session.index >= session.cards.length) return false;
+      const meta = session.sorting;
+      if (!byTopic.has(meta.topic) || !PHASES.includes(meta.phase) || typeof meta.active !== 'string' ||
+          !meta.checked || typeof meta.checked !== 'object' || Array.isArray(meta.checked)) return false;
+      const ids = new Set(), cardMap = new Map();
+      for (const card of session.cards) {
+        const q = card && card.question;
+        if (!has(q) || q.sortingTopic !== meta.topic || ids.has(q.id) || typeof card.graded !== 'boolean' ||
+            !Number.isInteger(card.stageIndex) || card.stageIndex < 0 || card.stageIndex >= q.stages.length ||
+            !Array.isArray(card.stages) || card.stages.length !== q.stages.length ||
+            !card.stages.every((stage, index) => validSelection(stage) &&
+              JSON.stringify(stage.data.options) === JSON.stringify(q.stages[index].options) &&
+              stage.data.multiple === q.stages[index].multiple &&
+              (q.stages[index].multiple ? JSON.stringify(stage.data.answers) === JSON.stringify(q.stages[index].answers) : stage.data.answer === q.stages[index].answer) &&
+              Array.isArray(stage.choices) && stage.choices.length === stage.data.options.length &&
+              new Set(stage.choices.map(choice => choice.originalIndex)).size === stage.data.options.length &&
+              stage.choices.every(choice => Number.isInteger(choice.originalIndex) && choice.originalIndex >= 0 &&
+                choice.originalIndex < stage.data.options.length && choice.text === stage.data.options[choice.originalIndex]))) return false;
+        const checked = meta.checked[q.id];
+        if (!Array.isArray(checked) || new Set(checked).size !== checked.length ||
+            !checked.every(index => Number.isInteger(index) && index > 0 && index < card.stages.length && answered(card.stages[index]))) return false;
+        const complete = answered(card.stages[0]) && checked.length === card.stages.length - 1;
+        if (card.graded && (!complete || meta.phase === 'sorting') || meta.phase !== 'sorting' && card.graded !== complete ||
+            meta.phase === 'sorting' && (checked.length || card.stageIndex !== 0 || card.stages.slice(1).some(answered))) return false;
+        if (meta.phase !== 'sorting' && !answered(card.stages[0])) return false;
+        ids.add(q.id); cardMap.set(q.id, card);
+      }
+      if (!ids.has(meta.active) || Object.keys(meta.checked).some(id => !ids.has(id))) return false;
+      const active = cardMap.get(meta.active);
+      if (meta.phase === 'sort-feedback' && session.cards.some(card => meta.checked[card.question.id].length)) return false;
+      if ((meta.phase === 'meaning' || meta.phase === 'meaning-feedback') && (active.stageIndex < 1 ||
+          (meta.phase === 'meaning-feedback') !== meta.checked[meta.active].includes(active.stageIndex))) return false;
+      return meta.phase !== 'finished' || session.cards.every(card => card.graded);
+    }
+
+    function createController(host) {
+      if (!host || !['getSession', 'save', 'record', 'showView', 'showResults', 'announce', 'getView', 'ready', 'el', 'node'].every(key => typeof host[key] === 'function')) {
+        throw new Error('Sorting host is incomplete');
+      }
+      const doc = host.el('sorting-view') && host.el('sorting-view').ownerDocument;
+      if (!doc) throw new Error('Sorting view is required');
+      const win = doc.defaultView;
+      const elements = Object.create(null);
+      let mounted = false, composing = false, tableAtGrade = false, reviewIndex = null, reviewSession = null;
+      let tableInputs = new Map(), tableRows = new Map(), renderedTableSession = null;
+      const session = () => host.getSession();
+      const meta = () => session().sorting;
+      const currentGroup = () => byTopic.get(meta().topic);
+      const sourceCard = card => sourceCards.get(card.question.id);
+      const activeIndex = () => session().cards.findIndex(card => card.question.id === meta().active);
+      const current = () => session().cards[activeIndex()];
+      const checked = (card, index) => meta().checked[card.question.id].includes(index);
+      const queue = () => session().cards.flatMap((card, cardIndex) => card.stages.slice(1).map((stage, index) => ({ card, cardIndex, stage, stageIndex: index + 1 })));
+      function element(tag, cls, text) { return host.node(tag, cls, text); }
+      function named(tag, id, cls, text) {
+        const item = element(tag, cls, text); item.id = 'sorting-' + id; elements[id] = item; return item;
+      }
+      function button(id, cls, text, action) {
+        const item = named('button', id, cls, text); item.type = 'button'; item.addEventListener('click', action); return item;
+      }
+      function heading(id, text) { const item = named('h1', id, 'sort-title', text); item.tabIndex = -1; return item; }
+      function actions() { return element('div', 'sort-actions'); }
+      function mount() {
+        if (mounted) return;
+        const root = host.el('sorting-view'); root.classList.add('sorting-practice'); root.replaceChildren();
+        const table = named('div', 'table-panel', 'panel question-panel sort-workspace');
+        table.append(named('p', 'counter', 'sort-counter'), heading('title', '단어에 해당하는 칸을 모두 체크하세요.'),
+          named('p', 'instruction', 'table-instruction'), named('div', 'table-wrap', 'classification-table-wrap'));
+        const tableActions = actions(); tableActions.classList.add('table-actions');
+        tableActions.append(button('previous-word', 'text-button', '이전 단어', previousTableWord), named('span', 'table-progress', 'table-progress'), button('grade-table', 'primary-button', '세트 채점하기', gradeSort));
+        elements['grade-table'].addEventListener('focus', () => { tableAtGrade = true; updateTableNavigation(); });
+        table.append(tableActions);
+        const feedback = named('div', 'feedback-panel', 'panel feedback-panel');
+        feedback.append(named('p', 'result-topic', 'sort-counter'), heading('result-title', ''), named('p', 'result-description', 'table-instruction', '분류별로 어떤 단어들이 있는지 함께 확인해 보세요.'),
+          named('div', 'category-results', 'category-results'), named('div', 'sort-results', 'card-results'));
+        const feedbackActions = actions(); feedbackActions.append(button('begin-meaning', 'primary-button', '뜻 확인하기', beginMeaning)); feedback.append(feedbackActions);
+        const meaning = named('div', 'meaning-panel', 'panel question-panel');
+        const options = named('div', 'meaning-options', 'meaning-options'); options.setAttribute('role', 'group'); options.setAttribute('aria-label', '뜻 보기');
+        meaning.append(named('p', 'meaning-meta', 'meaning-meta'), heading('meaning-title', ''), named('p', 'meaning-expression', 'question-example'), named('p', 'meaning-prompt', 'sorting-note'), options);
+        const meaningActions = actions(); meaningActions.append(button('previous-meaning', 'text-button', '이전 단계', previousMeaning), button('grade-meaning', 'primary-button', '채점하기', gradeMeaning)); meaning.append(meaningActions);
+        const meaningFeedback = named('section', 'meaning-feedback', 'panel feedback-panel');
+        const feedbackTitle = named('h2', 'meaning-feedback-title'); feedbackTitle.tabIndex = -1;
+        meaningFeedback.append(feedbackTitle, named('p', 'meaning-answer', 'answer-main'), named('p', 'meaning-explanation', 'result-detail'));
+        const nextActions = actions(); nextActions.append(button('next-meaning', 'primary-button', '다음 뜻 확인', nextMeaning)); meaningFeedback.append(nextActions);
+        const review = named('div', 'review-panel', 'panel feedback-panel');
+        review.append(heading('review-title', ''), named('div', 'review-content', 'card-results'));
+        const reviewActions = actions(); reviewActions.append(button('previous-review', 'text-button', '이전 단어', () => moveReview(-1)), button('next-review', 'secondary-button', '다음 단어', () => moveReview(1)), button('close-review', 'primary-button', '풀이 현황 보기', closeReview)); review.append(reviewActions);
+        root.append(table, feedback, meaning, meaningFeedback, review); mounted = true;
+      }
+      function focusHeading(id) {
+        const item = elements[id]; if (!item) return;
+        item.focus({ preventScroll: true });
+        const panel = item.closest('.panel'); if (panel) panel.scrollIntoView({ block: 'start', behavior: 'auto' });
+      }
+      function showPanel(id, focus) {
+        ['table-panel', 'feedback-panel', 'meaning-panel', 'review-panel'].forEach(key => { elements[key].hidden = key !== id; });
+        elements['meaning-feedback'].hidden = id !== 'meaning-panel' || meta().phase !== 'meaning-feedback';
+        host.showView('sorting');
+        if (focus) focusHeading(focus);
+      }
+      function save() { host.save(); }
+      function selectWord(id) {
+        if (!host.ready()) return;
+        tableAtGrade = false;
+        if (meta().active !== id) { meta().active = id; session().index = activeIndex(); save(); }
+        updateTableNavigation();
+      }
+      function updateTableNavigation() {
+        if (elements['previous-word']) elements['previous-word'].disabled = !tableAtGrade && activeIndex() <= 0;
+      }
+      function updateTable() {
+        const cards = session().cards, placed = cards.filter(card => answered(card.stages[0])).length;
+        elements.counter.textContent = currentGroup().title + ' · ' + placed + ' / ' + cards.length + '개 체크';
+        elements['table-progress'].textContent = placed + ' / ' + cards.length + '개 선택 완료';
+        elements['grade-table'].disabled = placed !== cards.length;
+        for (const card of cards) {
+          const id = card.question.id;
+          tableRows.get(id).classList.toggle('has-selection', answered(card.stages[0]));
+          currentGroup().bins.forEach((bin, index) => {
+            const input = tableInputs.get(id + ':' + index);
+            input.checked = selection(card.stages[0]).includes(index); input.parentElement.classList.toggle('checked', input.checked);
+          });
+        }
+        updateTableNavigation();
+      }
+      function toggleClassification(card, index, value) {
+        if (!host.ready() || meta().phase !== 'sorting') return;
+        const selected = selection(card.stages[0]).filter(choice => choice !== index);
+        if (value) selected.push(index);
+        selected.sort((a, b) => a - b); card.stages[0].selected = selected.length ? selected : null;
+        tableAtGrade = false; meta().active = card.question.id; session().index = activeIndex(); save(); updateTable();
+      }
+      function renderSort(focus) {
+        const s = session(), group = currentGroup();
+        if (renderedTableSession !== s) {
+          renderedTableSession = s; tableAtGrade = false; tableInputs = new Map(); tableRows = new Map();
+          const table = element('table', 'classification-table'); table.style.setProperty('--bin-count', group.bins.length);
+          table.append(element('caption', 'sr-only', group.title + ' · 단어별 분류 체크표'));
+          const thead = element('thead'), headers = element('tr'), corner = element('th', '', '단어'); corner.scope = 'col'; headers.append(corner);
+          group.bins.forEach(bin => { const cell = element('th', '', bin.label); cell.scope = 'col'; headers.append(cell); }); thead.append(headers); table.append(thead);
+          const tbody = element('tbody');
+          s.cards.forEach(card => {
+            const id = card.question.id, row = element('tr'), word = element('th'), wordButton = element('button', 'table-word', sourceCard(card).text);
+            row.dataset.sortingCard = id; word.scope = 'row'; wordButton.type = 'button'; wordButton.dataset.sortingWord = id;
+            wordButton.addEventListener('click', () => selectWord(id)); wordButton.addEventListener('focus', () => selectWord(id)); word.append(wordButton); row.append(word);
+            group.bins.forEach((bin, index) => {
+              const cell = element('td'), label = element('label', 'table-check'), input = element('input'); input.type = 'checkbox';
+              input.dataset.sortingCard = id; input.dataset.sortingBin = String(index); input.setAttribute('aria-label', sourceCard(card).text + ' · ' + bin.label);
+              input.addEventListener('focus', () => selectWord(id)); input.addEventListener('change', () => toggleClassification(card, index, input.checked));
+              label.append(input); cell.append(label); row.append(cell); tableInputs.set(id + ':' + index, input);
+            });
+            tbody.append(row); tableRows.set(id, row);
+          });
+          table.append(tbody); elements['table-wrap'].replaceChildren(table);
+        }
+        elements.instruction.textContent = group.instruction; updateTable(); showPanel('table-panel', focus ? 'title' : null);
+      }
+      function focusWord(id) {
+        selectWord(id); const input = tableInputs.get(id + ':0');
+        if (input) input.focus({ preventScroll: true });
+        const row = tableRows.get(id); if (row) row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+      function previousTableWord() {
+        if (!host.ready() || meta().phase !== 'sorting') return;
+        const index = tableAtGrade ? session().cards.length : activeIndex();
+        if (index > 0) focusWord(session().cards[index - 1].question.id);
+      }
+      function nextTableWord() {
+        const cards = session().cards, next = cards[activeIndex() + 1] || cards.find(card => !answered(card.stages[0]));
+        if (next) focusWord(next.question.id);
+        else { elements['grade-table'].focus({ preventScroll: true }); elements['grade-table'].scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+      }
+      function finishCard(card) {
+        if (card.graded || meta().phase === 'sorting' || !answered(card.stages[0]) ||
+            !card.stages.slice(1).every((stage, index) => answered(stage) && checked(card, index + 1))) return;
+        card.graded = true; host.record(card);
+      }
+      function gradeSort() {
+        if (!host.ready() || meta().phase !== 'sorting') return;
+        if (session().cards.some(card => !answered(card.stages[0]))) { host.announce('아직 선택하지 않은 단어가 있어요.'); return; }
+        meta().phase = 'sort-feedback'; session().cards.forEach(finishCard); save(); render(true);
+      }
+      function resultRow(card, meanings) {
+        const source = sourceCard(card), group = currentGroup(), classified = correct(card.stages[0]);
+        const allCorrect = classified && (!meanings || card.stages.slice(1).every(correct));
+        const row = element('article', 'card-result ' + (allCorrect ? 'correct' : 'incorrect'));
+        const head = element('div', 'card-result-head'); head.append(element('strong', '', source.text), element('span', 'status-tag ' + (allCorrect ? 'correct' : 'incorrect'), allCorrect ? '정답' : '다시 확인')); row.append(head);
+        row.append(element('p', 'result-detail', source.correctBins.map(id => group.bins.find(bin => bin.id === id).label).join(' · ')));
+        if (!classified) row.append(element('p', 'sorting-note', '내 선택 · ' + selection(card.stages[0]).map(index => group.bins[index].label).join(' · ')));
+        if (meanings) {
+          card.stages.slice(1).forEach((stage, index) => {
+            const step = source.steps[index];
+            row.append(element('p', 'result-detail', (step.expression || source.text) + ' · ' + step.label + ' → ' + stage.data.options[stage.data.answer]));
+            if (!correct(stage)) row.append(element('p', 'sorting-note', '내 선택 · ' + selection(stage).map(choice => stage.data.options[choice]).join(' · ')));
+          });
+          if (source.examples.length) row.append(element('p', 'sorting-note', source.examples.join(' / ')));
+          if (clean(source.note)) {
+            const details = element('details'); details.append(element('summary', '', '쓰임 확인'), element('p', 'sorting-note', source.note)); row.append(details);
+          }
+          const labels = Array.from(new Set(card.question.sources.filter(item => positive(item.bookPage)).map(item => (item.book === 'quickstart' ? '퀵스타트 ' : '파워토익 VOCA ') + item.bookPage + '쪽')));
+          if (labels.length) row.append(element('p', 'source-note', labels.join(' · ')));
+        }
+        return row;
+      }
+      function renderSortFeedback(focus) {
+        const group = currentGroup(), cards = session().cards, count = cards.filter(card => correct(card.stages[0])).length;
+        elements['result-topic'].textContent = group.title; elements['result-title'].textContent = '분류 ' + count + ' / ' + cards.length + '개 정답';
+        const target = elements['category-results']; target.replaceChildren(); target.style.setProperty('--bin-count', group.bins.length);
+        group.bins.forEach(bin => {
+          const section = element('section', 'category-result'), list = element('div', 'category-words'); section.append(element('h2', '', bin.label));
+          const words = cards.filter(card => sourceCard(card).correctBins.includes(bin.id));
+          words.forEach(card => list.append(element('span', 'category-word', sourceCard(card).text)));
+          if (!words.length) list.append(element('span', 'category-empty', '이번 세트 없음')); section.append(list); target.append(section);
+        });
+        const meanings = queue().length > 0, results = elements['sort-results']; results.replaceChildren();
+        cards.filter(card => !meanings || !correct(card.stages[0])).forEach(card => results.append(resultRow(card, !meanings)));
+        if (meanings && count === cards.length) results.append(element('p', 'table-instruction', '모두 정확하게 분류했어요.'));
+        elements['begin-meaning'].textContent = meanings ? '뜻 확인하기' : '결과 보기'; showPanel('feedback-panel', focus ? 'result-title' : null);
+      }
+      function pointTo(item) {
+        session().index = item.cardIndex; meta().active = item.card.question.id; item.card.stageIndex = item.stageIndex;
+        meta().phase = checked(item.card, item.stageIndex) ? 'meaning-feedback' : 'meaning';
+      }
+      function beginMeaning() {
+        if (!host.ready() || meta().phase !== 'sort-feedback') return;
+        const first = queue()[0];
+        if (!first) { finish(); return; }
+        pointTo(first); save(); render(true);
+      }
+      function meaningItem() {
+        const card = current(); return queue().find(item => item.card === card && item.stageIndex === card.stageIndex);
+      }
+      function chooseMeaning(originalIndex) {
+        if (!host.ready() || meta().phase !== 'meaning') return;
+        const item = meaningItem(); if (!item || checked(item.card, item.stageIndex)) return;
+        item.stage.selected = originalIndex; save(); renderMeaning(false);
+      }
+      function renderMeaning(focus) {
+        const item = meaningItem(); if (!item) return;
+        const items = queue(), index = items.findIndex(row => row.card === item.card && row.stageIndex === item.stageIndex);
+        const source = sourceCard(item.card), step = source.steps[item.stageIndex - 1], graded = checked(item.card, item.stageIndex);
+        elements['meaning-meta'].textContent = currentGroup().title + ' · 뜻 확인 ' + (index + 1) + ' / ' + items.length + '단계';
+        elements['meaning-title'].textContent = source.text + ' · ' + step.label;
+        elements['meaning-expression'].textContent = step.expression || source.text; elements['meaning-prompt'].textContent = step.prompt;
+        const list = elements['meaning-options']; list.replaceChildren();
+        item.stage.choices.forEach((choice, displayIndex) => {
+          const selected = item.stage.selected === choice.originalIndex, right = choice.originalIndex === item.stage.data.answer;
+          const option = element('button', 'meaning-option' + (selected ? ' selected' : '') + (graded && right ? ' correct' : '') + (graded && selected && !right ? ' incorrect' : ''));
+          option.type = 'button'; option.disabled = graded; option.dataset.sortingMeaning = String(displayIndex); option.setAttribute('aria-pressed', String(selected));
+          option.append(element('span', 'option-number', String(displayIndex + 1)), element('span', '', choice.text)); option.addEventListener('click', () => chooseMeaning(choice.originalIndex)); list.append(option);
+        });
+        elements['previous-meaning'].hidden = index === 0; elements['grade-meaning'].hidden = graded; elements['grade-meaning'].disabled = !answered(item.stage);
+        if (graded) {
+          elements['meaning-feedback-title'].textContent = correct(item.stage) ? '✓ 정답' : '다시 확인';
+          elements['meaning-answer'].textContent = (step.expression || source.text) + ' → ' + item.stage.data.options[item.stage.data.answer];
+          elements['meaning-explanation'].textContent = clean(source.note);
+          elements['next-meaning'].textContent = index === items.length - 1 ? '세트 결과 보기' : '다음 뜻 확인';
+        }
+        showPanel('meaning-panel', focus ? graded ? 'meaning-feedback-title' : 'meaning-title' : null);
+      }
+      function gradeMeaning() {
+        if (!host.ready() || meta().phase !== 'meaning') return;
+        const item = meaningItem(); if (!item || !answered(item.stage)) { host.announce('뜻을 먼저 선택해 주세요.'); return; }
+        if (!checked(item.card, item.stageIndex)) meta().checked[item.card.question.id].push(item.stageIndex);
+        meta().checked[item.card.question.id].sort((a, b) => a - b); meta().phase = 'meaning-feedback'; finishCard(item.card); save(); render(true);
+      }
+      function previousMeaning() {
+        if (!host.ready() || !['meaning', 'meaning-feedback'].includes(meta().phase)) return;
+        const item = meaningItem(), items = queue(), index = items.findIndex(row => row.card === item.card && row.stageIndex === item.stageIndex);
+        if (index > 0) { pointTo(items[index - 1]); save(); render(true); }
+      }
+      function nextMeaning() {
+        if (!host.ready() || meta().phase !== 'meaning-feedback') return;
+        const item = meaningItem(), items = queue(), index = items.findIndex(row => row.card === item.card && row.stageIndex === item.stageIndex);
+        if (index < items.length - 1) { pointTo(items[index + 1]); save(); render(true); }
+        else {
+          const missing = items.find(row => !checked(row.card, row.stageIndex));
+          if (missing) { pointTo(missing); save(); render(true); }
+          else finish();
+        }
+      }
+      function finish() {
+        session().cards.forEach(finishCard);
+        if (!session().cards.every(card => card.graded)) return;
+        meta().phase = 'finished'; reviewIndex = null; reviewSession = null; save(); host.showResults();
+      }
+      function renderReview(focus) {
+        const card = session().cards[reviewIndex]; if (!card || !card.graded) { reviewIndex = null; host.showResults(); return; }
+        elements['review-title'].textContent = sourceCard(card).text + ' · 풀이 확인'; elements['review-content'].replaceChildren(resultRow(card, true));
+        elements['previous-review'].disabled = !session().cards.slice(0, reviewIndex).some(item => item.graded);
+        elements['next-review'].disabled = !session().cards.slice(reviewIndex + 1).some(item => item.graded);
+        showPanel('review-panel', focus ? 'review-title' : null);
+      }
+      function moveReview(direction) {
+        if (reviewIndex === null) return;
+        for (let index = reviewIndex + direction; index >= 0 && index < session().cards.length; index += direction) {
+          if (session().cards[index].graded) { reviewIndex = index; renderReview(true); return; }
+        }
+      }
+      function closeReview() { reviewIndex = null; reviewSession = null; host.showResults(); }
+      function start(value) {
+        if (!value || !Array.isArray(value.cards) || !value.cards.length || !value.cards.every(card => has(card.question)) ||
+            new Set(value.cards.map(card => card.question.sortingTopic)).size !== 1) return false;
+        const first = value.cards[0];
+        value.sorting = { topic: first.question.sortingTopic, phase: 'sorting', active: first.question.id, checked: {} };
+        value.index = 0; value.cards.forEach(card => { card.stageIndex = 0; value.sorting.checked[card.question.id] = []; });
+        reviewIndex = null; reviewSession = null; renderedTableSession = null; save(); return true;
+      }
+      function render(focus) {
+        const s = session(); if (!s || !s.sorting) return;
+        mount();
+        if (reviewSession !== s) { reviewIndex = null; reviewSession = null; }
+        if (reviewIndex !== null) { renderReview(focus); return; }
+        // The saved active word, rather than a results-list click, owns resume.
+        s.index = activeIndex();
+        if (s.sorting.phase === 'sorting') renderSort(focus);
+        else if (s.sorting.phase === 'sort-feedback') renderSortFeedback(focus);
+        else if (s.sorting.phase === 'finished') host.showResults();
+        else renderMeaning(focus);
+      }
+      function openCard(index) {
+        const s = session(); if (!s || !s.sorting || !Number.isInteger(index) || !s.cards[index]) return;
+        if (s.cards[index].graded) { reviewIndex = index; reviewSession = s; mount(); renderReview(true); }
+        else { reviewIndex = null; reviewSession = null; render(true); }
+      }
+      function keyboard(event) {
+        const s = session();
+        if (event.defaultPrevented || !s || !s.sorting || !host.ready() || host.getView() !== 'sorting' ||
+            event.ctrlKey || event.metaKey || event.altKey || event.isComposing || composing || event.keyCode === 229 ||
+            (event.shiftKey && !(s.sorting.phase === 'sorting' && event.key === 'Enter')) || reviewIndex !== null ||
+            Array.from(doc.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')).some(dialog => !dialog.hidden && !dialog.closest('[hidden]'))) return;
+        const target = event.target, field = target && target.closest && target.closest('input,textarea,select,[contenteditable],[role="textbox"]');
+        if (field && !(field.type === 'checkbox' && field.dataset.sortingCard)) return;
+        const control = target && target.closest && target.closest('button,a,summary');
+        const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
+        if (control && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && !allowed.includes(control.id)) return;
+        const number = /^[1-8]$/.test(event.key) ? Number(event.key) - 1 : null;
+        if (number === null && event.key !== 'Enter') return;
+        if (event.repeat) { event.preventDefault(); return; }
+        if (s.sorting.phase === 'sorting') {
+          if (number !== null && number < currentGroup().bins.length) {
+            event.preventDefault(); const input = tableInputs.get(s.sorting.active + ':' + number); if (input) input.click();
+          } else if (event.key === 'Enter') {
+            event.preventDefault();
+            if (event.shiftKey || control && control.id === 'sorting-previous-word') previousTableWord();
+            else if (control && control.id === 'sorting-grade-table') gradeSort(); else nextTableWord();
+          }
+        } else if (s.sorting.phase === 'sort-feedback' && event.key === 'Enter') { event.preventDefault(); beginMeaning(); }
+        else if (s.sorting.phase === 'meaning' || s.sorting.phase === 'meaning-feedback') {
+          const item = meaningItem(); if (!item) return;
+          if (number !== null && s.sorting.phase === 'meaning' && number < item.stage.choices.length) {
+            event.preventDefault(); chooseMeaning(item.stage.choices[number].originalIndex);
+          } else if (event.key === 'Enter') { event.preventDefault(); if (s.sorting.phase === 'meaning-feedback') nextMeaning(); else gradeMeaning(); }
+        }
+      }
+      win.addEventListener('compositionstart', () => { composing = true; });
+      win.addEventListener('compositionend', () => { composing = false; });
+      win.addEventListener('keydown', keyboard);
+      return { start, render, openCard };
+    }
+    return { version: data && data.version || VERSION, questions, assignments, groups, byId, has, validateSession, createController,
+      subscopes: freeze(groups.map(group => ({ id: 'sorting-' + group.id, label: group.title, group: 'sorting-practice' }))) };
+  }
+  return { VERSION, idFor, create };
+});

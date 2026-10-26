@@ -52,8 +52,12 @@
   var unifiedGrammar = window.PowerGrammarAdapter && window.GRAMMAR_PREVIEW && window.PowerGrammarEmbedded ?
     window.PowerGrammarAdapter.create(window.GRAMMAR_PREVIEW.cards, window.PowerGrammarEmbedded) : null;
   if (data && unifiedGrammar) { data = Object.assign({}, data, { questions: data.questions.concat(unifiedGrammar.questions) }); }
+  var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(window.POWER_VOCA_SORTING) : null;
+  var sortingController = null;
+  if (data && sortingPractice) { data = Object.assign({}, data, { questions: data.questions.concat(sortingPractice.questions) }); }
   var questionReview = null;
   function activeQuestion(q) {
+    if (sortingPractice && sortingPractice.has(q)) { return true; }
     if (unifiedGrammar && !q.grammarOriginId && classifyQuestion(q).group === "grammar-structures") { return false; }
     return !q.internalRoute && (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
       (!usageReady || !Object.prototype.hasOwnProperty.call(usageReview.replacements, q.id)) &&
@@ -98,13 +102,19 @@
   var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
   var letters = ["1", "2", "3", "4", "5", "6", "7", "8"];
   var keyboardComposing = false;
-  var views = ["loading", "error", "start", "quiz", "results"];
+  var views = ["loading", "error", "start", "quiz", "sorting", "results"];
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
   var taxonomy = window.PowerVocaTaxonomy;
   if (usageReady) { taxonomy = window.PowerVocaUsageRouting.createTaxonomy(taxonomy, usageReview); }
   if (unifiedGrammar) {
     taxonomy = Object.assign({}, taxonomy, { subscopes: taxonomy.subscopes.filter(function (item) { return item.group !== "grammar-structures"; }).concat(unifiedGrammar.subscopes) });
+  }
+  if (sortingPractice) {
+    taxonomy = Object.assign({}, taxonomy, {
+      groups: taxonomy.groups.concat([{ id: "sorting-practice", label: "표로 분류하기" }]),
+      subscopes: taxonomy.subscopes.concat(sortingPractice.subscopes)
+    });
   }
   if (data && window.PowerVocaQuestionReview && typeof window.PowerVocaQuestionReview.create === "function") {
     questionReview = window.PowerVocaQuestionReview.create(data.questions, classifyQuestion);
@@ -129,6 +139,7 @@
   var mixedVerbScopes = ["second-pattern", "fourth-pattern", "fifth-pattern", "verb-arguments", "verb-that",
     "verb-to-infinitive", "object-to-infinitive", "verb-gerund"];
   var groupDescriptions = {
+    "sorting-practice": "단어를 한눈에 모아 보고 해당하는 분류를 모두 체크해요. 분류 후에는 단어별 뜻을 확인해요.",
     "grammar-structures": "어떤 동사가 목적어·보어·that절·to V·V-ing를 받는지 단어별로 익혀요. depend on 같은 자동사 + 전치사도 여기에 있어요.",
     "collocations": "place an order, strongly recommend처럼 함께 쓰이는 특정 단어의 조합을 모았어요.",
     "word-forms": "명사 쓰임·어형·복합명사·수식 표현을 단어별로 익혀요. 어떤 형태와 결합이 가능한지 직접 확인해요.",
@@ -179,7 +190,7 @@
     return content.prompt || content.instruction;
   }
   function classifyQuestion(q) {
-    return questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return sortingPractice && sortingPractice.assignments[q.id] || questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
@@ -240,6 +251,7 @@
       }) };
     if (session.practiceVersion) { saved.practiceVersion = session.practiceVersion; }
     if (session.studyRun) { saved.studyRun = Object.assign({}, session.studyRun); }
+    if (session.sorting) { saved.sorting = JSON.parse(JSON.stringify(session.sorting)); }
     return saved;
   }
   function currentSettings() {
@@ -345,6 +357,10 @@
       startedAt: typeof saved.startedAt === "string" ? saved.startedAt : new Date().toISOString(), cards: cards };
     if (version) { restored.practiceVersion = version; }
     if (saved.studyRun) { restored.studyRun = Object.assign({}, saved.studyRun); }
+    if (saved.sorting) {
+      restored.sorting = JSON.parse(JSON.stringify(saved.sorting));
+      if (!sortingPractice || !sortingPractice.validateSession(restored)) { return null; }
+    }
     return restored;
   }
   function restoreState() {
@@ -706,6 +722,15 @@
     select.replaceChildren();
     var all = node("option", "", group === "all" ? "모든 세부 범위" : "이 분류 전체");
     all.value = "all"; select.append(all);
+    if (group === "sorting-practice" && sortingPractice) {
+      select.replaceChildren();
+      sortingPractice.subscopes.forEach(function (scope) {
+        var option = node("option", "", scope.label + " (" + (scopeCounts[scope.id] || 0) + "개)");
+        option.value = scope.id; select.append(option);
+      });
+      select.value = sortingPractice.subscopes.some(function (scope) { return scope.id === selected; }) ? selected : sortingPractice.subscopes[0].id;
+      return;
+    }
     if (group === "grammar-structures" && unifiedGrammar) {
       unifiedGrammar.subscopes.forEach(function (scope) {
         var option = node("option", "", scope.label + " (" + (scopeCounts[scope.id] || 0) + "문제)");
@@ -732,6 +757,7 @@
   }
   function normalizeScopeSetting(value) {
     var normalized = taxonomy.normalizeLegacy(value);
+    if (sortingPractice && sortingPractice.subscopes.some(function (s) { return s.id === value; })) { normalized = { group: "sorting-practice", scope: value }; }
     if (unifiedGrammar && unifiedGrammar.subscopes.some(function (s) { return s.id === value; })) { normalized = { group: "grammar-structures", scope: value }; }
     if (memoryReady && value === mixedScope) { normalized = { group: "grammar-structures", scope: mixedScope }; }
     if (String(value).indexOf("group-") === 0) { normalized = { group: String(value).slice(6), scope: "all" }; }
@@ -748,6 +774,7 @@
     return data.questions.filter(function (q) {
       if (!activeQuestion(q)) { return false; }
       var assigned = scopeOf(q);
+      if (group === "all" && assigned.group === "sorting-practice") { return false; }
       return (group === "all" || assigned.group === group) &&
         (scope === "all" || scope === mixedScope && mixedVerbScopes.indexOf(assigned.scope) !== -1 || assigned.scope === scope);
     });
@@ -824,6 +851,7 @@
   function updateSettings() {
     el("step-filter-label").hidden = false;
     el("option-shuffle-setting").hidden = false;
+    if (el("group-filter").value === "sorting-practice") { el("option-shuffle-setting").hidden = true; }
     text("question-shuffle-label", "문제 순서 섞기");
     el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value, state = progressFor(pool, currentSettings().step);
@@ -851,13 +879,13 @@
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     beginRemaining(currentSettings().step, el("round-size").value);
   }
-  function validStage(stage, native) {
+  function validStage(stage, native, sorting) {
     return stage && typeof stage.prompt === "string" && stage.prompt.trim() &&
-      Array.isArray(stage.options) && stage.options.length >= 4 && stage.options.length <= (native ? 8 : 4) &&
+      Array.isArray(stage.options) && stage.options.length >= (sorting ? 2 : 4) && stage.options.length <= (native ? 8 : 4) &&
       new Set(stage.options).size === stage.options.length &&
       stage.options.every(function (value) { return typeof value === "string" && value.trim(); }) &&
       (native && stage.multiple ? Array.isArray(stage.answers) && stage.answers.length > 0 &&
-        stage.answers.length < stage.options.length && new Set(stage.answers).size === stage.answers.length &&
+        stage.answers.length <= stage.options.length && (sorting || stage.answers.length < stage.options.length) && new Set(stage.answers).size === stage.answers.length &&
         stage.answers.every(function (n) { return Number.isInteger(n) && n >= 0 && n < stage.options.length; }) :
         Number.isInteger(stage.answer) && stage.answer >= 0 && stage.answer < stage.options.length) &&
       typeof stage.explanation === "string" && stage.explanation.trim() &&
@@ -909,7 +937,7 @@
     for (var i = 0; i < value.questions.length; i += 1) {
       var q = value.questions[i];
       if (!q || !q.id || ids.has(q.id) || !Array.isArray(q.stages) ||
-          q.stages.length < 1 || q.stages.length > (nativeQuestion(q) ? 12 : 2) || !q.stages.every(function (s) { return validStage(s, nativeQuestion(q)); }) ||
+          q.stages.length < 1 || q.stages.length > (nativeQuestion(q) ? 12 : 2) || !q.stages.every(function (s, index) { return validStage(s, nativeQuestion(q), sortingPractice && sortingPractice.has(q) && index === 0); }) ||
           typeof q.learningPoint !== "string" || !q.answerSummary ||
           typeof q.answerSummary.expression !== "string" || !q.answerSummary.expression.trim() ||
           typeof q.answerSummary.meaning !== "string" || !q.answerSummary.meaning.trim()) {
@@ -990,6 +1018,9 @@
         }) };
     }) };
     if (studyRun && mode === "all") { session.studyRun = Object.assign({}, studyRun); }
+    if (sortingController && session.cards.every(function (card) { return sortingPractice.has(card.question) && card.question.sortingTopic === session.cards[0].question.sortingTopic; })) {
+      sortingController.start(session);
+    }
     renderQuestion(true);
   }
   function currentCard() { return session.cards[session.index]; }
@@ -1150,6 +1181,7 @@
     el("stage-feedback-list").replaceChildren();
   }
   function renderQuestion(focus) {
+    if (session && session.sorting && sortingController) { sortingController.render(focus); return; }
     showView("quiz");
     var card = currentCard(), stage = currentStage(), count = totals();
     text("round-label", session.mode === "wrong" ? "오답 다시 연습" : "기본 연습");
@@ -1283,7 +1315,7 @@
       else if (isAllCorrect(card)) { status.textContent = "정답"; status.classList.add("correct"); }
       else { status.textContent = "오답"; status.classList.add("wrong"); }
       button.append(node("span", "review-index", String(index + 1).padStart(2, "0")), node("span", "review-text", stagePrompt(card, 0)), status);
-      button.addEventListener("click", function () { session.index = index; renderQuestion(true); });
+      button.addEventListener("click", function () { session.index = index; if (session.sorting && sortingController) { sortingController.openCard(index); } else { renderQuestion(true); } });
       item.append(button); list.append(item);
     });
     focusHeading("results-title");
@@ -1300,6 +1332,13 @@
     error = "학습 분류 파일(taxonomy.js)을 불러오지 못했어요. 새로고침하거나 파일이 함께 있는지 확인해 주세요.";
   }
   if (error) { text("error-message", error); showView("error"); return; }
+  if (sortingPractice) {
+    sortingController = sortingPractice.createController({
+      el: el, node: node, getSession: function () { return session; }, getView: function () { return view; },
+      ready: function () { return unifiedImportReady; }, save: saveState, record: recordCard,
+      showView: showView, showResults: showResults, announce: announce
+    });
+  }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
   data.questions.forEach(function (q) {
     var assigned = classifyQuestion(q); questionScopes.set(q.id, assigned);
