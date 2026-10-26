@@ -44,14 +44,24 @@
   }
   function answered(stage) { return selection(stage).length > 0; }
   function correct(stage) {
-    const selected = selection(stage), answers = stage.data.multiple ? stage.data.answers : [stage.data.answer];
-    return selected.length === answers.length && answers.every(index => selected.includes(index));
+    const selected = selection(stage), sets = stage.data.acceptedAnswerSets || [stage.data.multiple ? stage.data.answers : [stage.data.answer]];
+    return sets.some(answers => selected.length === answers.length && answers.every(index => selected.includes(index)));
   }
   function validSelection(stage) {
     if (!stage || !stage.data || !Array.isArray(stage.data.options)) return false;
     const value = stage.selected, selected = selection(stage);
     return (value === null || (stage.data.multiple ? Array.isArray(value) && value.length > 0 : Number.isInteger(value))) &&
       new Set(selected).size === selected.length && selected.every(index => Number.isInteger(index) && index >= 0 && index < stage.data.options.length);
+  }
+
+  function checkCompatibility(card, stage) {
+    const sets = card.acceptedAnswerSets;
+    if (!Array.isArray(sets) || !sets.length || sets.length > 32 || sets.some(set =>
+      !Array.isArray(set) || !set.length || set.length > stage.options.length || new Set(set).size !== set.length ||
+      set.some(index => !Number.isInteger(index) || index < 0 || index >= stage.options.length)) ||
+      !sets.some(set => set.length === stage.answers.length && stage.answers.every(index => set.includes(index)))) {
+      throw new Error('Invalid compatibility classification: ' + card.id);
+    }
   }
 
   function create(data) {
@@ -91,6 +101,12 @@
           explanation: card.text + ' → ' + correctLabels.join(' · ') + (clean(card.note) ? '\n' + clean(card.note) : ''),
           optionReasons: group.bins.map(bin => card.correctBins.includes(bin.id) ? card.text + '의 핵심 쓰임은 ' + bin.label + '에 해당해요.' : card.text + '의 이번 핵심 쓰임은 ' + bin.label + '에 해당하지 않아요.')
         }];
+        if (card.acceptedAnswerSets !== undefined) {
+          checkCompatibility(card, stages[0]);
+          stages[0].acceptedAnswerSets = copy(card.acceptedAnswerSets);
+          stages[0].compatibilityNote = clean(card.compatibilityNote);
+          if (stages[0].compatibilityNote) stages[0].explanation += '\n' + stages[0].compatibilityNote;
+        }
         const stepIds = new Set();
         card.steps.forEach(step => {
           if (!step || !clean(step.id) || stepIds.has(step.id) || !clean(step.label) || !clean(step.prompt) ||
@@ -139,6 +155,7 @@
               JSON.stringify(stage.data.options) === JSON.stringify(q.stages[index].options) &&
               stage.data.multiple === q.stages[index].multiple &&
               (q.stages[index].multiple ? JSON.stringify(stage.data.answers) === JSON.stringify(q.stages[index].answers) : stage.data.answer === q.stages[index].answer) &&
+              JSON.stringify(stage.data.acceptedAnswerSets) === JSON.stringify(q.stages[index].acceptedAnswerSets) &&
               Array.isArray(stage.choices) && stage.choices.length === stage.data.options.length &&
               new Set(stage.choices.map(choice => choice.originalIndex)).size === stage.data.options.length &&
               stage.choices.every(choice => Number.isInteger(choice.originalIndex) && choice.originalIndex >= 0 &&
@@ -332,6 +349,8 @@
       function renderSortFeedback(focus) {
         const group = currentGroup(), cards = session().cards, count = cards.filter(card => correct(card.stages[0])).length;
         elements['result-topic'].textContent = group.title; elements['result-title'].textContent = '분류 ' + count + ' / ' + cards.length + '개 정답';
+        elements['result-description'].textContent = cards.some(card => card.stages[0].data.compatibilityNote) ?
+          '보완된 형식을 확인하세요. 진행 중인 풀이의 기존 정답도 인정했어요.' : '분류별로 어떤 단어들이 있는지 함께 확인해 보세요.';
         const target = elements['category-results']; target.replaceChildren(); target.style.setProperty('--bin-count', group.bins.length);
         group.bins.forEach(bin => {
           const section = element('section', 'category-result'), list = element('div', 'category-words'); section.append(element('h2', '', bin.label));
@@ -454,12 +473,12 @@
         const s = session();
         if (event.defaultPrevented || !s || !s.sorting || !host.ready() || host.getView() !== 'sorting' ||
             event.ctrlKey || event.metaKey || event.altKey || event.isComposing || composing || event.keyCode === 229 ||
-            (event.shiftKey && !(s.sorting.phase === 'sorting' && event.key === 'Enter')) || reviewIndex !== null ||
+            (event.shiftKey && !(event.key === 'Enter' && ['sorting', 'meaning', 'meaning-feedback'].includes(s.sorting.phase))) || reviewIndex !== null ||
             Array.from(doc.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]')).some(dialog => !dialog.hidden && !dialog.closest('[hidden]'))) return;
         const target = event.target, field = target && target.closest && target.closest('input,textarea,select,[contenteditable],[role="textbox"]');
         if (field && !(field.type === 'checkbox' && field.dataset.sortingCard)) return;
         const control = target && target.closest && target.closest('button,a,summary');
-        const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
+        const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-previous-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
         if (control && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && !allowed.includes(control.id)) return;
         const number = /^[1-8]$/.test(event.key) ? Number(event.key) - 1 : null;
         if (number === null && event.key !== 'Enter') return;
@@ -475,6 +494,7 @@
         } else if (s.sorting.phase === 'sort-feedback' && event.key === 'Enter') { event.preventDefault(); beginMeaning(); }
         else if (s.sorting.phase === 'meaning' || s.sorting.phase === 'meaning-feedback') {
           const item = meaningItem(); if (!item) return;
+          if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); previousMeaning(); return; }
           if (number !== null && s.sorting.phase === 'meaning' && number < item.stage.choices.length) {
             event.preventDefault(); chooseMeaning(item.stage.choices[number].originalIndex);
           } else if (event.key === 'Enter') { event.preventDefault(); if (s.sorting.phase === 'meaning-feedback') nextMeaning(); else gradeMeaning(); }

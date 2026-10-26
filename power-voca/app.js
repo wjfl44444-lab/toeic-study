@@ -52,12 +52,16 @@
   var unifiedGrammar = window.PowerGrammarAdapter && window.GRAMMAR_PREVIEW && window.PowerGrammarEmbedded ?
     window.PowerGrammarAdapter.create(window.GRAMMAR_PREVIEW.cards, window.PowerGrammarEmbedded) : null;
   if (data && unifiedGrammar) { data = Object.assign({}, data, { questions: data.questions.concat(unifiedGrammar.questions) }); }
-  var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(window.POWER_VOCA_SORTING) : null;
+  var verbFormsReview = window.PowerVocaVerbFormsReview && window.POWER_VOCA_VERB_FORMS && unifiedGrammar && window.POWER_VOCA_SORTING ?
+    window.PowerVocaVerbFormsReview.create({ normalQuestions: unifiedGrammar.questions, sortingData: window.POWER_VOCA_SORTING, facts: window.POWER_VOCA_VERB_FORMS }) : null;
+  if (data && verbFormsReview) { data = Object.assign({}, data, { questions: data.questions.concat(verbFormsReview.normalQuestions) }); }
+  var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING) : null;
   var sortingController = null;
   if (data && sortingPractice) { data = Object.assign({}, data, { questions: data.questions.concat(sortingPractice.questions) }); }
   var questionReview = null;
   var questionCuration = null;
   function activeQuestion(q) {
+    if (verbFormsReview && verbFormsReview.retired.has(q.id)) { return false; }
     if (questionCuration && questionCuration.retired.has(q.id)) { return false; }
     if (sortingPractice && sortingPractice.has(q)) { return true; }
     if (unifiedGrammar && !q.grammarOriginId && classifyQuestion(q).group === "grammar-structures") { return false; }
@@ -129,7 +133,7 @@
     replacements: [lexicalReady && lexicalReview.replacements, usageReady && usageReview.replacements,
       semanticReady && semanticReview.replacements, timeReady && timeReview.replacements,
       experienceReady && experienceReview.replacements, questionReview && questionReview.replacements,
-      questionCuration && questionCuration.replacements]
+      questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements]
   }) : null;
   var wrongReviewPage = 0;
   var progressManager = window.PowerVocaStudyProgress ? window.PowerVocaStudyProgress.create({
@@ -158,8 +162,8 @@
   function selectedIndices(stage) { return stage.selected === null ? [] : Array.isArray(stage.selected) ? stage.selected : [stage.selected]; }
   function chose(stage, index) { return selectedIndices(stage).indexOf(index) !== -1; }
   function stageCorrect(stage) {
-    var selected = selectedIndices(stage), answers = answerIndices(stage.data);
-    return selected.length === answers.length && answers.every(function (n) { return selected.indexOf(n) !== -1; });
+    var selected = selectedIndices(stage), sets = stage.data.acceptedAnswerSets || [answerIndices(stage.data)];
+    return sets.some(function (answers) { return selected.length === answers.length && answers.every(function (n) { return selected.indexOf(n) !== -1; }); });
   }
   function validSelection(selected, data) {
     if (selected === null) { return true; }
@@ -194,7 +198,7 @@
     return content.prompt || content.instruction;
   }
   function classifyQuestion(q) {
-    return sortingPractice && sortingPractice.assignments[q.id] || questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return verbFormsReview && verbFormsReview.assignments[q.id] || sortingPractice && sortingPractice.assignments[q.id] || questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
@@ -330,8 +334,7 @@
           typeof stored.graded !== "boolean") { return null; }
       var firstPicked = stored.stages[0] && stored.stages[0].selected;
       var firstValues = firstPicked === null ? [] : Array.isArray(firstPicked) ? firstPicked : [firstPicked];
-      var firstAnswers = answerIndices(q.stages[0]);
-      var wrongFirst = firstValues.length > 0 && (firstValues.length !== firstAnswers.length || firstAnswers.some(function (n) { return firstValues.indexOf(n) === -1; }));
+      var wrongFirst = firstValues.length > 0 && !stageCorrect({ data: q.stages[0], selected: firstPicked });
       var earlyEnd = stored.graded && stored.stageIndex === 0 && wrongFirst &&
         (q.firstAnswerGate && q.stages.length > 1 || q.stageMode !== "set" && saved.practiceVersion && q.stages.length === 2) &&
         stored.stages.slice(1).every(function (s) { return s && s.selected === null; });
@@ -367,6 +370,10 @@
     if (saved.sorting) {
       restored.sorting = JSON.parse(JSON.stringify(saved.sorting));
       if (!sortingPractice || !sortingPractice.validateSession(restored)) { return null; }
+    }
+    if (verbFormsReview) {
+      restored = verbFormsReview.migrateSession(restored, questionMap);
+      if (restored.sorting && !sortingPractice.validateSession(restored)) { return null; }
     }
     return restored;
   }
@@ -797,14 +804,16 @@
         });
       }
     }
-    if (questionCuration) {
-      var completed = studyProgress.completed, projected = null;
-      Object.keys(questionCuration.replacements).forEach(function (oldId) {
-        var canonical = questionCuration.replacements[oldId], pass = completed[oldId] || 0;
-        if (pass > ((projected || studyProgress).completed[canonical] || 0)) {
-          if (!projected) { projected = window.PowerVocaStudyProgress.normalize(studyProgress); }
-          projected.completed[canonical] = pass;
-        }
+    if (questionCuration || verbFormsReview) {
+      var projected = null;
+      [questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements].filter(Boolean).forEach(function (aliases) {
+        Object.keys(aliases).forEach(function (oldId) {
+          var canonical = aliases[oldId], pass = (projected || studyProgress).completed[oldId] || 0;
+          if (pass > ((projected || studyProgress).completed[canonical] || 0)) {
+            if (!projected) { projected = window.PowerVocaStudyProgress.normalize(studyProgress); }
+            projected.completed[canonical] = pass;
+          }
+        });
       });
       if (projected) { studyProgress = projected; }
     }
@@ -957,6 +966,11 @@
         stage.answers.length <= stage.options.length && (sorting || stage.answers.length < stage.options.length) && new Set(stage.answers).size === stage.answers.length &&
         stage.answers.every(function (n) { return Number.isInteger(n) && n >= 0 && n < stage.options.length; }) :
         Number.isInteger(stage.answer) && stage.answer >= 0 && stage.answer < stage.options.length) &&
+      (stage.acceptedAnswerSets === undefined || native && stage.multiple && Array.isArray(stage.acceptedAnswerSets) &&
+        stage.acceptedAnswerSets.length > 0 && stage.acceptedAnswerSets.length <= 32 &&
+        stage.acceptedAnswerSets.every(function (set) { return Array.isArray(set) && set.length > 0 && set.length <= stage.options.length &&
+          new Set(set).size === set.length && set.every(function (n) { return Number.isInteger(n) && n >= 0 && n < stage.options.length; }); }) &&
+        stage.acceptedAnswerSets.some(function (set) { return set.length === stage.answers.length && stage.answers.every(function (n) { return set.indexOf(n) !== -1; }); })) &&
       typeof stage.explanation === "string" && stage.explanation.trim() &&
       Array.isArray(stage.optionReasons) && stage.optionReasons.length === stage.options.length &&
       stage.optionReasons.every(function (value) { return typeof value === "string" && value.trim(); });
@@ -1334,24 +1348,34 @@
     if (session.index < session.cards.length - 1) { session.index += 1; renderQuestion(true); }
     else { showResults(); }
   }
-  function shortcutTargetAllowed(target, key) {
+  function previousStep() {
+    if (!session || !unifiedImportReady || view !== "quiz") { return; }
+    if (currentCard().stageIndex > 0) { currentCard().stageIndex -= 1; }
+    else if (session.index > 0) { session.index -= 1; }
+    else { return; }
+    renderQuestion(true);
+  }
+  function shortcutTargetAllowed(target, key, backward) {
     if (!(target instanceof Element)) { return true; }
     var editable = target.closest("[contenteditable]");
     if (target.isContentEditable || editable && editable.getAttribute("contenteditable") !== "false") { return false; }
     var field = target.closest("input, textarea, select");
     if (field && !(el("options-list").contains(field) && (field.type === "radio" || field.type === "checkbox"))) { return false; }
     var control = target.closest("button, a, summary, [role='button']");
-    return !control || key === "Enter" && ["grade-button", "next-button", "feedback-next-button"].indexOf(control.id) !== -1;
+    var allowed = ["grade-button", "next-button", "feedback-next-button"];
+    if (backward) { allowed = allowed.concat(["previous-stage-button", "previous-button"]); }
+    return !control || key === "Enter" && allowed.indexOf(control.id) !== -1;
   }
   function handleQuizShortcut(event) {
     if (event.defaultPrevented || view !== "quiz" || !session || !unifiedImportReady ||
-        event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+        event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "Enter") ||
         event.isComposing || keyboardComposing || event.keyCode === 229 || document.querySelector("dialog[open]")) { return; }
     var digit = /^[1-8]$/.test(event.key), enter = event.key === "Enter";
-    if ((!digit && !enter) || !shortcutTargetAllowed(event.target, event.key)) { return; }
+    if ((!digit && !enter) || !shortcutTargetAllowed(event.target, event.key, event.shiftKey)) { return; }
     // Suppress held-key repetitions as well as the native button activation;
     // a fresh Enter is required to leave the explanation after grading.
     if (event.repeat) { event.preventDefault(); return; }
+    if (event.shiftKey) { event.preventDefault(); previousStep(); return; }
     var card = currentCard();
     if (digit) {
       if (card.graded) { return; }
