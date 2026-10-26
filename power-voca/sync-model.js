@@ -5,13 +5,34 @@
   if (root) { root.PowerVocaSyncModel = api; }
 }(typeof window !== "undefined" ? window : null, function () {
   "use strict";
-  var LIMIT = 999999999, MAX_RECORDS = 10000, MAX_BYTES = 800 * 1024;
+  var LIMIT = 999999999, MAX_RECORDS = 10000, MAX_BYTES = 800 * 1024, MAX_SCOPES = 256;
   var counters = ["attempts", "correct", "stagesGraded", "stagesCorrect"];
   function object(value) { return value && typeof value === "object" && !Array.isArray(value); }
   function key(value) { return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(value) && !["__proto__", "constructor", "prototype"].includes(value); }
   function signature(value) { return typeof value === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(value); }
   function date(value) { return typeof value === "string" && value.length <= 30 && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value)); }
   function count(value) { return Number.isSafeInteger(value) && value >= 0 && value <= LIMIT; }
+  function studyScope(value) { return typeof value === "string" && /^[a-zA-Z0-9 _-]{1,40}$/.test(value) && !["__proto__", "constructor", "prototype"].includes(value); }
+  function studyPass(value) { return count(value) && value > 0; }
+  function studyRun(value) {
+    if (!object(value) || Object.keys(value).some(function (name) { return !["scope", "pass", "size"].includes(name); }) || !studyScope(value.scope) || !studyPass(value.pass) ||
+        value.size !== undefined && !["20", "50", "100", "all"].includes(value.size)) { throw new Error("Invalid study run"); }
+    var result = { scope: value.scope, pass: value.pass };
+    if (value.size !== undefined) { result.size = value.size; }
+    return result;
+  }
+  function studyProgress(value) {
+    if (!object(value) || value.version !== 1 || Object.keys(value).some(function (name) { return !["version", "completed", "scopes"].includes(name); }) ||
+        !object(value.completed) || !object(value.scopes) || Object.keys(value.completed).length > MAX_RECORDS || Object.keys(value.scopes).length > MAX_SCOPES) { throw new Error("Invalid study progress"); }
+    var result = { version: 1, completed: Object.create(null), scopes: Object.create(null) };
+    [[value.completed, result.completed, key], [value.scopes, result.scopes, studyScope]].forEach(function (entry) {
+      Object.keys(entry[0]).sort().forEach(function (name) {
+        if (!entry[2](name) || !studyPass(entry[0][name])) { throw new Error("Invalid study progress entry"); }
+        entry[1][name] = entry[0][name];
+      });
+    });
+    return result;
+  }
   function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true }; }
   function empty() { return { version: 1, session: null, history: Object.create(null), archivedHistory: [], settings: defaults() }; }
   function nativeId(id) { return typeof id === "string" && /^semantic1-[a-zA-Z0-9_.:-]+$/.test(id); }
@@ -67,6 +88,10 @@
     // An absent version means the original printed question choices. Never
     // silently reinterpret an existing round using newer practice overlays.
     if (value.practiceVersion !== undefined) { result.practiceVersion = value.practiceVersion; }
+    if (value.studyRun !== undefined) {
+      if (value.mode !== "all") { throw new Error("Invalid study run mode"); }
+      result.studyRun = studyRun(value.studyRun);
+    }
     return result;
   }
   function fromTuple(tuple) {
@@ -126,6 +151,7 @@
         if (!result.grammarImported || !signature(value.grammarImportOwner)) { return null; }
         result.grammarImportOwner = value.grammarImportOwner;
       }
+      if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
       return result;
     } catch (_) { return null; }
   }
@@ -142,6 +168,7 @@
       result.session = value.session && { mode: value.session.mode, index: value.session.index, startedAt: value.session.startedAt,
         cards: value.session.cards.map(function (card) { return [card.id, card.signature, card.stageIndex, (card.graded ? 1 : 0) + (card.deferred ? 2 : 0), card.stages.map(function (s) { return [s.selected, s.order.join("")]; })]; }) };
       if (result.session && value.session.practiceVersion !== undefined) { result.session.practiceVersion = value.session.practiceVersion; }
+      if (result.session && value.session.studyRun !== undefined) { result.session.studyRun = studyRun(value.session.studyRun); }
       result.history = Object.keys(value.history).sort().map(function (id) { return tuple(id, value.history[id]); });
     }
     if (value.archivedHistory && value.archivedHistory.length) {
@@ -150,6 +177,7 @@
     if (value._studySync) { result._studySync = value._studySync; }
     if (value.grammarImported === true) { result.grammarImported = true; }
     if (value.grammarImportOwner) { result.grammarImportOwner = value.grammarImportOwner; }
+    if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
     return raw;
@@ -197,6 +225,17 @@
     if (receipts.length) { result._studySync = { version: 1, commits: Array.from(new Set(receipts)).slice(-256) }; }
     if (local.grammarImported || remote.grammarImported || base && base.grammarImported) { result.grammarImported = true; }
     if (local.grammarImportOwner || remote.grammarImportOwner || base && base.grammarImportOwner) { result.grammarImportOwner = local.grammarImportOwner || remote.grammarImportOwner || base.grammarImportOwner; }
+    var progress = [base, local, remote].filter(function (value) { return value && value.studyProgress; });
+    if (progress.length) {
+      result.studyProgress = { version: 1, completed: Object.create(null), scopes: Object.create(null) };
+      progress.forEach(function (value) {
+        ["completed", "scopes"].forEach(function (name) {
+          Object.keys(value.studyProgress[name]).forEach(function (id) {
+            result.studyProgress[name][id] = Math.max(result.studyProgress[name][id] || 0, value.studyProgress[name][id]);
+          });
+        });
+      });
+    }
     return stringify(result, true);
   }
   return Object.freeze({ parse: parse, stringify: stringify, semantic: semantic, merge: merge, empty: empty, maxBytes: MAX_BYTES, counterLimit: LIMIT });

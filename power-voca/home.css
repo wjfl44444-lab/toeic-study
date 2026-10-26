@@ -33,6 +33,8 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
 .question-context{font-size:14px;line-height:1.8;color:var(--muted);margin-top:10px;white-space:pre-line}
+.study-progress-summary{font-size:15px;line-height:1.8;color:var(--mint);margin:18px 0 4px}
+#results-study-progress{margin:16px 0}
 .backup-actions select{font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:9px;max-width:100%}
 .wrong-review-panel{padding:24px 30px;margin-top:18px}
 .wrong-review-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}

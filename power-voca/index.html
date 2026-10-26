@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
   <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
   <link rel="stylesheet" href="practice-shell.css?v=20261025-integration1">
-  <link rel="stylesheet" href="home.css?v=20261026-quality1">
+  <link rel="stylesheet" href="home.css?v=20261026-progress1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
   <script src="practice-options.js?v=20261019-linked1" defer></script>
@@ -21,7 +21,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261025-unified1" defer></script>
+  <script src="sync-model.js?v=20261026-progress1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -36,7 +36,8 @@
   <script src="question-review.js?v=20261026-quality1" defer></script>
   <script src="question-view.js?v=20261026-quality1" defer></script>
   <script src="wrong-review.js?v=20261026-quality1" defer></script>
-  <script src="app.js?v=20261026-keyboard1" defer></script>
+  <script src="study-progress.js?v=20261026-progress1" defer></script>
+  <script src="app.js?v=20261026-progress1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -85,7 +86,8 @@
             </fieldset>
 
           </div>
-          <div class="start-line"><p id="pool-summary" class="pool-count"></p><button class="primary-button start-button" id="start-button">연습 시작</button></div>
+          <p class="study-progress-summary" id="study-progress-summary" hidden></p>
+          <div class="start-line"><p id="pool-summary" class="pool-count"></p><button class="primary-button start-button" id="start-button">연습 시작</button><button class="primary-button start-button" id="start-next-pass-button" hidden>다음 회독 시작</button></div>
 
         </div>
         <div class="panel resume-panel" id="resume-panel" hidden>
@@ -179,8 +181,11 @@
             <div><span>미채점</span><strong id="result-ungraded">0</strong></div>
           </div>
           <p class="stage-score" id="stage-score"></p>
+          <p class="study-progress-summary" id="results-study-progress" hidden></p>
           <div class="results-actions">
-            <button class="primary-button" id="continue-button">남은 문제 이어 풀기</button>
+            <button class="primary-button" id="continue-button">이번 묶음 계속 풀기</button>
+            <button class="primary-button" id="next-batch-button" hidden>남은 문제 계속 풀기</button>
+            <button class="primary-button" id="next-pass-button" hidden>다음 회독 시작</button>
             <button class="secondary-button" id="wrong-only-button">틀린 문제만 다시 풀기</button>
             <button class="secondary-button" id="restart-button">이번 문제 다시 섞어 풀기</button>
           </div>
