@@ -112,6 +112,10 @@
       if (value.mode !== "all") { throw new Error("Invalid study run mode"); }
       result.studyRun = studyRun(value.studyRun);
     }
+    if (value.resumeStudyRun !== undefined) {
+      if (value.mode !== "wrong") { throw new Error("Invalid resume study run mode"); }
+      result.resumeStudyRun = studyRun(value.resumeStudyRun);
+    }
     if (value.sorting !== undefined) { result.sorting = sortingMetadata(value.sorting, result.cards); }
     return result;
   }
@@ -190,6 +194,7 @@
         cards: value.session.cards.map(function (card) { return [card.id, card.signature, card.stageIndex, (card.graded ? 1 : 0) + (card.deferred ? 2 : 0), card.stages.map(function (s) { return [s.selected, s.order.join("")]; })]; }) };
       if (result.session && value.session.practiceVersion !== undefined) { result.session.practiceVersion = value.session.practiceVersion; }
       if (result.session && value.session.studyRun !== undefined) { result.session.studyRun = studyRun(value.session.studyRun); }
+      if (result.session && value.session.resumeStudyRun !== undefined) { result.session.resumeStudyRun = studyRun(value.session.resumeStudyRun); }
       if (result.session && value.session.sorting !== undefined) { result.session.sorting = sortingMetadata(value.session.sorting, value.session.cards); }
       result.history = Object.keys(value.history).sort().map(function (id) { return tuple(id, value.history[id]); });
     }

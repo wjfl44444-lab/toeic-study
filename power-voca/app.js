@@ -56,7 +56,9 @@
   var sortingController = null;
   if (data && sortingPractice) { data = Object.assign({}, data, { questions: data.questions.concat(sortingPractice.questions) }); }
   var questionReview = null;
+  var questionCuration = null;
   function activeQuestion(q) {
+    if (questionCuration && questionCuration.retired.has(q.id)) { return false; }
     if (sortingPractice && sortingPractice.has(q)) { return true; }
     if (unifiedGrammar && !q.grammarOriginId && classifyQuestion(q).group === "grammar-structures") { return false; }
     return !q.internalRoute && (!lexicalReady || !Object.prototype.hasOwnProperty.call(lexicalReview.replacements, q.id)) &&
@@ -120,12 +122,14 @@
     questionReview = window.PowerVocaQuestionReview.create(data.questions, classifyQuestion);
     data = Object.assign({}, data, { questions: data.questions.concat(questionReview.questions) });
   }
+  if (data && window.PowerVocaQuestionCuration) { questionCuration = window.PowerVocaQuestionCuration.create(data.questions, classifyQuestion); }
   activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var wrongReview = window.PowerVocaWrongReview && data ? window.PowerVocaWrongReview.create({
     questions: data.questions, isActive: activeQuestion, grammar: unifiedGrammar, label: wrongReviewLabel,
     replacements: [lexicalReady && lexicalReview.replacements, usageReady && usageReview.replacements,
       semanticReady && semanticReview.replacements, timeReady && timeReview.replacements,
-      experienceReady && experienceReview.replacements, questionReview && questionReview.replacements]
+      experienceReady && experienceReview.replacements, questionReview && questionReview.replacements,
+      questionCuration && questionCuration.replacements]
   }) : null;
   var wrongReviewPage = 0;
   var progressManager = window.PowerVocaStudyProgress ? window.PowerVocaStudyProgress.create({
@@ -216,6 +220,7 @@
     view = name;
     views.forEach(function (view) { el(view + "-view").hidden = view !== name; });
     el("home-button").hidden = name === "start" || name === "error" || name === "loading";
+    renderReviewContinuation();
   }
   function focusHeading(id) {
     el(id).focus({ preventScroll: true });
@@ -251,6 +256,7 @@
       }) };
     if (session.practiceVersion) { saved.practiceVersion = session.practiceVersion; }
     if (session.studyRun) { saved.studyRun = Object.assign({}, session.studyRun); }
+    if (session.resumeStudyRun) { saved.resumeStudyRun = Object.assign({}, session.resumeStudyRun); }
     if (session.sorting) { saved.sorting = JSON.parse(JSON.stringify(session.sorting)); }
     return saved;
   }
@@ -357,6 +363,7 @@
       startedAt: typeof saved.startedAt === "string" ? saved.startedAt : new Date().toISOString(), cards: cards };
     if (version) { restored.practiceVersion = version; }
     if (saved.studyRun) { restored.studyRun = Object.assign({}, saved.studyRun); }
+    if (saved.resumeStudyRun) { restored.resumeStudyRun = Object.assign({}, saved.resumeStudyRun); }
     if (saved.sorting) {
       restored.sorting = JSON.parse(JSON.stringify(saved.sorting));
       if (!sortingPractice || !sortingPractice.validateSession(restored)) { return null; }
@@ -790,6 +797,17 @@
         });
       }
     }
+    if (questionCuration) {
+      var completed = studyProgress.completed, projected = null;
+      Object.keys(questionCuration.replacements).forEach(function (oldId) {
+        var canonical = questionCuration.replacements[oldId], pass = completed[oldId] || 0;
+        if (pass > ((projected || studyProgress).completed[canonical] || 0)) {
+          if (!projected) { projected = window.PowerVocaStudyProgress.normalize(studyProgress); }
+          projected.completed[canonical] = pass;
+        }
+      });
+      if (projected) { studyProgress = projected; }
+    }
     return studyProgress;
   }
   function progressFor(pool, scope) {
@@ -805,8 +823,18 @@
     return group ? group.label : "모든 분류";
   }
   function sessionStudyRun() {
-    if (!session || session.mode !== "all") { return null; }
-    if (session.studyRun) { return Object.assign({}, session.studyRun); }
+    if (!session) { return null; }
+    // A cumulative wrong review has no ordinary range to resume. Only an
+    // explicit transition from an ordinary round carries its frozen context.
+    if (session.mode === "wrong") { return session.resumeStudyRun ? Object.assign({}, session.resumeStudyRun) : null; }
+    if (session.studyRun) {
+      var run = Object.assign({}, session.studyRun);
+      if (!run.size) {
+        var storedLength = String(session.cards.length);
+        run.size = ["20", "50", "100"].indexOf(storedLength) !== -1 ? storedLength : currentSettings().roundSize;
+      }
+      return run;
+    }
     // Old rounds retain every stored choice. Infer their range only when a
     // continuation is requested; their historic work belongs to the first pass.
     var setting = currentSettings().step, allowed = new Set(poolForScope(setting).map(function (q) { return q.id; }));
@@ -818,8 +846,19 @@
     var length = String(session.cards.length), size = ["20", "50", "100"].indexOf(length) !== -1 ? length : currentSettings().roundSize;
     return { scope: setting, pass: 1, size: size };
   }
-  function beginRemaining(scope, size) {
-    var pool = poolForScope(scope), progress = progressFor(pool, scope);
+  function progressForRun(run) {
+    var state = progressFor(poolForScope(run.scope), run.scope);
+    if (!state) { return null; }
+    var completed = (ensureStudyProgress() || window.PowerVocaStudyProgress.empty()).completed;
+    state.pass = run.pass;
+    state.remainingQuestions = state.questions.filter(function (q) { return (completed[q.id] || 0) < run.pass; });
+    state.remaining = state.remainingQuestions.length;
+    state.completed = state.total - state.remaining;
+    state.complete = state.total > 0 && state.remaining === 0;
+    return state;
+  }
+  function beginRemaining(scope, size, pass) {
+    var pool = poolForScope(scope), progress = pass ? progressForRun({ scope: scope, pass: pass }) : progressFor(pool, scope);
     var remaining = progress ? progress.remainingQuestions : pool;
     if (!remaining.length) { return false; }
     if (el("shuffle-questions").checked) { remaining = shuffled(remaining); }
@@ -837,15 +876,45 @@
     beginRemaining(scope, size);
   }
   function renderStudyContinuation() {
-    var run = sessionStudyRun(), state = run && progressFor(poolForScope(run.scope), run.scope);
+    var run = sessionStudyRun(), state = run && progressForRun(run);
     var available = Boolean(state && state.total && unifiedImportReady);
     el("results-study-progress").hidden = !available;
     text("results-study-progress", available ? scopeLabel(run.scope) + " · " + progressLabel(state) : "");
-    el("next-batch-button").hidden = !available || totals().ungraded > 0 || state.complete;
+    el("next-batch-button").hidden = !available || session.mode !== "wrong" && totals().ungraded > 0 || state.complete;
     el("next-pass-button").hidden = !available || totals().ungraded > 0 || !state.complete;
     if (available) {
-      text("next-batch-button", "남은 문제 계속 풀기 (" + state.remaining + "개)");
+      text("next-batch-button", session.mode === "wrong" ? reviewNextBatchLabel(run, state) : "남은 문제 계속 풀기 (" + state.remaining + "개)");
       text("next-pass-button", (state.pass + 1) + "회독 시작");
+    }
+  }
+  function reviewNextBatchLabel(run, state) {
+    var size = run.size || "20", count = size === "all" ? state.remaining : Math.min(Number(size), state.remaining);
+    return (size !== "all" && count === Number(size) ? "다음 " : "남은 ") + count + "문제 풀기 · 일반 연습";
+  }
+  function mountReviewContinuation() {
+    var parent = el("quiz-view") && el("quiz-view").parentNode;
+    if (!parent || el("review-next-batch-panel")) { return; }
+    var panel = node("aside", "panel review-next-batch-panel"); panel.id = "review-next-batch-panel"; panel.hidden = true;
+    var summary = node("p", "study-progress-summary"); summary.id = "review-next-batch-summary";
+    var button = node("button", "primary-button"); button.id = "review-next-batch-button"; button.type = "button";
+    button.setAttribute("aria-describedby", summary.id);
+    panel.append(summary, button); parent.append(panel);
+  }
+  function renderReviewContinuation() {
+    var panel = el("review-next-batch-panel");
+    if (!panel) { return; }
+    var run = session && session.mode === "wrong" && sessionStudyRun();
+    var state = run && unifiedImportReady && progressForRun(run);
+    var available = Boolean(state && state.total && !state.complete && (view === "quiz" || view === "sorting"));
+    panel.hidden = !available;
+    if (!available) { return; }
+    text("review-next-batch-button", reviewNextBatchLabel(run, state));
+    text("review-next-batch-summary", scopeLabel(run.scope) + " · 남은 " + state.remaining + "문제");
+  }
+  function continueStudyRun() {
+    var run = sessionStudyRun();
+    if (run && unifiedImportReady && (session.mode === "wrong" || !totals().ungraded)) {
+      beginRemaining(run.scope, run.size || "20", run.pass);
     }
   }
   function updateSettings() {
@@ -1017,7 +1086,7 @@
           return { data: stage, choices: choices, selected: null };
         }) };
     }) };
-    if (studyRun && mode === "all") { session.studyRun = Object.assign({}, studyRun); }
+    if (studyRun) { session[mode === "wrong" ? "resumeStudyRun" : "studyRun"] = Object.assign({}, studyRun); }
     if (sortingController && session.cards.every(function (card) { return sortingPractice.has(card.question) && card.question.sortingTopic === session.cards[0].question.sortingTopic; })) {
       sortingController.start(session);
     }
@@ -1332,6 +1401,7 @@
     error = "학습 분류 파일(taxonomy.js)을 불러오지 못했어요. 새로고침하거나 파일이 함께 있는지 확인해 주세요.";
   }
   if (error) { text("error-message", error); showView("error"); return; }
+  mountReviewContinuation();
   if (sortingPractice) {
     sortingController = sortingPractice.createController({
       el: el, node: node, getSession: function () { return session; }, getView: function () { return view; },
@@ -1384,9 +1454,9 @@
     advanceStudyPass(currentSettings().step, el("round-size").value);
   });
   el("next-batch-button").addEventListener("click", function () {
-    var run = sessionStudyRun();
-    if (run && !totals().ungraded && unifiedImportReady) { beginRemaining(run.scope, run.size || currentSettings().roundSize); }
+    continueStudyRun();
   });
+  if (el("review-next-batch-button")) { el("review-next-batch-button").addEventListener("click", continueStudyRun); }
   el("next-pass-button").addEventListener("click", function () {
     var run = sessionStudyRun();
     if (run && !totals().ungraded) { advanceStudyPass(run.scope, run.size || currentSettings().roundSize); }
@@ -1427,7 +1497,7 @@
   el("continue-button").addEventListener("click", continueUnfinished);
   el("wrong-only-button").addEventListener("click", function () {
     var wrong = session.cards.filter(function (card) { return card.graded && !isAllCorrect(card); }).map(function (card) { return card.question; });
-    if (wrong.length && (!totals().ungraded || window.confirm("미채점 문제의 이어 풀기를 대신해 오답 연습을 시작할까요? 누적 채점 기록은 남아요."))) { begin(wrong, "wrong", true); }
+    if (wrong.length && (!totals().ungraded || window.confirm("미채점 문제의 이어 풀기를 대신해 오답 연습을 시작할까요? 누적 채점 기록은 남아요."))) { begin(wrong, "wrong", true, sessionStudyRun()); }
   });
   el("restart-button").addEventListener("click", function () {
     if (!totals().ungraded || window.confirm("현재 이어 풀기 대신 이번 문제를 처음부터 다시 풀까요?")) {
