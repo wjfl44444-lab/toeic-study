@@ -55,12 +55,17 @@
   var verbFormsReview = window.PowerVocaVerbFormsReview && window.POWER_VOCA_VERB_FORMS && unifiedGrammar && window.POWER_VOCA_SORTING ?
     window.PowerVocaVerbFormsReview.create({ normalQuestions: unifiedGrammar.questions, sortingData: window.POWER_VOCA_SORTING, facts: window.POWER_VOCA_VERB_FORMS }) : null;
   if (data && verbFormsReview) { data = Object.assign({}, data, { questions: data.questions.concat(verbFormsReview.normalQuestions) }); }
-  var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING) : null;
+  var sortingReview = window.PowerVocaSortingReview && window.PowerSortingOptionsReview && window.POWER_SORTING_CLASSIFICATION_REVIEW ?
+    window.PowerVocaSortingReview.create({ sortingData: verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING,
+      retired: verbFormsReview && verbFormsReview.retired, optionsReview: window.PowerSortingOptionsReview,
+      classifications: window.POWER_SORTING_CLASSIFICATION_REVIEW }) : null;
+  var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(sortingReview ? sortingReview.sortingData : verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING) : null;
   var sortingController = null;
   if (data && sortingPractice) { data = Object.assign({}, data, { questions: data.questions.concat(sortingPractice.questions) }); }
   var questionReview = null;
   var questionCuration = null;
   function activeQuestion(q) {
+    if (sortingReview && sortingReview.retired.has(q.id)) { return false; }
     if (verbFormsReview && verbFormsReview.retired.has(q.id)) { return false; }
     if (questionCuration && questionCuration.retired.has(q.id)) { return false; }
     if (sortingPractice && sortingPractice.has(q)) { return true; }
@@ -133,7 +138,8 @@
     replacements: [lexicalReady && lexicalReview.replacements, usageReady && usageReview.replacements,
       semanticReady && semanticReview.replacements, timeReady && timeReview.replacements,
       experienceReady && experienceReview.replacements, questionReview && questionReview.replacements,
-      questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements]
+      questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements,
+      sortingReview && sortingReview.replacements]
   }) : null;
   var wrongReviewPage = 0;
   var progressManager = window.PowerVocaStudyProgress ? window.PowerVocaStudyProgress.create({
@@ -804,9 +810,9 @@
         });
       }
     }
-    if (questionCuration || verbFormsReview) {
+    if (questionCuration || verbFormsReview || sortingReview) {
       var projected = null;
-      [questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements].filter(Boolean).forEach(function (aliases) {
+      [questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements, sortingReview && sortingReview.replacements].filter(Boolean).forEach(function (aliases) {
         Object.keys(aliases).forEach(function (oldId) {
           var canonical = aliases[oldId], pass = (projected || studyProgress).completed[oldId] || 0;
           if (pass > ((projected || studyProgress).completed[canonical] || 0)) {

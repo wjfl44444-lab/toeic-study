@@ -8,7 +8,7 @@
 
   const VERSION = '20261026-sorting1';
   const PREFIX = 'semantic1-sorting-';
-  const TOPICS = ['verb-forms', 'noun-countability', 'suffix-forms', 'verb-complements', 'link-usage', 'comparison-modifiers'];
+  const TOPICS = ['verb-forms', 'noun-countability', 'quantity-expressions', 'suffix-forms', 'verb-complements', 'link-usage', 'comparison-modifiers'];
   const PHASES = ['sorting', 'sort-feedback', 'meaning', 'meaning-feedback', 'finished'];
   const clean = value => typeof value === 'string' ? value.trim() : '';
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -54,6 +54,12 @@
       new Set(selected).size === selected.length && selected.every(index => Number.isInteger(index) && index >= 0 && index < stage.data.options.length);
   }
 
+  function validBins(bins) {
+    return Array.isArray(bins) && bins.length >= 2 && bins.length <= 5 &&
+      bins.every(bin => bin && clean(bin.id) && clean(bin.label)) &&
+      new Set(bins.map(bin => bin.id)).size === bins.length && new Set(bins.map(bin => bin.label)).size === bins.length;
+  }
+
   function checkCompatibility(card, stage) {
     const sets = card.acceptedAnswerSets;
     if (!Array.isArray(sets) || !sets.length || sets.length > 32 || sets.some(set =>
@@ -68,38 +74,37 @@
     const input = Array.isArray(data) ? data : data && data.groups;
     if (!Array.isArray(input) || !input.length) throw new Error('Sorting groups are required');
     const groups = copy(input).sort((a, b) => TOPICS.indexOf(a.id) - TOPICS.indexOf(b.id));
-    const byTopic = new Map(), byId = new Map(), sourceCards = new Map();
+    const byTopic = new Map(), byId = new Map(), sourceCards = new Map(), cardClassifications = new Map();
     const questions = [], assignments = Object.create(null);
     groups.forEach(group => {
       if (!group || !TOPICS.includes(group.id) || byTopic.has(group.id) || !clean(group.title) || !clean(group.instruction) ||
-          !Array.isArray(group.bins) || group.bins.length < 2 || group.bins.length > 5 ||
-          !group.bins.every(bin => bin && clean(bin.id) && clean(bin.label)) ||
-          new Set(group.bins.map(bin => bin.id)).size !== group.bins.length ||
-          new Set(group.bins.map(bin => bin.label)).size !== group.bins.length || !Array.isArray(group.cards) || !group.cards.length) {
+          !validBins(group.bins) || !Array.isArray(group.cards) || !group.cards.length) {
         throw new Error('Invalid sorting topic');
       }
       byTopic.set(group.id, group);
       const cardIds = new Set();
       group.cards.forEach(card => {
-        if (!card || !clean(card.id) || cardIds.has(card.id) || !clean(card.text) || !Array.isArray(card.correctBins) ||
+        const bins = card && card.bins !== undefined ? card.bins : group.bins;
+        const instruction = card && card.classificationInstruction !== undefined ? card.classificationInstruction : group.instruction;
+        if (!card || !clean(card.id) || cardIds.has(card.id) || !clean(card.text) || !validBins(bins) || !clean(instruction) || !Array.isArray(card.correctBins) ||
             !card.correctBins.length || new Set(card.correctBins).size !== card.correctBins.length ||
-            !card.correctBins.every(id => group.bins.some(bin => bin.id === id)) || !Array.isArray(card.steps) || card.steps.length > 11 ||
+            !card.correctBins.every(id => bins.some(bin => bin.id === id)) || !Array.isArray(card.steps) || card.steps.length > 11 ||
             !Array.isArray(card.examples) || !card.examples.every(value => clean(value)) || typeof card.note !== 'string') {
           throw new Error('Invalid sorting card: ' + (card && card.id));
         }
         cardIds.add(card.id);
-        const correctLabels = group.bins.filter(bin => card.correctBins.includes(bin.id)).map(bin => bin.label);
+        const correctLabels = bins.filter(bin => card.correctBins.includes(bin.id)).map(bin => bin.label);
         const references = card.source && Array.isArray(card.source.references) && card.source.references.length ? card.source.references : [card.source || {}];
         const sources = references.map(source => sourceOf(source, card.source));
         const mainSource = sources[0];
         const id = idFor(group.id, card.id);
         const stages = [{
           kind: 'sorting-classification', sortingClassification: true, multiple: true, fixedOrder: true,
-          instruction: group.instruction, prompt: card.text, context: '',
-          options: group.bins.map(bin => bin.label),
-          answers: group.bins.map((bin, index) => card.correctBins.includes(bin.id) ? index : -1).filter(index => index >= 0),
+          instruction, prompt: card.text, context: '',
+          options: bins.map(bin => bin.label),
+          answers: bins.map((bin, index) => card.correctBins.includes(bin.id) ? index : -1).filter(index => index >= 0),
           explanation: card.text + ' → ' + correctLabels.join(' · ') + (clean(card.note) ? '\n' + clean(card.note) : ''),
-          optionReasons: group.bins.map(bin => card.correctBins.includes(bin.id) ? card.text + '의 핵심 쓰임은 ' + bin.label + '에 해당해요.' : card.text + '의 이번 핵심 쓰임은 ' + bin.label + '에 해당하지 않아요.')
+          optionReasons: bins.map(bin => card.correctBins.includes(bin.id) ? card.text + '의 핵심 쓰임은 ' + bin.label + '에 해당해요.' : card.text + '의 이번 핵심 쓰임은 ' + bin.label + '에 해당하지 않아요.')
         }];
         if (card.acceptedAnswerSets !== undefined) {
           checkCompatibility(card, stages[0]);
@@ -133,6 +138,7 @@
           source: mainSource, sources, sourceBook: mainSource.book, sourcePage: mainSource.bookPage || null, stages
         });
         questions.push(question); byId.set(id, question); sourceCards.set(id, card);
+        cardClassifications.set(id, { bins, instruction, key: JSON.stringify(bins.map(bin => [bin.id, bin.label])) });
         assignments[id] = freeze({ group: 'sorting-practice', scope: 'sorting-' + group.id });
       });
     });
@@ -146,6 +152,7 @@
       if (!byTopic.has(meta.topic) || !PHASES.includes(meta.phase) || typeof meta.active !== 'string' ||
           !meta.checked || typeof meta.checked !== 'object' || Array.isArray(meta.checked)) return false;
       const ids = new Set(), cardMap = new Map();
+      let classificationKey = null;
       for (const card of session.cards) {
         const q = card && card.question;
         if (!has(q) || q.sortingTopic !== meta.topic || ids.has(q.id) || typeof card.graded !== 'boolean' ||
@@ -160,6 +167,9 @@
               new Set(stage.choices.map(choice => choice.originalIndex)).size === stage.data.options.length &&
               stage.choices.every(choice => Number.isInteger(choice.originalIndex) && choice.originalIndex >= 0 &&
                 choice.originalIndex < stage.data.options.length && choice.text === stage.data.options[choice.originalIndex]))) return false;
+        const classification = cardClassifications.get(q.id);
+        if (classificationKey !== null && classification.key !== classificationKey) return false;
+        classificationKey = classification.key;
         const checked = meta.checked[q.id];
         if (!Array.isArray(checked) || new Set(checked).size !== checked.length ||
             !checked.every(index => Number.isInteger(index) && index > 0 && index < card.stages.length && answered(card.stages[index]))) return false;
@@ -189,7 +199,10 @@
       let tableInputs = new Map(), tableRows = new Map(), renderedTableSession = null;
       const session = () => host.getSession();
       const meta = () => session().sorting;
-      const currentGroup = () => byTopic.get(meta().topic);
+      const currentGroup = () => {
+        const group = byTopic.get(meta().topic), classification = cardClassifications.get(session().cards[0].question.id);
+        return { ...group, title: group.displayTitle || group.title, bins: classification.bins, instruction: classification.instruction };
+      };
       const sourceCard = card => sourceCards.get(card.question.id);
       const activeIndex = () => session().cards.findIndex(card => card.question.id === meta().active);
       const current = () => session().cards[activeIndex()];
@@ -328,21 +341,33 @@
         const source = sourceCard(card), group = currentGroup(), classified = correct(card.stages[0]);
         const allCorrect = classified && (!meanings || card.stages.slice(1).every(correct));
         const row = element('article', 'card-result ' + (allCorrect ? 'correct' : 'incorrect'));
-        const head = element('div', 'card-result-head'); head.append(element('strong', '', source.text), element('span', 'status-tag ' + (allCorrect ? 'correct' : 'incorrect'), allCorrect ? '정답' : '다시 확인')); row.append(head);
-        row.append(element('p', 'result-detail', source.correctBins.map(id => group.bins.find(bin => bin.id === id).label).join(' · ')));
-        if (!classified) row.append(element('p', 'sorting-note', '내 선택 · ' + selection(card.stages[0]).map(index => group.bins[index].label).join(' · ')));
+        const head = element('div', 'card-result-head'); head.append(element('strong', '', source.text), element('span', 'status-tag ' + (allCorrect ? 'correct' : 'incorrect'), allCorrect ? '정답' : classified ? '뜻 확인' : '분류 오답')); row.append(head);
+        const answer = source.correctBins.map(id => group.bins.find(bin => bin.id === id).label).join(' · ');
+        const classification = element('p', 'classification-answer');
+        if (!classified) {
+          classification.append(element('span', 'result-selection', '내 선택: ' + selection(card.stages[0]).map(index => group.bins[index].label).join(' · ')),
+            element('span', 'result-arrow', '→'));
+        }
+        classification.append(element('span', 'result-correct', '정답: ' + answer)); row.append(classification);
         if (meanings) {
+          const meaningResults = element('div', 'meaning-results');
           card.stages.slice(1).forEach((stage, index) => {
             const step = source.steps[index];
-            row.append(element('p', 'result-detail', (step.expression || source.text) + ' · ' + step.label + ' → ' + stage.data.options[stage.data.answer]));
-            if (!correct(stage)) row.append(element('p', 'sorting-note', '내 선택 · ' + selection(stage).map(choice => stage.data.options[choice]).join(' · ')));
+            const meaning = element('p', 'result-detail meaning-result' + (correct(stage) ? '' : ' incorrect'));
+            meaning.append(element('span', 'meaning-result-label', (step.expression || source.text) + ' · ' + step.label),
+              element('span', 'meaning-result-answer', (!correct(stage) ? '내 선택: ' + selection(stage).map(choice => stage.data.options[choice]).join(' · ') + ' → 정답: ' : '') + stage.data.options[stage.data.answer]));
+            meaningResults.append(meaning);
           });
-          if (source.examples.length) row.append(element('p', 'sorting-note', source.examples.join(' / ')));
-          if (clean(source.note)) {
-            const details = element('details'); details.append(element('summary', '', '쓰임 확인'), element('p', 'sorting-note', source.note)); row.append(details);
-          }
-          const labels = Array.from(new Set(card.question.sources.filter(item => positive(item.bookPage)).map(item => (item.book === 'quickstart' ? '퀵스타트 ' : '파워토익 VOCA ') + item.bookPage + '쪽')));
-          if (labels.length) row.append(element('p', 'source-note', labels.join(' · ')));
+          if (card.stages.length > 1) row.append(meaningResults);
+        }
+        const labels = Array.from(new Set(card.question.sources.filter(item => positive(item.bookPage)).map(item => (item.book === 'quickstart' ? '퀵스타트 ' : '파워토익 VOCA ') + item.bookPage + '쪽')));
+        if (source.examples.length || clean(source.note) || labels.length) {
+          const details = element('details', 'result-disclosure');
+          details.append(element('summary', '', '예문·설명 보기'));
+          if (source.examples.length) details.append(element('p', 'result-detail result-examples', source.examples.join('\n')));
+          if (clean(source.note)) details.append(element('p', 'result-detail result-note', source.note));
+          if (labels.length) details.append(element('p', 'source-note', labels.join(' · ')));
+          row.append(details);
         }
         return row;
       }
@@ -350,17 +375,28 @@
         const group = currentGroup(), cards = session().cards, count = cards.filter(card => correct(card.stages[0])).length;
         elements['result-topic'].textContent = group.title; elements['result-title'].textContent = '분류 ' + count + ' / ' + cards.length + '개 정답';
         elements['result-description'].textContent = cards.some(card => card.stages[0].data.compatibilityNote) ?
-          '보완된 형식을 확인하세요. 진행 중인 풀이의 기존 정답도 인정했어요.' : '분류별로 어떤 단어들이 있는지 함께 확인해 보세요.';
+          '보완된 형식을 확인하세요. 진행 중인 풀이의 기존 정답도 인정했어요.' : '오답은 강조했어요. ‘2개’처럼 표시된 단어는 여러 분류에 속해요.';
         const target = elements['category-results']; target.replaceChildren(); target.style.setProperty('--bin-count', group.bins.length);
         group.bins.forEach(bin => {
           const section = element('section', 'category-result'), list = element('div', 'category-words'); section.append(element('h2', '', bin.label));
           const words = cards.filter(card => sourceCard(card).correctBins.includes(bin.id));
-          words.forEach(card => list.append(element('span', 'category-word', sourceCard(card).text)));
+          words.forEach(card => {
+            const source = sourceCard(card), classified = correct(card.stages[0]);
+            const word = element('span', 'category-word' + (classified ? '' : ' incorrect'));
+            word.append(element('span', 'category-word-text', source.text));
+            if (!classified) word.append(element('span', 'category-badge incorrect', '오답'));
+            if (source.correctBins.length > 1) {
+              const badge = element('span', 'category-badge multiple', source.correctBins.length + '개');
+              const label = '해당 분류: ' + group.bins.filter(item => source.correctBins.includes(item.id)).map(item => item.label).join(' · ');
+              badge.setAttribute('title', label); badge.setAttribute('aria-label', label); word.append(badge);
+            }
+            list.append(word);
+          });
           if (!words.length) list.append(element('span', 'category-empty', '이번 세트 없음')); section.append(list); target.append(section);
         });
         const meanings = queue().length > 0, results = elements['sort-results']; results.replaceChildren();
-        cards.filter(card => !meanings || !correct(card.stages[0])).forEach(card => results.append(resultRow(card, !meanings)));
-        if (meanings && count === cards.length) results.append(element('p', 'table-instruction', '모두 정확하게 분류했어요.'));
+        cards.filter(card => !correct(card.stages[0])).forEach(card => results.append(resultRow(card, false)));
+        if (count === cards.length) results.append(element('p', 'table-instruction', '모두 정확하게 분류했어요.'));
         elements['begin-meaning'].textContent = meanings ? '뜻 확인하기' : '결과 보기'; showPanel('feedback-panel', focus ? 'result-title' : null);
       }
       function pointTo(item) {
@@ -446,7 +482,8 @@
       function closeReview() { reviewIndex = null; reviewSession = null; host.showResults(); }
       function start(value) {
         if (!value || !Array.isArray(value.cards) || !value.cards.length || !value.cards.every(card => has(card.question)) ||
-            new Set(value.cards.map(card => card.question.sortingTopic)).size !== 1) return false;
+            new Set(value.cards.map(card => card.question.sortingTopic)).size !== 1 ||
+            new Set(value.cards.map(card => cardClassifications.get(card.question.id).key)).size !== 1) return false;
         const first = value.cards[0];
         value.sorting = { topic: first.question.sortingTopic, phase: 'sorting', active: first.question.id, checked: {} };
         value.index = 0; value.cards.forEach(card => { card.stageIndex = 0; value.sorting.checked[card.question.id] = []; });
@@ -506,7 +543,7 @@
       return { start, render, openCard };
     }
     return { version: data && data.version || VERSION, questions, assignments, groups, byId, has, validateSession, createController,
-      subscopes: freeze(groups.map(group => ({ id: 'sorting-' + group.id, label: group.title, group: 'sorting-practice' }))) };
+      subscopes: freeze(groups.map(group => ({ id: 'sorting-' + group.id, label: group.displayTitle || group.title, group: 'sorting-practice' }))) };
   }
   return { VERSION, idFor, create };
 });
