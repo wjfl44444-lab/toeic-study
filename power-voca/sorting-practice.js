@@ -233,7 +233,7 @@
         const feedback = named('div', 'feedback-panel', 'panel feedback-panel');
         feedback.append(named('p', 'result-topic', 'sort-counter'), heading('result-title', ''), named('p', 'result-description', 'table-instruction', '분류별로 어떤 단어들이 있는지 함께 확인해 보세요.'),
           named('div', 'category-results', 'category-results'), named('div', 'sort-results', 'card-results'));
-        const feedbackActions = actions(); feedbackActions.append(button('begin-meaning', 'primary-button', '뜻 확인하기', beginMeaning)); feedback.append(feedbackActions);
+        const feedbackActions = actions(); feedbackActions.append(button('skip-meaning', 'secondary-button', '분류만 마치기', skipMeaning), button('begin-meaning', 'primary-button', '뜻 확인하기', beginMeaning)); feedback.append(feedbackActions);
         const meaning = named('div', 'meaning-panel', 'panel question-panel');
         const options = named('div', 'meaning-options', 'meaning-options'); options.setAttribute('role', 'group'); options.setAttribute('aria-label', '뜻 보기');
         meaning.append(named('p', 'meaning-meta', 'meaning-meta'), heading('meaning-title', ''), named('p', 'meaning-expression', 'question-example'), named('p', 'meaning-prompt', 'sorting-note'), options);
@@ -421,6 +421,7 @@
         const meanings = queue().length > 0, results = elements['sort-results']; results.replaceChildren();
         cards.filter(card => !correct(card.stages[0])).forEach(card => results.append(resultRow(card, false)));
         if (count === cards.length) results.append(element('p', 'table-instruction', '모두 정확하게 분류했어요.'));
+        elements['skip-meaning'].hidden = !meanings;
         elements['begin-meaning'].textContent = meanings ? '뜻 확인하기' : '결과 보기'; showPanel('feedback-panel', focus ? 'result-title' : null);
       }
       function pointTo(item) {
@@ -432,6 +433,12 @@
         const first = queue()[0];
         if (!first) { finish(); return; }
         pointTo(first); save(); render(true);
+      }
+      function skipMeaning() {
+        if (!host.ready() || meta().phase !== 'sort-feedback' || !queue().length ||
+            session().cards.some(card => card.stageIndex !== 0 || card.stages.slice(1).some(answered))) return;
+        meta().classificationOnly = true;
+        finish();
       }
       function meaningItem() {
         const card = current(); return queue().find(item => item.card === card && item.stageIndex === card.stageIndex);
@@ -504,13 +511,12 @@
         }
       }
       function closeReview() { reviewIndex = null; reviewSession = null; host.showResults(); }
-      function start(value, includeMeanings) {
+      function start(value) {
         if (!value || !Array.isArray(value.cards) || !value.cards.length || !value.cards.every(card => has(card.question)) ||
             new Set(value.cards.map(card => card.question.sortingTopic)).size !== 1 ||
             new Set(value.cards.map(card => cardClassifications.get(card.question.id).key)).size !== 1) return false;
         const first = value.cards[0];
         value.sorting = { topic: first.question.sortingTopic, phase: 'sorting', active: first.question.id, checked: {} };
-        if (includeMeanings === false) value.sorting.classificationOnly = true;
         value.index = 0; value.cards.forEach(card => { card.stageIndex = 0; value.sorting.checked[card.question.id] = []; });
         reviewIndex = null; reviewSession = null; renderedTableSession = null; save(); return true;
       }
@@ -540,7 +546,7 @@
         const target = event.target, field = target && target.closest && target.closest('input,textarea,select,[contenteditable],[role="textbox"]');
         if (field && !(field.type === 'checkbox' && field.dataset.sortingCard)) return;
         const control = target && target.closest && target.closest('button,a,summary');
-        const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-previous-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
+        const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-skip-meaning', 'sorting-previous-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
         if (control && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && !allowed.includes(control.id)) return;
         const number = /^[1-8]$/.test(event.key) ? Number(event.key) - 1 : null;
         if (number === null && event.key !== 'Enter') return;
@@ -553,7 +559,7 @@
             if (event.shiftKey || control && control.id === 'sorting-previous-word') previousTableWord();
             else if (control && control.id === 'sorting-grade-table') gradeSort(); else nextTableWord();
           }
-        } else if (s.sorting.phase === 'sort-feedback' && event.key === 'Enter') { event.preventDefault(); beginMeaning(); }
+        } else if (s.sorting.phase === 'sort-feedback' && event.key === 'Enter') { event.preventDefault(); if (control && control.id === 'sorting-skip-meaning') skipMeaning(); else beginMeaning(); }
         else if (s.sorting.phase === 'meaning' || s.sorting.phase === 'meaning-feedback') {
           const item = meaningItem(); if (!item) return;
           if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); previousMeaning(); return; }

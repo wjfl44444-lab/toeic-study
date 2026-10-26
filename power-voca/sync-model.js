@@ -33,7 +33,7 @@
     });
     return result;
   }
-  function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true, sortingMeanings: true }; }
+  function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true }; }
   function empty() { return { version: 1, session: null, history: Object.create(null), archivedHistory: [], settings: defaults() }; }
   function nativeId(id) { return typeof id === "string" && /^semantic1-[a-zA-Z0-9_.:-]+$/.test(id); }
   function sortingId(id) { return typeof id === "string" && /^semantic1-sorting-/.test(id); }
@@ -147,10 +147,8 @@
       if (value.settings !== undefined) {
         var settings = value.settings;
         if (!object(settings) || !["20", "50", "100", "all"].includes(settings.roundSize) || typeof settings.step !== "string" ||
-            !/^[a-zA-Z0-9 _-]{1,40}$/.test(settings.step) || typeof settings.shuffleQuestions !== "boolean" || typeof settings.shuffleOptions !== "boolean" ||
-            settings.sortingMeanings !== undefined && typeof settings.sortingMeanings !== "boolean") { return null; }
-        result.settings = { roundSize: settings.roundSize, step: settings.step, shuffleQuestions: settings.shuffleQuestions, shuffleOptions: settings.shuffleOptions,
-          sortingMeanings: settings.sortingMeanings !== false };
+            !/^[a-zA-Z0-9 _-]{1,40}$/.test(settings.step) || typeof settings.shuffleQuestions !== "boolean" || typeof settings.shuffleOptions !== "boolean") { return null; }
+        result.settings = { roundSize: settings.roundSize, step: settings.step, shuffleQuestions: settings.shuffleQuestions, shuffleOptions: settings.shuffleOptions };
       }
       var records;
       if (value.version !== 1) {
