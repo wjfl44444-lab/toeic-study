@@ -87,6 +87,7 @@
   var session = null;
   var storageKey = "power-voca-full-v1";
   var history = Object.create(null);
+  var bookmarks = Object.create(null), bookmarkIndex = Object.create(null);
   var studyProgress = null;
   var questionMap = new Map();
   var signatures = new Map();
@@ -278,6 +279,7 @@
   }
   function currentPayload(compact) {
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
+    if (Object.keys(bookmarks).length) { saved.bookmarks = bookmarks; }
     if (archivedHistory.length) { saved.archivedHistory = archivedHistory; }
     if (syncReceipts) { saved._studySync = syncReceipts; }
     if (grammarImported) { saved.grammarImported = true; }
@@ -371,7 +373,7 @@
       cards.push({ question: q, stageIndex: stored.stageIndex, graded: stored.graded, deferred: stored.deferred === true, stages: stages });
       ids.add(q.id);
     }
-    var restored = { mode: saved.mode === "wrong" ? "wrong" : "all", index: saved.index,
+    var restored = { mode: saved.mode === "starred" ? "starred" : saved.mode === "wrong" ? "wrong" : "all", index: saved.index,
       startedAt: typeof saved.startedAt === "string" ? saved.startedAt : new Date().toISOString(), cards: cards };
     if (version) { restored.practiceVersion = version; }
     if (saved.studyRun) { restored.studyRun = Object.assign({}, saved.studyRun); }
@@ -395,6 +397,7 @@
         saved = syncModel.parse(raw);
         if (!saved) { throw new Error("invalid state"); }
         history = saved.history;
+        bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex();
         studyProgress = saved.studyProgress || null;
         grammarImported = saved.grammarImported === true;
         grammarImportOwner = saved.grammarImportOwner || null;
@@ -453,6 +456,7 @@
         // not add attempts again and does not move the local round or settings.
         var merged = syncModel.parse(syncModel.merge(null, currentPayload(true), raw));
         history = merged.history; archivedHistory = merged.archivedHistory;
+        bookmarks = merged.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
         studyProgress = merged.studyProgress || null;
         grammarImported = merged.grammarImported === true;
         grammarImportOwner = merged.grammarImportOwner || null;
@@ -467,6 +471,8 @@
         }
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
+        bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
+        if (options.accountSwitch === true) { el("bookmarks-only").checked = false; }
         studyProgress = saved.studyProgress || null;
         grammarImported = saved.grammarImported === true;
         grammarImportOwner = saved.grammarImportOwner || null;
@@ -700,6 +706,50 @@
     var learned = new Set(Object.keys(history).concat(archivedHistory.map(function (item) { return item.id; }))).size;
     text("history-summary", attempts ? "학습한 문제 " + learned + "개 · 누적 채점 " + attempts + "회 · 단계별 정답률 " + Math.round(correct / Math.max(graded, 1) * 100) + "%" : "아직 채점한 문제가 없어요.");
   }
+  function bookmarkKey(question) {
+    var q = wrongReview && wrongReview.resolve(question.historyKey || question.routeRoot || question.id) || question;
+    var first = q.stages[0], name = q.displayExpression;
+    if ((q.sortingTopic === "verb-forms" || q.grammarPool === "forms" && first.multiple &&
+        first.options.length === 5 && first.options.every(function (value) { return /^[1-5]V$/.test(value); })) &&
+        typeof name === "string" && /^[a-z]+(?:[ -][a-z]+)*$/.test(name)) {
+      return "verb-form-" + name.replace(/ /g, "-");
+    }
+    return q.routeRoot || q.id;
+  }
+  function rebuildBookmarkIndex() {
+    bookmarkIndex = Object.create(null);
+    Object.keys(bookmarks).forEach(function (id) {
+      var q = questionMap.get(id), key = q ? bookmarkKey(q) : id;
+      var value = bookmarks[id], previous = bookmarkIndex[key];
+      if (!previous || value.updatedAt > previous.updatedAt || value.updatedAt === previous.updatedAt && !value.starred) { bookmarkIndex[key] = value; }
+    });
+  }
+  function isBookmarked(question) {
+    var value = bookmarkIndex[bookmarkKey(question)]; return Boolean(value && value.starred);
+  }
+  function paintBookmarkButton(button) {
+    var value = bookmarkIndex[button.dataset.bookmarkKey], starred = Boolean(value && value.starred);
+    button.textContent = starred ? "★" : "☆";
+    button.setAttribute("aria-pressed", String(starred));
+    button.setAttribute("aria-label", starred ? "별표 해제" : "별표 표시");
+    button.title = starred ? "별표 해제" : "별표 표시";
+  }
+  function renderBookmarkButtons() { document.querySelectorAll("[data-bookmark-key]").forEach(paintBookmarkButton); }
+  function bookmarkButton(question) {
+    var button = node("button", "bookmark-button"); button.type = "button";
+    button.dataset.bookmarkKey = bookmarkKey(question); paintBookmarkButton(button);
+    button.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); } });
+    button.addEventListener("click", function (event) {
+      event.stopPropagation();
+      var key = bookmarkKey(question), previous = bookmarkIndex[key], before = bookmarks[key];
+      bookmarks[key] = { starred: !(previous && previous.starred), updatedAt: new Date(Math.max(Date.now(), previous ? Date.parse(previous.updatedAt) + 1 : 0)).toISOString() };
+      rebuildBookmarkIndex();
+      if (!saveState()) { if (before) { bookmarks[key] = before; } else { delete bookmarks[key]; } rebuildBookmarkIndex(); }
+      renderBookmarkButtons(); if (view === "start") { updateSettings(); }
+      announce(isBookmarked(question) ? "별표를 표시했어요." : "별표를 해제했어요.");
+    });
+    return button;
+  }
   function wrongReviewEntries() {
     if (!wrongReview) { return []; }
     var minimum = window.PowerVocaWrongReview.threshold(el("wrong-review-min").value);
@@ -802,7 +852,10 @@
         (scope === "all" || scope === mixedScope && mixedVerbScopes.indexOf(assigned.scope) !== -1 || assigned.scope === scope);
     });
   }
-  function filteredQuestions() { return poolForScope(currentSettings().step); }
+  function filteredQuestions() {
+    var pool = poolForScope(currentSettings().step);
+    return el("bookmarks-only").checked ? pool.filter(isBookmarked) : pool;
+  }
   function ensureStudyProgress() {
     if (!progressManager || !unifiedImportReady) { return null; }
     if (!studyProgress) {
@@ -842,6 +895,7 @@
   }
   function sessionStudyRun() {
     if (!session) { return null; }
+    if (session.mode === "starred") { return null; }
     // A cumulative wrong review has no ordinary range to resume. Only an
     // explicit transition from an ordinary round carries its frozen context.
     if (session.mode === "wrong") { return session.resumeStudyRun ? Object.assign({}, session.resumeStudyRun) : null; }
@@ -941,7 +995,8 @@
     if (el("group-filter").value === "sorting-practice") { el("option-shuffle-setting").hidden = true; }
     text("question-shuffle-label", "문제 순서 섞기");
     el("step-filter-label").hidden = false;
-    var pool = filteredQuestions(), size = el("round-size").value, state = progressFor(pool, currentSettings().step);
+    var starred = el("bookmarks-only").checked;
+    var pool = filteredQuestions(), size = el("round-size").value, state = starred ? null : progressFor(pool, currentSettings().step);
     var available = state ? state.remaining : pool.length;
     var count = size === "all" ? available : Math.min(Number(size), available);
     text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "남은 " + available + "문제 중 " + count + "문제" : "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요.");
@@ -952,6 +1007,7 @@
       text("scope-description", "2·4·5형식, that절, to V·목적어 + to V·V-ing를 섞어요. 범위 이름으로 답을 짐작하지 않고 단어별로 필요한 구조를 떠올려 보세요.");
     }
     if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
+    if (starred) { text("pool-summary", pool.length ? "별표한 " + pool.length + "문제 중 " + count + "문제" : "이 범위에는 별표한 문제가 없어요."); }
     text("start-button", state && state.completed ? "남은 문제 풀기" : "연습 시작");
     el("start-button").hidden = Boolean(state && state.complete);
     el("start-button").disabled = !available || !unifiedImportReady;
@@ -964,6 +1020,12 @@
   function startSelected() {
     if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
+    if (el("bookmarks-only").checked) {
+      var pool = filteredQuestions(), size = el("round-size").value;
+      if (!pool.length) { return; }
+      if (el("shuffle-questions").checked) { pool = shuffled(pool); }
+      begin(size === "all" ? pool : pool.slice(0, Number(size)), "starred", false); return;
+    }
     beginRemaining(currentSettings().step, el("round-size").value);
   }
   function validStage(stage, native, sorting) {
@@ -1064,7 +1126,8 @@
     var scopes = Array.from(new Set(assigned.map(function (item) { return item.scope; })));
     var group = groups.length === 1 && taxonomy.groups.find(function (item) { return item.id === groups[0]; });
     var scope = scopes.length === 1 && taxonomy.subscopes.find(function (item) { return item.id === scopes[0]; });
-    return scope ? (group ? group.label + " · " : "") + scope.label : group ? group.label + " · 전체 혼합" : "여러 분류 섞어 풀기";
+    var label = scope ? (group ? group.label + " · " : "") + scope.label : group ? group.label + " · 전체 혼합" : "여러 분류 섞어 풀기";
+    return (session.mode === "starred" ? "별표 · " : "") + label;
   }
   function renderResume() {
     if (session) {
@@ -1279,7 +1342,8 @@
     if (session && session.sorting && sortingController) { sortingController.render(focus); return; }
     showView("quiz");
     var card = currentCard(), stage = currentStage(), count = totals();
-    text("round-label", session.mode === "wrong" ? "오답 다시 연습" : "기본 연습");
+    text("round-label", session.mode === "starred" ? "별표 연습" : session.mode === "wrong" ? "오답 다시 연습" : "기본 연습");
+    el("question-bookmark").replaceChildren(bookmarkButton(card.question));
     text("question-counter", "문제 " + (session.index + 1) + " / " + session.cards.length);
     text("score-counter", "채점 " + (count.correct + count.wrong) + " · 모두 맞힌 문제 " + count.correct);
     var progress = count.correct + count.wrong;
@@ -1425,7 +1489,7 @@
       else { status.textContent = "오답"; status.classList.add("wrong"); }
       button.append(node("span", "review-index", String(index + 1).padStart(2, "0")), node("span", "review-text", stagePrompt(card, 0)), status);
       button.addEventListener("click", function () { session.index = index; if (session.sorting && sortingController) { sortingController.openCard(index); } else { renderQuestion(true); } });
-      item.append(button); list.append(item);
+      item.className = "bookmark-review-row"; item.append(button, bookmarkButton(card.question)); list.append(item);
     });
     focusHeading("results-title");
     announce("풀이 현황. 모두 맞힌 문제 " + count.correct + "개, 오답 " + count.wrong + "문제, 미채점 " + count.ungraded + "문제.");
@@ -1446,7 +1510,7 @@
     sortingController = sortingPractice.createController({
       el: el, node: node, getSession: function () { return session; }, getView: function () { return view; },
       ready: function () { return unifiedImportReady; }, save: saveState, record: recordCard,
-      showView: showView, showResults: showResults, announce: announce
+      showView: showView, showResults: showResults, announce: announce, bookmarkButton: bookmarkButton
     });
   }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
@@ -1525,6 +1589,7 @@
   ["shuffle-questions", "shuffle-options", "round-size", "step-filter"].forEach(function (id) {
     el(id).addEventListener("change", function () { updateSettings(); saveState(); });
   });
+  el("bookmarks-only").addEventListener("change", updateSettings);
   el("home-link").addEventListener("click", function (event) { event.preventDefault(); showStart(); });
   el("home-button").addEventListener("click", showStart);
   el("resume-button").addEventListener("click", function () { if (!unifiedImportReady || !session) { return; } if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });

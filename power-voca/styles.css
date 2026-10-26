@@ -33,4 +33,9 @@
 .question-actions .previous-stage-action:hover{color:var(--mint-strong)}
 @media(max-width:640px){#options-list.options-grid{gap:8px}#options-list.options-grid .option{padding:12px 10px;gap:7px}#options-list.options-grid .option-text{font-size:13px}.semantic-word{font-size:14px;padding:5px 10px}}
 @media(max-width:420px){#options-list.options-grid{grid-template-columns:minmax(0,1fr);grid-template-rows:none!important;grid-auto-flow:row}}
+.bookmark-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;min-width:32px;height:32px;min-height:32px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--muted);font:inherit;font-size:24px;line-height:1;cursor:pointer}
+.bookmark-button[aria-pressed="true"]{color:#f0d38f}.bookmark-button:hover{background:var(--panel-light);color:#f0d38f}.bookmark-button:focus-visible{outline:2px solid #f0d38f;outline-offset:2px}
+.question-heading-actions,.sort-bookmark-word,.sort-bookmark-title,.sort-bookmark-heading{display:inline-flex;align-items:center;gap:7px}.sort-bookmark-heading{display:flex}.sort-bookmark-heading h1{min-width:0;margin-right:0}.sort-bookmark-slot{display:inline-flex}
+.sort-bookmark-word{display:flex;width:100%}.sort-bookmark-word .table-word{min-width:0;flex:1}
+.bookmark-filter{margin:16px 0 8px;width:fit-content}.bookmark-review-row{display:flex;align-items:center;gap:8px}.bookmark-review-row .review-button{flex:1;min-width:0}
 

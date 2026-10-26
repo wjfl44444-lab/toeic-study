@@ -218,6 +218,11 @@
       function button(id, cls, text, action) {
         const item = named('button', id, cls, text); item.type = 'button'; item.addEventListener('click', action); return item;
       }
+      function bookmarked(label, question, cls) {
+        const bookmark = typeof host.bookmarkButton === 'function' && host.bookmarkButton(question);
+        if (!bookmark) return label;
+        const wrap = element('span', cls); wrap.append(label, bookmark); return wrap;
+      }
       function heading(id, text) { const item = named('h1', id, 'sort-title', text); item.tabIndex = -1; return item; }
       function actions() { return element('div', 'sort-actions'); }
       function mount() {
@@ -236,7 +241,13 @@
         const feedbackActions = actions(); feedbackActions.append(button('skip-meaning', 'secondary-button', '분류만 마치기', skipMeaning), button('begin-meaning', 'primary-button', '뜻 확인하기', beginMeaning)); feedback.append(feedbackActions);
         const meaning = named('div', 'meaning-panel', 'panel question-panel');
         const options = named('div', 'meaning-options', 'meaning-options'); options.setAttribute('role', 'group'); options.setAttribute('aria-label', '뜻 보기');
-        meaning.append(named('p', 'meaning-meta', 'meaning-meta'), heading('meaning-title', ''), named('p', 'meaning-expression', 'question-example'), named('p', 'meaning-prompt', 'sorting-note'), options);
+        const meaningTitle = heading('meaning-title', '');
+        let meaningHeading = meaningTitle;
+        if (typeof host.bookmarkButton === 'function') {
+          meaningHeading = element('div', 'sort-bookmark-heading');
+          meaningHeading.append(meaningTitle, named('span', 'meaning-bookmark', 'sort-bookmark-slot'));
+        }
+        meaning.append(named('p', 'meaning-meta', 'meaning-meta'), meaningHeading, named('p', 'meaning-expression', 'question-example'), named('p', 'meaning-prompt', 'sorting-note'), options);
         const meaningActions = actions(); meaningActions.append(button('previous-meaning', 'text-button', '이전 단계', previousMeaning), button('grade-meaning', 'primary-button', '채점하기', gradeMeaning)); meaning.append(meaningActions);
         const meaningFeedback = named('section', 'meaning-feedback', 'panel feedback-panel');
         const feedbackTitle = named('h2', 'meaning-feedback-title'); feedbackTitle.tabIndex = -1;
@@ -302,7 +313,7 @@
           s.cards.forEach(card => {
             const id = card.question.id, row = element('tr'), word = element('th'), wordButton = element('button', 'table-word', sourceCard(card).text);
             row.dataset.sortingCard = id; word.scope = 'row'; wordButton.type = 'button'; wordButton.dataset.sortingWord = id;
-            wordButton.addEventListener('click', () => selectWord(id)); wordButton.addEventListener('focus', () => selectWord(id)); word.append(wordButton); row.append(word);
+            wordButton.addEventListener('click', () => selectWord(id)); wordButton.addEventListener('focus', () => selectWord(id)); word.append(bookmarked(wordButton, card.question, 'sort-bookmark-word')); row.append(word);
             group.bins.forEach((bin, index) => {
               const cell = element('td'), label = element('label', 'table-check'), input = element('input'); input.type = 'checkbox';
               input.dataset.sortingCard = id; input.dataset.sortingBin = String(index); input.setAttribute('aria-label', sourceCard(card).text + ' · ' + bin.label);
@@ -344,7 +355,7 @@
         const source = sourceCard(card), group = currentGroup(), classified = correct(card.stages[0]);
         const allCorrect = classified && (!meanings || card.stages.slice(1).every(correct));
         const row = element('article', 'card-result ' + (allCorrect ? 'correct' : 'incorrect'));
-        const head = element('div', 'card-result-head'); head.append(element('strong', '', source.text), element('span', 'status-tag ' + (allCorrect ? 'correct' : 'incorrect'), allCorrect ? '정답' : classified ? '뜻 확인' : '분류 오답')); row.append(head);
+        const head = element('div', 'card-result-head'); head.append(bookmarked(element('strong', '', source.text), card.question, 'sort-bookmark-title'), element('span', 'status-tag ' + (allCorrect ? 'correct' : 'incorrect'), allCorrect ? '정답' : classified ? '뜻 확인' : '분류 오답')); row.append(head);
         const answer = source.correctBins.map(id => group.bins.find(bin => bin.id === id).label).join(' · ');
         const classification = element('p', 'classification-answer');
         if (!classified) {
@@ -389,6 +400,8 @@
           const incorrect = !correct(stage) && !selection(stage).includes(binIndex);
           const word = element('span', 'category-word' + (incorrect ? ' incorrect' : ''));
           word.append(element('span', 'category-word-text', source.text));
+          const bookmark = typeof host.bookmarkButton === 'function' && host.bookmarkButton(card.question);
+          if (bookmark) word.append(bookmark);
           if (incorrect) { const badge = element('span', 'category-badge incorrect', '오답'); badge.setAttribute('aria-hidden', 'true'); word.append(badge); }
           word.append(element('span', 'sr-only', ' · 해당 분류: ' + group.bins.filter(bin => source.correctBins.includes(bin.id)).map(bin => bin.label).join(' · ') + (incorrect ? ' · 분류 오답' : '')));
           return word;
@@ -454,6 +467,11 @@
         const source = sourceCard(item.card), step = source.steps[item.stageIndex - 1], graded = checked(item.card, item.stageIndex);
         elements['meaning-meta'].textContent = currentGroup().title + ' · 뜻 확인 ' + (index + 1) + ' / ' + items.length + '단계';
         elements['meaning-title'].textContent = source.text + ' · ' + step.label;
+        const bookmarkSlot = elements['meaning-bookmark'];
+        if (bookmarkSlot && bookmarkSlot.dataset.questionId !== item.card.question.id) {
+          const bookmark = host.bookmarkButton(item.card.question);
+          bookmarkSlot.replaceChildren(...(bookmark ? [bookmark] : [])); bookmarkSlot.dataset.questionId = item.card.question.id;
+        }
         elements['meaning-expression'].textContent = step.expression || source.text; elements['meaning-prompt'].textContent = step.prompt;
         const list = elements['meaning-options']; list.replaceChildren();
         item.stage.choices.forEach((choice, displayIndex) => {

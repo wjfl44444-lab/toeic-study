@@ -33,6 +33,19 @@
     });
     return result;
   }
+  function bookmarks(value) {
+    if (!object(value) || Object.keys(value).length > MAX_RECORDS) { throw new Error("Invalid bookmarks"); }
+    var result = Object.create(null);
+    Object.keys(value).sort().forEach(function (id) {
+      var entry = value[id];
+      if (!key(id) || !object(entry) || Object.keys(entry).some(function (name) { return !["starred", "updatedAt"].includes(name); }) ||
+          typeof entry.starred !== "boolean" || !date(entry.updatedAt)) { throw new Error("Invalid bookmark entry"); }
+      result[id] = { starred: entry.starred, updatedAt: new Date(entry.updatedAt).toISOString() };
+    });
+    // Valid IDs, timestamps, and field names are ASCII, so this also bounds bytes.
+    if (JSON.stringify(result).length > MAX_BYTES) { throw new Error("Bookmarks exceed size limit"); }
+    return result;
+  }
   function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true }; }
   function empty() { return { version: 1, session: null, history: Object.create(null), archivedHistory: [], settings: defaults() }; }
   function nativeId(id) { return typeof id === "string" && /^semantic1-[a-zA-Z0-9_.:-]+$/.test(id); }
@@ -80,7 +93,7 @@
   }
   function session(value, compact) {
     if (value === null) { return null; }
-    if (!object(value) || !["all", "wrong"].includes(value.mode) || !date(value.startedAt) ||
+    if (!object(value) || !["all", "wrong", "starred"].includes(value.mode) || !date(value.startedAt) ||
         value.practiceVersion !== undefined && !signature(value.practiceVersion) || !Array.isArray(value.cards) ||
         !value.cards.length || value.cards.length > MAX_RECORDS || !Number.isInteger(value.index) || value.index < 0 || value.index >= value.cards.length) { throw new Error("Invalid session"); }
     var seen = new Set();
@@ -189,6 +202,7 @@
         result.grammarImportOwner = value.grammarImportOwner;
       }
       if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
+      if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
       return result;
     } catch (_) { return null; }
   }
@@ -217,6 +231,7 @@
     if (value.grammarImported === true) { result.grammarImported = true; }
     if (value.grammarImportOwner) { result.grammarImportOwner = value.grammarImportOwner; }
     if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
+    if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
     return raw;
@@ -272,6 +287,20 @@
           Object.keys(value.studyProgress[name]).forEach(function (id) {
             result.studyProgress[name][id] = Math.max(result.studyProgress[name][id] || 0, value.studyProgress[name][id]);
           });
+        });
+      });
+    }
+    var marked = [base, local, remote].filter(function (value) { return value && value.bookmarks !== undefined; });
+    if (marked.length) {
+      result.bookmarks = Object.create(null);
+      marked.forEach(function (value) {
+        Object.keys(value.bookmarks).forEach(function (id) {
+          var next = value.bookmarks[id], previous = result.bookmarks[id];
+          var time = Date.parse(next.updatedAt), priorTime = previous && Date.parse(previous.updatedAt);
+          // Keep unstar events as tombstones; a tied removal wins on every device.
+          if (!previous || time > priorTime || time === priorTime && !next.starred) {
+            result.bookmarks[id] = { starred: next.starred, updatedAt: next.updatedAt };
+          }
         });
       });
     }

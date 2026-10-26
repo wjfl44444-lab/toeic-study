@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#142b26">
   <title>표현·구조 훈련 · 나의 토익 스터디</title>
-  <link rel="stylesheet" href="styles.css?v=20261025-experience1">
+  <link rel="stylesheet" href="styles.css?v=20261027-bookmarks1">
   <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
   <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
   <link rel="stylesheet" href="practice-shell.css?v=20261026-refinement1">
@@ -22,7 +22,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261027-sorting-mode1" defer></script>
+  <script src="sync-model.js?v=20261027-bookmarks1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -40,13 +40,13 @@
   <script src="wrong-review.js?v=20261026-quality1" defer></script>
   <script src="study-progress.js?v=20261026-progress1" defer></script>
   <script src="sorting-data.js?v=20261026-sorting1" defer></script>
-  <script src="sorting-practice.js?v=20261027-sorting-mode1" defer></script>
+  <script src="sorting-practice.js?v=20261027-bookmarks1" defer></script>
   <script src="verb-forms-data.js?v=20261027-forms3" defer></script>
   <script src="verb-forms-review.js?v=20261027-forms3" defer></script>
   <script src="sorting-options-review.js?v=20261026-sorting2" defer></script>
   <script src="sorting-classification-review.js?v=20261026-sorting2" defer></script>
   <script src="sorting-review.js?v=20261027-forms3" defer></script>
-  <script src="app.js?v=20261027-forms3" defer></script>
+  <script src="app.js?v=20261027-bookmarks1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -96,6 +96,7 @@
             </fieldset>
 
           </div>
+          <label class="check-label bookmark-filter"><input type="checkbox" id="bookmarks-only"><span>별표한 문제만</span></label>
           <p class="study-progress-summary" id="study-progress-summary" hidden></p>
           <div class="start-line"><p id="pool-summary" class="pool-count"></p><button class="primary-button start-button" id="start-button">연습 시작</button><button class="primary-button start-button" id="start-next-pass-button" hidden>다음 회독 시작</button></div>
 
@@ -138,7 +139,7 @@
         <div class="progress-caption"><p id="question-counter"></p><p id="score-counter"></p></div>
         <div class="progress-track" role="progressbar" id="progress-bar" aria-label="채점 완료" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0"><span id="progress-fill"></span></div>
         <article class="panel question-panel">
-          <div class="question-heading-line"><p class="eyebrow" id="question-number">QUESTION 01</p><span class="question-state" id="question-state"></span></div>
+          <div class="question-heading-line"><p class="eyebrow" id="question-number">QUESTION 01</p><span class="question-heading-actions"><span class="question-state" id="question-state"></span><span id="question-bookmark"></span></span></div>
           <div class="stage-topline"><p class="stage-indicator" id="stage-indicator"></p><p class="cumulative-wrong-count" id="question-wrong-count"></p></div>
           <h1 class="instruction" id="question-instruction" tabindex="-1"></h1>
           <div class="semantic-words" id="semantic-words" aria-label="이번 세트의 단어" hidden></div>
