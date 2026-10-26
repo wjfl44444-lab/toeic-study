@@ -374,26 +374,47 @@
       function renderSortFeedback(focus) {
         const group = currentGroup(), cards = session().cards, count = cards.filter(card => correct(card.stages[0])).length;
         elements['result-topic'].textContent = group.title; elements['result-title'].textContent = '분류 ' + count + ' / ' + cards.length + '개 정답';
-        elements['result-description'].textContent = cards.some(card => card.stages[0].data.compatibilityNote) ?
-          '보완된 형식을 확인하세요. 진행 중인 풀이의 기존 정답도 인정했어요.' : '오답은 강조했어요. ‘2개’처럼 표시된 단어는 여러 분류에 속해요.';
+        const compatibility = cards.some(card => card.stages[0].data.compatibilityNote);
+        elements['result-description'].textContent = compatibility ? '보완된 형식을 확인하세요. 진행 중인 풀이의 기존 정답도 인정했어요.' : '';
+        elements['result-description'].hidden = !compatibility;
         const target = elements['category-results']; target.replaceChildren(); target.style.setProperty('--bin-count', group.bins.length);
+        const shared = cards.filter(card => sourceCard(card).correctBins.length > 1).sort((a, b) =>
+          sourceCard(b).correctBins.length - sourceCard(a).correctBins.length || sourceCard(a).text.localeCompare(sourceCard(b).text, 'en'));
+        const singles = cards.filter(card => sourceCard(card).correctBins.length === 1);
+        function wordLabel(card, binIndex) {
+          const source = sourceCard(card), stage = card.stages[0];
+          const incorrect = !correct(stage) && !selection(stage).includes(binIndex);
+          const word = element('span', 'category-word' + (incorrect ? ' incorrect' : ''));
+          word.append(element('span', 'category-word-text', source.text));
+          if (incorrect) { const badge = element('span', 'category-badge incorrect', '오답'); badge.setAttribute('aria-hidden', 'true'); word.append(badge); }
+          word.append(element('span', 'sr-only', ' · 해당 분류: ' + group.bins.filter(bin => source.correctBins.includes(bin.id)).map(bin => bin.label).join(' · ') + (incorrect ? ' · 분류 오답' : '')));
+          return word;
+        }
+        const wrap = element('div', 'category-comparison-wrap'), table = element('table', 'category-comparison');
+        wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', '분류별 단어 표');
+        table.setAttribute('aria-label', '분류별 단어 비교');
+        const head = element('thead'), header = element('tr');
         group.bins.forEach(bin => {
-          const section = element('section', 'category-result'), list = element('div', 'category-words'); section.append(element('h2', '', bin.label));
-          const words = cards.filter(card => sourceCard(card).correctBins.includes(bin.id));
-          words.forEach(card => {
-            const source = sourceCard(card), classified = correct(card.stages[0]);
-            const word = element('span', 'category-word' + (classified ? '' : ' incorrect'));
-            word.append(element('span', 'category-word-text', source.text));
-            if (!classified) word.append(element('span', 'category-badge incorrect', '오답'));
-            if (source.correctBins.length > 1) {
-              const badge = element('span', 'category-badge multiple', source.correctBins.length + '개');
-              const label = '해당 분류: ' + group.bins.filter(item => source.correctBins.includes(item.id)).map(item => item.label).join(' · ');
-              badge.setAttribute('title', label); badge.setAttribute('aria-label', label); word.append(badge);
-            }
-            list.append(word);
-          });
-          if (!words.length) list.append(element('span', 'category-empty', '이번 세트 없음')); section.append(list); target.append(section);
+          const cell = element('th', '', bin.label); cell.setAttribute('scope', 'col');
+          header.append(cell);
         });
+        head.append(header); table.append(head); const body = element('tbody');
+        function appendRow(words, cls, id) {
+          const row = element('tr', cls); if (id) row.dataset.categoryRow = id;
+          words.forEach((card, index) => {
+            const cell = element('td');
+            if (card) cell.append(wordLabel(card, index));
+            else { const empty = element('span', 'category-missing', '—'); empty.setAttribute('aria-label', '해당 없음'); cell.append(empty); }
+            row.append(cell);
+          });
+          body.append(row);
+        }
+        shared.forEach(card => appendRow(group.bins.map(bin => sourceCard(card).correctBins.includes(bin.id) ? card : null), 'category-shared-row', card.question.id));
+        const singleColumns = group.bins.map(bin => singles.filter(card => sourceCard(card).correctBins.includes(bin.id)));
+        for (let index = 0; index < Math.max(...singleColumns.map(words => words.length)); index++) {
+          appendRow(singleColumns.map(words => words[index] || null), 'category-single-row');
+        }
+        table.append(body); wrap.append(table); target.append(wrap);
         const meanings = queue().length > 0, results = elements['sort-results']; results.replaceChildren();
         cards.filter(card => !correct(card.stages[0])).forEach(card => results.append(resultRow(card, false)));
         if (count === cards.length) results.append(element('p', 'table-instruction', '모두 정확하게 분류했어요.'));

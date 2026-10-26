@@ -30,17 +30,21 @@
 #sorting-view .sort-actions .text-button{font-size:15px}
 #sorting-view .table-actions{justify-content:space-between;gap:14px;margin-top:18px}
 #sorting-view .table-progress{font-size:15px;color:var(--muted)}
-#sorting-view .category-results{display:grid;grid-template-columns:repeat(var(--bin-count,2),minmax(0,1fr));gap:8px;margin:18px 0}
-#sorting-view .category-result{border:1px solid var(--border);border-radius:10px;padding:12px 10px;background:#10261d5c}
-#sorting-view .category-result h2{font-size:17px;color:var(--mint-strong);line-height:1.4;margin:0 0 9px}
-#sorting-view .category-words{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
-#sorting-view .category-word{display:flex;flex-wrap:wrap;align-items:center;gap:4px 5px;max-width:100%;padding:2px 4px;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+#sorting-view .category-results{margin:18px 0}
+#sorting-view .category-comparison-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+#sorting-view .category-comparison-wrap:focus-visible{outline:2px solid #f0d38f;outline-offset:3px}
+#sorting-view .category-comparison{border-collapse:collapse;table-layout:fixed;width:100%;min-width:calc(var(--bin-count,2)*140px)}
+#sorting-view .category-comparison thead th{text-align:left;vertical-align:middle;padding:12px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:17px;line-height:1.4;font-weight:600}
+#sorting-view .category-comparison td{vertical-align:middle;padding:5px 6px;border-bottom:1px solid var(--border)}
+#sorting-view .category-comparison tbody tr:last-child>*{border-bottom:0}
+#sorting-view .category-comparison th+th,#sorting-view .category-comparison td+td{border-left:1px solid var(--border)}
+#sorting-view .category-missing{display:block;padding:4px 6px;color:var(--muted);opacity:.35;font-size:15px;line-height:1.5}
+#sorting-view .category-word{display:flex;flex-wrap:wrap;align-items:center;gap:4px 5px;max-width:100%;padding:4px 6px;color:var(--ink);font-size:16px;line-height:1.5;overflow-wrap:anywhere}
 #sorting-view .category-word-text{min-width:0;overflow-wrap:anywhere}
-#sorting-view .category-word.incorrect{border-radius:5px;background:#bf82761a;color:#f2bba9}
+#sorting-view .category-word.incorrect{color:#f2bba9}
+#sorting-view .category-shared-row:has(.category-word:hover) .category-word{background:#b6dec529;border-radius:4px;box-shadow:inset 0 0 0 1px #b6dec540}
 #sorting-view .category-badge{flex-shrink:0;border:1px solid var(--border);border-radius:5px;padding:0 4px;font-size:11px;font-weight:600;line-height:1.65;white-space:nowrap}
 #sorting-view .category-badge.incorrect{border-color:#a27769;color:#f2bba9}
-#sorting-view .category-badge.multiple{border-color:#72947b;color:var(--mint)}
-#sorting-view .category-empty{font-size:13px;color:var(--muted);line-height:1.5}
 #sorting-view .sorting-note{margin:18px 0;padding:16px 20px;border:1px solid var(--border);border-radius:14px;background:#b6dec509;color:var(--muted);font-size:15px;line-height:1.8;white-space:pre-line}
 #sorting-view .meaning-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 15px;margin-bottom:15px}
 #sorting-view .meaning-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:25px 0;padding:0;list-style:none;border:0}
@@ -83,6 +87,7 @@
 #sorting-view .answer-main{color:var(--mint-strong);font-size:18px;font-weight:650;line-height:1.7;margin:10px 0}
 #sorting-view .source-note{color:var(--muted);font-size:14px;line-height:1.8;text-align:left;margin-top:15px;overflow-wrap:anywhere}
 @media(max-width:640px){
+  #sorting-view .category-comparison thead th{font-size:15px;padding:11px 5px}
   #sorting-view .sort-workspace{padding:20px 14px;margin-top:16px}
   #sorting-view .classification-table-wrap{max-height:64vh}
   #sorting-view .classification-table{font-size:15px}
@@ -90,8 +95,6 @@
   #sorting-view .table-word{font-size:16px;padding:10px 12px}
   #sorting-view .table-check{min-height:44px}
   #sorting-view .table-progress{font-size:14px}
-  #sorting-view .category-results{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #sorting-view .category-result{padding:12px}
   #sorting-view .meaning-options{grid-template-columns:1fr;gap:10px;margin:21px 0}
   #sorting-view .meaning-option{font-size:17px;min-height:63px;padding:13px 14px}
   #sorting-view .sort-actions .primary-button,#sorting-view .sort-actions .secondary-button{flex:1;padding:11px 14px;font-size:16px}
