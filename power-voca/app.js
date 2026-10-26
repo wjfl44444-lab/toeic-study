@@ -57,7 +57,8 @@
   if (data && verbFormsReview) { data = Object.assign({}, data, { questions: data.questions.concat(verbFormsReview.normalQuestions) }); }
   var sortingReview = window.PowerVocaSortingReview && window.PowerSortingOptionsReview && window.POWER_SORTING_CLASSIFICATION_REVIEW ?
     window.PowerVocaSortingReview.create({ sortingData: verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING,
-      retired: verbFormsReview && verbFormsReview.retired, optionsReview: window.PowerSortingOptionsReview,
+      retired: verbFormsReview && verbFormsReview.retired, previousSorting: verbFormsReview && verbFormsReview.previousSorting,
+      verbReplacements: verbFormsReview && verbFormsReview.replacements, optionsReview: window.PowerSortingOptionsReview,
       classifications: window.POWER_SORTING_CLASSIFICATION_REVIEW }) : null;
   var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(sortingReview ? sortingReview.sortingData : verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING) : null;
   var sortingController = null;

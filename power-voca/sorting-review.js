@@ -56,6 +56,22 @@
     });
     check(!data.groups.some(group => group.id === facts.quantityGroup.id), 'duplicate quantity group');
     data.groups.push(copy(facts.quantityGroup)); data.reviewVersion = VERSION;
+    if (options.previousSorting) {
+      const previous = create(Object.assign({}, options, {
+        sortingData: options.previousSorting.sortingData, retired: options.previousSorting.retired, previousSorting: null
+      }));
+      previous.report.changes.forEach(change => {
+        const group = data.groups.find(item => item.id === change.topic);
+        const oldGroup = previous.sortingData.groups.find(item => item.id === change.topic);
+        const old = oldGroup.cards.find(card => idFor(change.topic, card.id) === change.newId);
+        if (group.cards.some(card => card.id === old.id)) return;
+        // Retain published choice snapshots for saved rounds; fresh rounds use
+        // the current verb edition, including its reviewed meaning choices.
+        group.cards.push(copy(old)); retired.add(change.newId);
+        const current = options.verbReplacements && options.verbReplacements[change.oldId] || change.oldId;
+        replacements[change.newId] = replacements[current] || current;
+      });
+    }
     return { sortingData: data, retired, replacements,
       report: { version: VERSION, changes, revisedCards: changes.length, quantityCards: facts.quantityGroup.cards.length,
         activeCounts: active.map(group => ({ topic: group.id, count: group.cards.length })).concat([{ topic: facts.quantityGroup.id, count: facts.quantityGroup.cards.length }]) } };

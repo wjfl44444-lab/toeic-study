@@ -3212,4 +3212,23 @@
       ]
     }
   ]
-};})(window);
+};
+  // Keep the published facts intact so saved forms2 rounds can still resume.
+  const previousFacts = root.POWER_VOCA_VERB_FORMS;
+  const excluded = {
+    teach: ['1V', '5V'], charge: ['1V'], tell: ['1V'], warn: ['1V'],
+    buy: ['1V', '4V'], find: ['4V'], leave: ['4V'], call: ['4V'],
+    allow: ['4V'], lead: ['5V'], report: ['5V'], prove: ['5V'],
+    assign: ['5V'], send: ['5V']
+  };
+  root.POWER_VOCA_VERB_FORMS = {
+    version: '20261027-forms3',
+    policy: '교재 본문·예문에서 근거를 확인하지 못한 16개 형식은 제외. 나머지 형식은 유지.',
+    previousFacts,
+    rows: previousFacts.rows.map(row => !excluded[row.word] ? row : Object.assign({}, row, {
+      recommendedForms: row.recommendedForms.filter(form => !excluded[row.word].includes(form)),
+      usages: row.usages.filter(usage => !excluded[row.word].includes(usage.form)),
+      cautions: []
+    }))
+  };
+})(window);

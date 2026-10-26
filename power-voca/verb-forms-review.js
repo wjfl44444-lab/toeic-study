@@ -107,8 +107,8 @@
       explanation: usageExplanation(row, usage), sourceUrls: usage.sourceUrls.slice(),
       optionReasons: usage.options.map((option, index) => index === usage.answer ? '정답: ' + usage.meaning + '. ' + usage.pattern : '이 문형의 핵심 뜻은 「' + usage.meaning + '」예요.') };
   }
-  function normalRevision(old, row, version, compat) {
-    const question = copy(old), origin = 'forms2-' + (compat ? 'compat-' : 'core-') + row.slug;
+  function normalRevision(old, row, version, compat, edition = 'forms2') {
+    const question = copy(old), origin = edition + '-' + (compat ? 'compat-' : 'core-') + row.slug;
     question.id = id('semantic1-grammar-' + origin); question.grammarOriginId = origin;
     question.grammarPool = 'forms'; question.reviewVersion = version;
     question.grammarSummary = row.usages.map(usage => ({ structure: '(' + usage.form + ') ' + usage.pattern, meaning: usage.meaning }));
@@ -120,8 +120,8 @@
     if (compat) question.compatibilityNote = COMPAT_NOTE;
     return freeze(question);
   }
-  function tableRevision(old, row, version, bins, compat) {
-    const card = copy(old); card.id = 'forms2-' + (compat ? 'compat-' : '') + row.slug;
+  function tableRevision(old, row, version, bins, compat, edition = 'forms2') {
+    const card = copy(old); card.id = edition + '-' + (compat ? 'compat-' : '') + row.slug;
     card.text = row.word; card.correctBins = row.forms.slice(); card.reviewVersion = version;
     card.note = summary(row) + (compat ? '\n' + COMPAT_NOTE : '');
     card.examples = row.usages.map(usage => usage.example);
@@ -143,7 +143,8 @@
     options = options || {};
     check(Array.isArray(options.normalQuestions), 'normal questions are required');
     check(options.sortingData && Array.isArray(options.sortingData.groups), 'sorting groups are required');
-    const rows = rowsFrom(options.facts), version = options.facts.version;
+    const previousFacts = options.facts && options.facts.previousFacts;
+    const rows = rowsFrom(previousFacts || options.facts), version = (previousFacts || options.facts).version;
     const normalQuestions = [], assignments = Object.create(null), retired = new Set(), replacements = Object.create(null), migration = new Map();
     const sortingData = copy(options.sortingData), allIds = new Set(), normalWords = new Set(), sortingWords = new Set(), changes = [];
     options.normalQuestions.forEach(question => {
@@ -185,6 +186,34 @@
     });
     check(topics.has('verb-forms'), 'verb-forms sorting topic is required');
     sortingData.reviewVersion = version;
+    const previousSorting = previousFacts ? { sortingData: copy(sortingData), retired: new Set(retired) } : null;
+    if (previousFacts) {
+      const currentRows = rowsFrom(options.facts);
+      function replace(oldId, freshId, row, source) {
+        check(!allIds.has(freshId), 'duplicate current question ID'); allIds.add(freshId);
+        retired.add(oldId); replacements[oldId] = freshId;
+        Object.keys(replacements).forEach(key => { if (replacements[key] === oldId) replacements[key] = freshId; });
+        changes.push({ word: row.word, source, oldId, freshId, forms: row.forms.slice() });
+      }
+      const activeNormal = options.normalQuestions.concat(normalQuestions).filter(question =>
+        !retired.has(question.id) && (question.id.startsWith(NORMAL) || question.id.startsWith('semantic1-grammar-forms2-core-')));
+      activeNormal.forEach(old => {
+        const row = currentRows.get(old.displayExpression);
+        if (!row || equal(sourceForms(old.stages[0]), row.forms)) return;
+        const fresh = normalRevision(old, row, options.facts.version, false, 'forms3');
+        replace(old.id, fresh.id, row, 'normal'); normalQuestions.push(fresh);
+        assignments[fresh.id] = { group: 'grammar-structures', scope: 'grammar-forms' };
+      });
+      sortingData.groups.filter(group => group.id === 'verb-forms').forEach(group => {
+        group.cards.filter(card => !retired.has(SORTING + card.id)).forEach(old => {
+          const row = currentRows.get(old.text);
+          if (!row || equal(forms(old.correctBins, 'previous sorting answers'), row.forms)) return;
+          const fresh = tableRevision(old, row, options.facts.version, group.bins, false, 'forms3');
+          replace(SORTING + old.id, SORTING + fresh.id, row, 'sorting'); group.cards.push(fresh);
+        });
+      });
+      sortingData.reviewVersion = options.facts.version;
+    }
     function migrateSession(session, questionMap) {
       if (!session || !Array.isArray(session.cards)) return session;
       const changed = new Map(), existing = new Set(session.cards.map(card => card.question && card.question.id));
@@ -213,10 +242,10 @@
       }
       return result;
     }
-    const report = { version, auditedWords: rows.size, normalWords: normalWords.size, sortingWords: sortingWords.size,
+    const report = { version: options.facts.version, auditedWords: rows.size, normalWords: normalWords.size, sortingWords: sortingWords.size,
       normalChanged: changes.filter(change => change.source === 'normal').length,
       sortingChanged: changes.filter(change => change.source === 'sorting').length, changes };
-    return { normalQuestions: freeze(normalQuestions), sortingData: freeze(sortingData), assignments: freeze(assignments), retired, replacements: freeze(replacements), migrateSession, report: freeze(report) };
+    return { normalQuestions: freeze(normalQuestions), sortingData: freeze(sortingData), assignments: freeze(assignments), retired, replacements: freeze(replacements), previousSorting, migrateSession, report: freeze(report) };
   }
   return { create };
 });
