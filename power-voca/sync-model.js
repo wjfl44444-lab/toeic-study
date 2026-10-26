@@ -33,13 +33,14 @@
     });
     return result;
   }
-  function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true }; }
+  function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true, sortingMeanings: true }; }
   function empty() { return { version: 1, session: null, history: Object.create(null), archivedHistory: [], settings: defaults() }; }
   function nativeId(id) { return typeof id === "string" && /^semantic1-[a-zA-Z0-9_.:-]+$/.test(id); }
   function sortingId(id) { return typeof id === "string" && /^semantic1-sorting-/.test(id); }
   function sortingMetadata(value, cards) {
-    if (!object(value) || Object.keys(value).some(function (name) { return !["topic", "phase", "active", "checked"].includes(name); }) ||
+    if (!object(value) || Object.keys(value).some(function (name) { return !["topic", "phase", "active", "checked", "classificationOnly"].includes(name); }) ||
         !key(value.topic) || value.topic.length > 40 || !["sorting", "sort-feedback", "meaning", "meaning-feedback", "finished"].includes(value.phase) ||
+        value.classificationOnly !== undefined && typeof value.classificationOnly !== "boolean" ||
         !key(value.active) || !object(value.checked) || !cards.every(function (card) { return sortingId(card.id); }) ||
         !cards.some(function (card) { return card.id === value.active; }) || Object.keys(value.checked).length > cards.length) {
       throw new Error("Invalid sorting session");
@@ -54,7 +55,16 @@
       }
       checked[id] = indices.slice();
     });
-    return { topic: value.topic, phase: value.phase, active: value.active, checked: checked };
+    if (value.classificationOnly === true &&
+        (!["sorting", "sort-feedback", "finished"].includes(value.phase) ||
+        Object.keys(checked).some(function (id) { return checked[id].length; }) ||
+        !cards.every(function (card) {
+          return card.stageIndex === 0 && card.graded === (value.phase !== "sorting") &&
+            card.stages.slice(1).every(function (stage) { return stage.selected === null; });
+        }))) { throw new Error("Invalid classification-only sorting session"); }
+    var result = { topic: value.topic, phase: value.phase, active: value.active, checked: checked };
+    if (value.classificationOnly !== undefined) { result.classificationOnly = value.classificationOnly; }
+    return result;
   }
   function item(value, id) {
     if (!object(value) || !signature(value.signature) || !counters.every(function (name) { return count(value[name]); }) ||
@@ -92,6 +102,8 @@
         card.stages[1] && card.stages[1].selected === null;
       var grammarEnded = /^semantic1-grammar-/.test(card.id) && card.graded && card.stageIndex === 0 && card.stages.length > 1 &&
         card.stages[0] && card.stages[0].selected !== null && card.stages.slice(1).every(function (s) { return s && s.selected === null; });
+      var sortingEnded = object(value.sorting) && value.sorting.classificationOnly === true && sortingId(card.id) && card.graded && card.stageIndex === 0 &&
+        card.stages[0] && card.stages[0].selected !== null && card.stages.slice(1).every(function (s) { return s && s.selected === null; });
       return { id: card.id, signature: card.signature, stageIndex: card.stageIndex, graded: card.graded, deferred: card.deferred === true,
         stages: card.stages.map(function (s, stageIndex) {
           var native = nativeId(card.id), size = s && Array.isArray(s.order) ? s.order.length : 0;
@@ -99,7 +111,7 @@
           var validSelection = selected === null || Number.isInteger(selected) && selected >= 0 && selected < size ||
             native && Array.isArray(selected) && selected.length > 0 && selected.length <= size && new Set(selected).size === selected.length &&
             selected.every(function (n) { return Number.isInteger(n) && n >= 0 && n < size; });
-          if (!object(s) || !validSelection || card.graded && selected === null && !(endedAfterFirst && stageIndex === 1 || grammarEnded && stageIndex > 0) ||
+          if (!object(s) || !validSelection || card.graded && selected === null && !(endedAfterFirst && stageIndex === 1 || grammarEnded && stageIndex > 0 || sortingEnded && stageIndex > 0) ||
               !Array.isArray(s.order) || size < (sortingId(card.id) && stageIndex === 0 ? 2 : 4) || size > (native ? 8 : 4) || new Set(s.order).size !== size ||
               !s.order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < size; })) { throw new Error("Invalid stage"); }
           return { selected: Array.isArray(selected) ? selected.slice().sort(function (a,b) { return a-b; }) : selected, order: s.order.slice() };
@@ -135,8 +147,10 @@
       if (value.settings !== undefined) {
         var settings = value.settings;
         if (!object(settings) || !["20", "50", "100", "all"].includes(settings.roundSize) || typeof settings.step !== "string" ||
-            !/^[a-zA-Z0-9 _-]{1,40}$/.test(settings.step) || typeof settings.shuffleQuestions !== "boolean" || typeof settings.shuffleOptions !== "boolean") { return null; }
-        result.settings = { roundSize: settings.roundSize, step: settings.step, shuffleQuestions: settings.shuffleQuestions, shuffleOptions: settings.shuffleOptions };
+            !/^[a-zA-Z0-9 _-]{1,40}$/.test(settings.step) || typeof settings.shuffleQuestions !== "boolean" || typeof settings.shuffleOptions !== "boolean" ||
+            settings.sortingMeanings !== undefined && typeof settings.sortingMeanings !== "boolean") { return null; }
+        result.settings = { roundSize: settings.roundSize, step: settings.step, shuffleQuestions: settings.shuffleQuestions, shuffleOptions: settings.shuffleOptions,
+          sortingMeanings: settings.sortingMeanings !== false };
       }
       var records;
       if (value.version !== 1) {

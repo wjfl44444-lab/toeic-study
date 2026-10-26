@@ -150,7 +150,9 @@
           !Number.isInteger(session.index) || session.index < 0 || session.index >= session.cards.length) return false;
       const meta = session.sorting;
       if (!byTopic.has(meta.topic) || !PHASES.includes(meta.phase) || typeof meta.active !== 'string' ||
-          !meta.checked || typeof meta.checked !== 'object' || Array.isArray(meta.checked)) return false;
+          !meta.checked || typeof meta.checked !== 'object' || Array.isArray(meta.checked) ||
+          meta.classificationOnly !== undefined && typeof meta.classificationOnly !== 'boolean' ||
+          meta.classificationOnly === true && !['sorting', 'sort-feedback', 'finished'].includes(meta.phase)) return false;
       const ids = new Set(), cardMap = new Map();
       let classificationKey = null;
       for (const card of session.cards) {
@@ -173,7 +175,8 @@
         const checked = meta.checked[q.id];
         if (!Array.isArray(checked) || new Set(checked).size !== checked.length ||
             !checked.every(index => Number.isInteger(index) && index > 0 && index < card.stages.length && answered(card.stages[index]))) return false;
-        const complete = answered(card.stages[0]) && checked.length === card.stages.length - 1;
+        if (meta.classificationOnly === true && (card.stageIndex !== 0 || checked.length || card.stages.slice(1).some(answered))) return false;
+        const complete = answered(card.stages[0]) && (meta.classificationOnly === true || checked.length === card.stages.length - 1);
         if (card.graded && (!complete || meta.phase === 'sorting') || meta.phase !== 'sorting' && card.graded !== complete ||
             meta.phase === 'sorting' && (checked.length || card.stageIndex !== 0 || card.stages.slice(1).some(answered))) return false;
         if (meta.phase !== 'sorting' && !answered(card.stages[0])) return false;
@@ -207,7 +210,7 @@
       const activeIndex = () => session().cards.findIndex(card => card.question.id === meta().active);
       const current = () => session().cards[activeIndex()];
       const checked = (card, index) => meta().checked[card.question.id].includes(index);
-      const queue = () => session().cards.flatMap((card, cardIndex) => card.stages.slice(1).map((stage, index) => ({ card, cardIndex, stage, stageIndex: index + 1 })));
+      const queue = () => meta().classificationOnly === true ? [] : session().cards.flatMap((card, cardIndex) => card.stages.slice(1).map((stage, index) => ({ card, cardIndex, stage, stageIndex: index + 1 })));
       function element(tag, cls, text) { return host.node(tag, cls, text); }
       function named(tag, id, cls, text) {
         const item = element(tag, cls, text); item.id = 'sorting-' + id; elements[id] = item; return item;
@@ -329,7 +332,7 @@
       }
       function finishCard(card) {
         if (card.graded || meta().phase === 'sorting' || !answered(card.stages[0]) ||
-            !card.stages.slice(1).every((stage, index) => answered(stage) && checked(card, index + 1))) return;
+            meta().classificationOnly !== true && !card.stages.slice(1).every((stage, index) => answered(stage) && checked(card, index + 1))) return;
         card.graded = true; host.record(card);
       }
       function gradeSort() {
@@ -373,7 +376,7 @@
       }
       function renderSortFeedback(focus) {
         const group = currentGroup(), cards = session().cards, count = cards.filter(card => correct(card.stages[0])).length;
-        elements['result-topic'].textContent = group.title; elements['result-title'].textContent = '분류 ' + count + ' / ' + cards.length + '개 정답';
+        elements['result-topic'].textContent = group.title + (meta().classificationOnly === true ? ' · 분류만' : ''); elements['result-title'].textContent = '분류 ' + count + ' / ' + cards.length + '개 정답';
         const compatibility = cards.some(card => card.stages[0].data.compatibilityNote);
         elements['result-description'].textContent = compatibility ? '보완된 형식을 확인하세요. 진행 중인 풀이의 기존 정답도 인정했어요.' : '';
         elements['result-description'].hidden = !compatibility;
@@ -489,7 +492,7 @@
       }
       function renderReview(focus) {
         const card = session().cards[reviewIndex]; if (!card || !card.graded) { reviewIndex = null; host.showResults(); return; }
-        elements['review-title'].textContent = sourceCard(card).text + ' · 풀이 확인'; elements['review-content'].replaceChildren(resultRow(card, true));
+        elements['review-title'].textContent = sourceCard(card).text + ' · 풀이 확인'; elements['review-content'].replaceChildren(resultRow(card, meta().classificationOnly !== true));
         elements['previous-review'].disabled = !session().cards.slice(0, reviewIndex).some(item => item.graded);
         elements['next-review'].disabled = !session().cards.slice(reviewIndex + 1).some(item => item.graded);
         showPanel('review-panel', focus ? 'review-title' : null);
@@ -501,12 +504,13 @@
         }
       }
       function closeReview() { reviewIndex = null; reviewSession = null; host.showResults(); }
-      function start(value) {
+      function start(value, includeMeanings) {
         if (!value || !Array.isArray(value.cards) || !value.cards.length || !value.cards.every(card => has(card.question)) ||
             new Set(value.cards.map(card => card.question.sortingTopic)).size !== 1 ||
             new Set(value.cards.map(card => cardClassifications.get(card.question.id).key)).size !== 1) return false;
         const first = value.cards[0];
         value.sorting = { topic: first.question.sortingTopic, phase: 'sorting', active: first.question.id, checked: {} };
+        if (includeMeanings === false) value.sorting.classificationOnly = true;
         value.index = 0; value.cards.forEach(card => { card.stageIndex = 0; value.sorting.checked[card.question.id] = []; });
         reviewIndex = null; reviewSession = null; renderedTableSession = null; save(); return true;
       }

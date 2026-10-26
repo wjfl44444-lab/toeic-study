@@ -273,7 +273,8 @@
   function currentSettings() {
     var scope = el("step-filter").value, group = el("group-filter").value;
     return { roundSize: el("round-size").value, step: scope !== "all" ? scope : group === "all" ? "all" : "group-" + group,
-      shuffleQuestions: el("shuffle-questions").checked, shuffleOptions: el("shuffle-options").checked };
+      shuffleQuestions: el("shuffle-questions").checked, shuffleOptions: el("shuffle-options").checked,
+      sortingMeanings: el("sorting-meanings").checked };
   }
   function currentPayload(compact) {
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
@@ -344,13 +345,15 @@
       var earlyEnd = stored.graded && stored.stageIndex === 0 && wrongFirst &&
         (q.firstAnswerGate && q.stages.length > 1 || q.stageMode !== "set" && saved.practiceVersion && q.stages.length === 2) &&
         stored.stages.slice(1).every(function (s) { return s && s.selected === null; });
+      var classificationEnd = saved.sorting && saved.sorting.classificationOnly === true && sortingPractice && sortingPractice.has(q) &&
+        stored.stageIndex === 0 && firstValues.length > 0 && stored.stages.slice(1).every(function (s) { return s && s.selected === null; });
       var stages = [];
       for (var j = 0; j < q.stages.length; j += 1) {
         var stage = stored.stages[j], order = stage && stage.order, stageData = practiceStage(q, j, version);
         if (!stage || !Array.isArray(order) || order.length !== stageData.options.length || new Set(order).size !== order.length ||
             !order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < order.length; }) ||
             !validSelection(stage.selected, stageData) ||
-          stored.graded && stage.selected === null && !(earlyEnd && j > 0)) { return null; }
+          stored.graded && stage.selected === null && !((earlyEnd || classificationEnd) && j > 0)) { return null; }
         stages.push({ data: stageData, selected: stage.selected, choices: order.map(function (n) { return { text: stageData.options[n], originalIndex: n }; }) });
       }
       var sharedOrders = Object.create(null);
@@ -420,6 +423,7 @@
         applyScopeSetting(settings.step);
         if (typeof settings.shuffleQuestions === "boolean") { el("shuffle-questions").checked = settings.shuffleQuestions; }
         if (typeof settings.shuffleOptions === "boolean") { el("shuffle-options").checked = settings.shuffleOptions; }
+        el("sorting-meanings").checked = settings.sortingMeanings !== false;
       }
     } catch (error) {
       if (typeof raw === "string") { unreadableOriginal = raw; }
@@ -432,6 +436,7 @@
     applyScopeSetting(settings.step);
     el("shuffle-questions").checked = settings.shuffleQuestions;
     el("shuffle-options").checked = settings.shuffleOptions;
+    el("sorting-meanings").checked = settings.sortingMeanings !== false;
   }
   function applyStudyPayload(raw, options) {
     var saved = syncModel && syncModel.parse(raw);
@@ -939,12 +944,14 @@
     text("question-shuffle-label", "문제 순서 섞기");
     el("step-filter-label").hidden = false;
     var pool = filteredQuestions(), size = el("round-size").value, state = progressFor(pool, currentSettings().step);
+    el("sorting-meanings-setting").hidden = el("group-filter").value !== "sorting-practice" || !pool.some(function (q) { return q.stages.length > 1; });
     var available = state ? state.remaining : pool.length;
     var count = size === "all" ? available : Math.min(Number(size), available);
     text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "남은 " + available + "문제 중 " + count + "문제" : "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요.");
     el("study-progress-summary").hidden = !state || !unifiedImportReady;
     text("study-progress-summary", state ? progressLabel(state) : "");
     text("scope-description", groupDescriptions[el("group-filter").value] || "교재 구분 없이 학습 목표로 모았어요. 큰 분류와 세부 범위를 골라 연습하세요.");
+    if (el("group-filter").value === "sorting-practice" && !el("sorting-meanings").checked) { text("scope-description", "단어의 분류만 빠르게 확인해요."); }
     if (el("step-filter").value === mixedScope) {
       text("scope-description", "2·4·5형식, that절, to V·목적어 + to V·V-ing를 섞어요. 범위 이름으로 답을 짐작하지 않고 단어별로 필요한 구조를 떠올려 보세요.");
     }
@@ -1037,6 +1044,9 @@
     return null;
   }
   function isAllCorrect(card) {
+    if (session && session.sorting && session.sorting.classificationOnly === true && sortingPractice && sortingPractice.has(card.question)) {
+      return card.graded && stageCorrect(card.stages[0]);
+    }
     return card.graded && card.stages.every(stageCorrect);
   }
   function totals() {
@@ -1108,7 +1118,7 @@
     }) };
     if (studyRun) { session[mode === "wrong" ? "resumeStudyRun" : "studyRun"] = Object.assign({}, studyRun); }
     if (sortingController && session.cards.every(function (card) { return sortingPractice.has(card.question) && card.question.sortingTopic === session.cards[0].question.sortingTopic; })) {
-      sortingController.start(session);
+      sortingController.start(session, el("sorting-meanings").checked);
     }
     renderQuestion(true);
   }
@@ -1403,6 +1413,10 @@
     text("results-description", count.ungraded ? session.cards.length + "문제 중 아직 " + count.ungraded + "문제를 채점하지 않았어요. 남은 문제를 이어서 풀 수 있어요." : "이번 " + session.cards.length + "문제를 모두 확인했어요. 한 단계라도 틀린 문제는 오답 연습에 포함돼요.");
     var accuracy = count.stagesGraded ? Math.round(count.stagesCorrect / count.stagesGraded * 100) + "%" : "—";
     text("stage-score", "단계별 정답률 " + accuracy + " · 채점한 " + count.stagesGraded + "단계 중 " + count.stagesCorrect + "단계 정답\n위의 ‘정답’은 모든 단계를 맞힌 문제 카드 수예요. 미채점 단계는 정답률에 포함하지 않아요.");
+    if (session.sorting && session.sorting.classificationOnly === true) {
+      text("results-description", "이번 " + session.cards.length + "개 단어의 분류를 확인했어요.");
+      text("stage-score", "분류 정답률 " + accuracy + " · " + count.stagesGraded + "개 중 " + count.stagesCorrect + "개 정답");
+    }
     el("continue-button").hidden = count.ungraded === 0;
     el("wrong-only-button").disabled = count.wrong === 0;
     renderStudyContinuation();
@@ -1512,7 +1526,7 @@
     if (memoryReady && el("step-filter").value === mixedScope) { scope = { id: mixedScope, group: "grammar-structures" }; }
     if (scope && el("group-filter").value === "all") { el("group-filter").value = scope.group; populateSubscopes(scope.id); }
   });
-  ["shuffle-questions", "shuffle-options", "round-size", "step-filter"].forEach(function (id) {
+  ["shuffle-questions", "shuffle-options", "sorting-meanings", "round-size", "step-filter"].forEach(function (id) {
     el(id).addEventListener("change", function () { updateSettings(); saveState(); });
   });
   el("home-link").addEventListener("click", function (event) { event.preventDefault(); showStart(); });

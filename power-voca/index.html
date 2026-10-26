@@ -22,7 +22,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261026-refinement1" defer></script>
+  <script src="sync-model.js?v=20261027-sorting-mode1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -40,13 +40,13 @@
   <script src="wrong-review.js?v=20261026-quality1" defer></script>
   <script src="study-progress.js?v=20261026-progress1" defer></script>
   <script src="sorting-data.js?v=20261026-sorting1" defer></script>
-  <script src="sorting-practice.js?v=20261026-sorting2" defer></script>
+  <script src="sorting-practice.js?v=20261027-sorting-mode1" defer></script>
   <script src="verb-forms-data.js?v=20261026-forms2" defer></script>
   <script src="verb-forms-review.js?v=20261026-forms2" defer></script>
   <script src="sorting-options-review.js?v=20261026-sorting2" defer></script>
   <script src="sorting-classification-review.js?v=20261026-sorting2" defer></script>
   <script src="sorting-review.js?v=20261026-sorting2" defer></script>
-  <script src="app.js?v=20261026-sorting2" defer></script>
+  <script src="app.js?v=20261027-sorting-mode1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -90,9 +90,10 @@
           </div>
           <div class="start-settings">
             <fieldset>
-              <legend>문제 순서 설정</legend>
+              <legend>학습 설정</legend>
               <label class="check-label"><input type="checkbox" id="shuffle-questions" checked><span id="question-shuffle-label">문제 순서 섞기</span></label>
               <label class="check-label" id="option-shuffle-setting"><input type="checkbox" id="shuffle-options" checked><span>선택지 섞기</span></label>
+              <label class="check-label" id="sorting-meanings-setting" hidden><input type="checkbox" id="sorting-meanings" checked><span>뜻 문제도 함께 풀기</span></label>
             </fieldset>
 
           </div>
