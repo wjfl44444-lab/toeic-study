@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142b26">
+  <title>표현·구조 훈련 · 나의 토익 스터디</title>
+  <link rel="stylesheet" href="styles.css?v=20261027-bookmarks2">
+  <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
+  <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
+  <link rel="stylesheet" href="practice-shell.css?v=20261026-refinement1">
+  <link rel="stylesheet" href="sorting-practice.css?v=20261027-bookmarks2">
+  <link rel="stylesheet" href="home.css?v=20261026-progress1">
+  <script src="questions.js" defer></script>
+  <script src="quickstart.js?v=20261023-quickstart2" defer></script>
+  <script src="practice-options.js?v=20261019-linked1" defer></script>
+  <script src="practice-options-hard.js?v=20261019-hard2" defer></script>
+  <script src="memory-practice.js?v=20261023-memory3" defer></script>
+  <script src="lexical-review.js?v=20261024-lexical1" defer></script>
+  <script src="usage-review.js?v=20261024-usage1" defer></script>
+  <script src="usage-routing.js?v=20261024-usage1" defer></script>
+  <script src="semantic-review.js?v=20261024-semantic1" defer></script>
+  <script src="time-review.js?v=20261024-time1" defer></script>
+  <script src="experience-review.js?v=20261025-experience1" defer></script>
+  <script src="sync-model.js?v=20261027-bookmarks1" defer></script>
+  <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
+  <script src="grammar-route.js?v=20261024-menu1" defer></script>
+  <script src="grammar/data.js?v=20261024-grammar1" defer></script>
+  <script src="grammar/engine.js?v=20261024-grammar1" defer></script>
+  <script src="grammar/sync-model.js?v=20261024-site1" defer></script>
+  <script src="grammar/site-state.js?v=20261024-site1" defer></script>
+  <script src="feedback-core.js?v=20261025-feedback1" defer></script>
+  <script src="feedback-view.js?v=20261025-feedback1" defer></script>
+  <script src="grammar-embedded.js?v=20261025-integration1" defer></script>
+  <script src="grammar-adapter.js?v=20261025-unified1" defer></script>
+  <script src="unified-migration.js?v=20261025-unified1" defer></script>
+  <script src="question-review.js?v=20261026-quality1" defer></script>
+  <script src="question-view.js?v=20261026-refinement1" defer></script>
+  <script src="question-curation.js?v=20261026-refinement1" defer></script>
+  <script src="wrong-review.js?v=20261026-quality1" defer></script>
+  <script src="study-progress.js?v=20261026-progress1" defer></script>
+  <script src="sorting-data.js?v=20261026-sorting1" defer></script>
+  <script src="sorting-practice.js?v=20261027-bookmarks2" defer></script>
+  <script src="verb-forms-data.js?v=20261027-forms3" defer></script>
+  <script src="verb-forms-review.js?v=20261027-forms3" defer></script>
+  <script src="sorting-options-review.js?v=20261026-sorting2" defer></script>
+  <script src="sorting-classification-review.js?v=20261026-sorting2" defer></script>
+  <script src="sorting-review.js?v=20261027-forms3" defer></script>
+  <script src="app.js?v=20261027-bookmarks2" defer></script>
+</head>
+<body>
+  <nav class="study-page-nav" aria-label="학습 페이지 이동">
+    <a href="https://wjfl44444-lab.github.io/toeic-study/">첫 화면</a>
+    <a href="https://wjfl44444-lab.github.io/toeic-study/vocabulary/">토익 단어장</a>
+    <a href="https://wjfl44444-lab.github.io/toeic-study/quiz/">랜덤 문제집</a>
+    <a href="./" aria-current="page">표현·구조 훈련</a>
+  </nav>
+  <div id="account-sync"></div>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="#" id="home-link" aria-label="표현·구조 훈련 시작 화면">
+        <span class="brand-icon" aria-hidden="true">W<span>S</span></span>
+        <span>표현·구조 훈련</span>
+      </a>
+      <button class="text-button" id="home-button" hidden>시작 화면</button>
+    </header>
+
+    <main id="main-content">
+      <section id="loading-view" class="panel loading-panel" aria-live="polite">
+        <p class="eyebrow">YOUR VOCABULARY</p>
+        <h1>문제를 준비하고 있어요.</h1>
+        <p>학습 자료와 기존 기록을 준비하고 있어요.</p>
+      </section>
+
+      <section id="error-view" class="panel loading-panel" hidden>
+        <p class="eyebrow">문제 데이터 확인</p>
+        <h1>아직 문제를 불러올 수 없어요.</h1>
+        <p id="error-message">같은 폴더에 questions.js가 있는지 확인해 주세요.</p>
+        <button class="primary-button" id="reload-button">다시 불러오기</button>
+      </section>
+
+      <section id="sorting-view" hidden aria-label="표로 분류하기"></section>
+      <section id="start-view" hidden aria-labelledby="start-title">
+        <div class="panel intro-panel">
+          <div class="home-heading"><h1 id="start-title">새 연습</h1><span id="record-state" class="save-state">기기 저장</span></div>
+          <div class="round-settings">
+            <label for="group-filter" class="main-scope-label">큰 분류<select id="group-filter"><option value="all">모든 분류 함께 풀기</option></select></label>
+            <label for="step-filter" id="step-filter-label">세부 범위<select id="step-filter"><option value="all">모든 세부 범위</option></select></label>
+            <label for="round-size">문제 수<select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label>
+          </div>
+          <div class="start-settings">
+            <fieldset>
+              <legend>문제 순서 설정</legend>
+              <label class="check-label"><input type="checkbox" id="shuffle-questions" checked><span id="question-shuffle-label">문제 순서 섞기</span></label>
+              <label class="check-label" id="option-shuffle-setting"><input type="checkbox" id="shuffle-options" checked><span>선택지 섞기</span></label>
+            </fieldset>
+
+          </div>
+          <label class="check-label bookmark-filter"><input type="checkbox" id="bookmarks-only"><span>별표한 문제만</span></label>
+          <p class="study-progress-summary" id="study-progress-summary" hidden></p>
+          <div class="start-line"><p id="pool-summary" class="pool-count"></p><button class="primary-button start-button" id="start-button">연습 시작</button><button class="primary-button start-button" id="start-next-pass-button" hidden>다음 회독 시작</button></div>
+
+        </div>
+        <div class="panel resume-panel" id="resume-panel" hidden>
+          <h2>저장된 풀이</h2>
+          <div class="saved-round" id="resume-row" hidden>
+            <div><h3 id="resume-scope"></h3><p id="resume-summary"></p></div>
+            <button class="secondary-button" id="resume-button">이어서 풀기</button>
+          </div>
+
+          <p class="settings-note" id="resume-status" hidden></p>
+        </div>
+        <section class="panel wrong-review-panel" id="wrong-review-panel" aria-labelledby="wrong-review-title">
+          <div class="wrong-review-heading"><h2 id="wrong-review-title">오답 모아 풀기</h2><label for="wrong-review-min">누적 오답 <input id="wrong-review-min" type="number" min="1" max="999999999" step="1" value="1" inputmode="numeric">회 이상</label></div>
+          <p class="wrong-review-note">모든 분류의 오답을 함께 모아요. 나중에 맞혀도 이전에 틀린 횟수는 남아요.</p>
+          <p id="wrong-review-summary" aria-live="polite"></p>
+          <ul id="wrong-review-list" class="wrong-review-list" aria-label="누적 오답 문제"></ul>
+          <div class="wrong-review-pagination" id="wrong-review-pagination" hidden><button class="text-button" id="wrong-review-previous" aria-label="오답 목록 이전 페이지">이전</button><span id="wrong-review-page"></span><button class="text-button" id="wrong-review-next" aria-label="오답 목록 다음 페이지">다음</button></div>
+          <button class="primary-button" id="wrong-review-start" disabled>오답 풀기</button>
+        </section>
+        <div class="panel history-panel"><h2>누적 학습</h2><p id="history-summary">아직 채점한 문제가 없어요.</p></div>
+        <p class="storage-status" id="storage-status" role="status"></p>
+        <button class="text-button" id="migration-retry-button" hidden>기록 다시 확인</button>
+        <button class="text-button" id="migration-cloud-button" hidden>백업 후 계정 기록으로 통합</button>
+        <details class="panel home-help" id="home-help">
+          <summary>도움말</summary>
+          <div class="help-content">
+            <section><h3>풀이·채점</h3><p>첫 답이 틀리면 종료되는 문제와, 세트 마지막에 채점하는 문제가 있어요. 화면의 단계 버튼을 따라 풀면 돼요. 정답과 해설은 채점 후에 보여요.</p></section>
+            <section><h3>선택한 범위</h3><p id="scope-description"></p></section>
+            <section><h3>기록 저장</h3><p>같은 Google 계정으로 연결하면 다른 기기에서도 기록을 이어갈 수 있어요. 통합 전 두 풀이의 원본은 이 기기에 보관해요.</p><div class="backup-actions"><button class="secondary-button" id="export-records">기록 백업</button><button class="secondary-button" id="import-records">백업 가져오기</button></div><input type="file" id="import-records-file" accept=".json,application/json" hidden></section>
+            <section id="legacy-restore" hidden><h3>통합 전 풀이</h3><p>이전 풀이로 전환해도 진행 중인 연습은 하나로 유지돼요. 누적 기록은 합쳐서 보관해요.</p><div class="backup-actions"><select id="legacy-round-select" aria-label="복원할 이전 풀이"><option value="native">이전 일반 풀이</option><option value="grammar">이전 문형·구조 풀이</option></select><button class="secondary-button" id="legacy-restore-button">이전 풀이로 전환</button></div></section><section><h3>학습 자료</h3><p id="source-title"></p></section>
+          </div>
+        </details>
+        <p id="coverage-summary" hidden></p>
+      </section>
+
+      <section id="quiz-view" hidden aria-labelledby="question-instruction">
+        <div class="quiz-topline"><span class="pill" id="round-label">기본 연습</span><button class="text-button" id="results-button">풀이 현황 보기</button></div>
+        <div class="progress-caption"><p id="question-counter"></p><p id="score-counter"></p></div>
+        <div class="progress-track" role="progressbar" id="progress-bar" aria-label="채점 완료" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0"><span id="progress-fill"></span></div>
+        <article class="panel question-panel">
+          <div class="question-heading-line"><p class="eyebrow" id="question-number">QUESTION 01</p><span class="question-heading-actions"><span class="question-state" id="question-state"></span><span id="question-bookmark"></span></span></div>
+          <div class="stage-topline"><p class="stage-indicator" id="stage-indicator"></p><p class="cumulative-wrong-count" id="question-wrong-count"></p></div>
+          <h1 class="instruction" id="question-instruction" tabindex="-1"></h1>
+          <div class="semantic-words" id="semantic-words" aria-label="이번 세트의 단어" hidden></div>
+          <p class="question-example" id="question-heading"></p>
+          <p class="question-context" id="question-context" hidden></p>
+          <fieldset class="options-fieldset"><legend class="sr-only" id="options-legend">정답을 하나 선택하세요.</legend><div id="options-list"></div></fieldset>
+          <div class="question-actions" id="question-actions">
+            <button class="secondary-button" id="previous-button">이전 문제</button>
+            <button class="text-button previous-stage-action" id="previous-stage-button" hidden>← 이전 단계</button>
+            <button class="primary-button" id="grade-button" disabled>채점하기</button>
+            <button class="primary-button" id="next-button" hidden>다음 문제 <span aria-hidden="true">→</span></button>
+          </div>
+          <p class="choice-hint" id="choice-hint">선택만으로 정답이 공개되지 않아요.</p>
+        </article>
+        <section class="panel feedback-panel" id="feedback-panel" hidden aria-labelledby="feedback-title">
+          <p class="eyebrow" id="feedback-eyebrow">ANSWER &amp; EXPLANATION</p>
+          <h2 id="feedback-title" tabindex="-1"></h2>
+          <p class="cumulative-wrong-count" id="feedback-wrong-count"></p>
+          <div id="feedback-keywords"></div>
+          <details class="feedback-details" id="feedback-answer-details">
+          <summary>내 답 · 전체 보기</summary>
+          <p class="correct-answer" id="correct-answer"></p>
+          <section class="answer-summary" id="answer-summary" hidden aria-labelledby="answer-summary-expression">
+            <p class="answer-summary-label">표현과 뜻</p>
+            <h3 class="answer-summary-expression" id="answer-summary-expression"></h3>
+            <p class="answer-summary-meaning" id="answer-summary-meaning"></p>
+          </section>
+          <div id="stage-feedback-list"></div>
+          </details>
+          <details class="feedback-details" id="feedback-explanation-details">
+          <summary>설명 · 예문</summary>
+          <div class="learning-point"><span>기억할 쓰임</span><p id="learning-point"></p></div>
+          </details>
+          <details class="feedback-details" id="feedback-source-details">
+          <summary>교재 위치</summary>
+          <p class="question-source" id="question-source"></p>
+          </details>
+          <button class="secondary-button feedback-next" id="feedback-next-button">다음 문제 <span aria-hidden="true">→</span></button>
+        </section>
+      </section>
+
+<section id="results-view" hidden aria-labelledby="results-title">
+        <div class="panel results-panel">
+          <p class="eyebrow">YOUR PRACTICE</p>
+          <h1 id="results-title" tabindex="-1">이번 풀이를 돌아봐요.</h1>
+          <p id="results-description" class="results-description"></p>
+          <div class="score-grid" aria-label="풀이 결과">
+            <div><span>정답</span><strong id="result-correct">0</strong></div>
+            <div><span>오답</span><strong id="result-wrong">0</strong></div>
+            <div><span>미채점</span><strong id="result-ungraded">0</strong></div>
+          </div>
+          <p class="stage-score" id="stage-score"></p>
+          <p class="study-progress-summary" id="results-study-progress" hidden></p>
+          <div class="results-actions">
+            <button class="primary-button" id="continue-button">이번 묶음 계속 풀기</button>
+            <button class="primary-button" id="next-batch-button" hidden>남은 문제 계속 풀기</button>
+            <button class="primary-button" id="next-pass-button" hidden>다음 회독 시작</button>
+            <button class="secondary-button" id="wrong-only-button">틀린 문제만 다시 풀기</button>
+            <button class="secondary-button" id="restart-button">이번 문제 다시 섞어 풀기</button>
+          </div>
+          <p class="privacy-note">새 연습을 시작하면 이어 풀기는 새 풀이로 바뀌고, 누적 채점 기록은 이 브라우저에 남아요.</p>
+        </div>
+        <section class="panel review-panel" aria-labelledby="review-title"><h2 id="review-title">문제별 풀이 현황</h2><p class="review-caption">문제를 누르면 선택한 답과 해설을 다시 확인할 수 있어요.<br>미채점 문제의 정답은 채점하기 전까지 공개하지 않아요.</p><ol id="review-list" class="review-list"></ol></section>
+      </section>
+    </main>
+
+  </div>
+  <div class="sr-only" id="live-status" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

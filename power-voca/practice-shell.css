@@ -1,0 +1,17 @@
+/* One saved-practice area, independent of the question engine that owns a round. */
+.resume-panel{display:block}
+.resume-panel[hidden],.saved-round[hidden]{display:none}
+.resume-panel>h2{font-size:18px;margin-bottom:6px}
+.saved-round{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:17px 0}
+.saved-round+.saved-round{border-top:1px solid var(--border)}
+.saved-round>div{min-width:0}
+.saved-round h3{font-size:16px;font-weight:650;color:var(--ink);line-height:1.5}
+.saved-round p{font-size:14px;line-height:1.7;color:var(--muted);margin-top:6px;overflow-wrap:anywhere}
+.saved-round>.secondary-button{min-width:130px;min-height:44px;white-space:nowrap}
+.resume-panel>#resume-status{font-size:14px;line-height:1.7;margin-top:10px}
+@media(max-width:640px){.saved-round{align-items:stretch;flex-direction:column;gap:12px}.saved-round h3{font-size:15px}.saved-round>.secondary-button{width:100%}.resume-panel>h2{font-size:17px}}
+.review-next-batch-panel{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:20px;padding:18px 22px}
+.review-next-batch-panel[hidden]{display:none}
+.review-next-batch-panel p{margin:0;color:var(--muted);font-size:15px;line-height:1.6}
+.review-next-batch-panel .primary-button{flex-shrink:0}
+@media(max-width:640px){.review-next-batch-panel{align-items:stretch;flex-direction:column;padding:18px}.review-next-batch-panel .primary-button{width:100%}}
