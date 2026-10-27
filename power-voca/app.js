@@ -144,6 +144,7 @@
       sortingReview && sortingReview.replacements]
   }) : null;
   var wrongReviewPage = 0;
+  var starredReviewPage = 0;
   var progressManager = window.PowerVocaStudyProgress ? window.PowerVocaStudyProgress.create({
     resolve: function (id) { return wrongReview ? wrongReview.resolve(id) : questionMap.get(id); }
   }) : null;
@@ -789,6 +790,52 @@
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     begin(entries.map(function (entry) { return entry.question; }), "wrong", false);
   }
+  function starredReviewEntries() {
+    var entries = new Map();
+    data.questions.forEach(function (question) {
+      if (!activeQuestion(question) || !isBookmarked(question)) { return; }
+      var key = bookmarkKey(question), previous = entries.get(key);
+      // Normal and table verb cards share one star. Offer the normal card once,
+      // while retaining table-only cards in this all-category collection.
+      if (!previous || sortingPractice && sortingPractice.has(previous.question) && !sortingPractice.has(question)) {
+        entries.set(key, { key: key, question: question, expression: question.displayExpression || wrongReviewLabel(question), updatedAt: bookmarkIndex[key].updatedAt });
+      }
+    });
+    return Array.from(entries.values()).sort(function (a, b) {
+      return b.updatedAt.localeCompare(a.updatedAt) || a.expression.localeCompare(b.expression, "ko") || a.key.localeCompare(b.key);
+    });
+  }
+  function renderStarredReview() {
+    var entries = starredReviewEntries(), pages = Math.max(1, Math.ceil(entries.length / wrongReviewPageSize));
+    starredReviewPage = Math.min(starredReviewPage, pages - 1);
+    text("starred-review-summary", entries.length ? "별표한 문제 " + entries.length + "개" : "아직 별표한 문제가 없어요.");
+    var list = el("starred-review-list"); list.replaceChildren();
+    entries.slice(starredReviewPage * wrongReviewPageSize, (starredReviewPage + 1) * wrongReviewPageSize).forEach(function (entry) {
+      var row = node("li", "wrong-review-row");
+      row.append(node("span", "wrong-review-expression", entry.expression), bookmarkButton(entry.question));
+      list.append(row);
+    });
+    list.hidden = !entries.length;
+    el("starred-review-pagination").hidden = pages === 1;
+    text("starred-review-page", (starredReviewPage + 1) + " / " + pages);
+    el("starred-review-previous").disabled = starredReviewPage === 0;
+    el("starred-review-next").disabled = starredReviewPage >= pages - 1;
+    text("starred-review-start", entries.length ? "별표 " + entries.length + "문제 풀기" : "별표 문제 풀기");
+    el("starred-review-start").disabled = !entries.length || !unifiedImportReady;
+  }
+  function startStarredReview() {
+    if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
+    var entries = starredReviewEntries();
+    if (!entries.length) { return; }
+    if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
+    begin(entries.map(function (entry) { return entry.question; }), "starred", false);
+  }
+  function showReviewCollection(mode) {
+    ["wrong", "starred"].forEach(function (name) {
+      el(name + "-review-panel").hidden = name !== mode;
+      el("review-mode-" + name).setAttribute("aria-pressed", String(name === mode));
+    });
+  }
   function scopeOf(q) { return questionScopes.get(q.id); }
   function populateSubscopes(selected) {
     var group = el("group-filter").value, select = el("step-filter");
@@ -1016,6 +1063,7 @@
     text("start-next-pass-button", state ? (state.pass + 1) + "회독 시작" : "다음 회독 시작");
     renderResume();
     renderWrongReview();
+    renderStarredReview();
   }
   function startSelected() {
     if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
@@ -1575,6 +1623,11 @@
   });
   el("wrong-review-previous").addEventListener("click", function () { wrongReviewPage = Math.max(0, wrongReviewPage - 1); renderWrongReview(); });
   el("wrong-review-next").addEventListener("click", function () { wrongReviewPage += 1; renderWrongReview(); });
+  el("starred-review-start").addEventListener("click", startStarredReview);
+  el("review-mode-wrong").addEventListener("click", function () { showReviewCollection("wrong"); });
+  el("review-mode-starred").addEventListener("click", function () { showReviewCollection("starred"); });
+  el("starred-review-previous").addEventListener("click", function () { starredReviewPage = Math.max(0, starredReviewPage - 1); renderStarredReview(); });
+  el("starred-review-next").addEventListener("click", function () { starredReviewPage += 1; renderStarredReview(); });
   el("migration-retry-button").addEventListener("click", function () { void prepareUnifiedPractice(); });
   el("migration-cloud-button").addEventListener("click", function () {
     if (window.confirm("미확인 기기 풀이 원본은 백업에 남기고, 계정에서 확인된 기록을 기준으로 통합할까요?")) { void prepareUnifiedPractice(true); }
