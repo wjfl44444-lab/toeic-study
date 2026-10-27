@@ -242,12 +242,13 @@
         const meaning = named('div', 'meaning-panel', 'panel question-panel');
         const options = named('div', 'meaning-options', 'meaning-options'); options.setAttribute('role', 'group'); options.setAttribute('aria-label', '뜻 보기');
         const meaningTitle = heading('meaning-title', '');
-        let meaningHeading = meaningTitle;
+        const meaningMeta = named('p', 'meaning-meta', 'meaning-meta');
+        let meaningTopline = meaningMeta;
         if (typeof host.bookmarkButton === 'function') {
-          meaningHeading = element('div', 'sort-bookmark-heading');
-          meaningHeading.append(meaningTitle, named('span', 'meaning-bookmark', 'sort-bookmark-slot'));
+          meaningTopline = element('div', 'sort-meaning-topline');
+          meaningTopline.append(meaningMeta, named('span', 'meaning-bookmark', 'sort-bookmark-slot'));
         }
-        meaning.append(named('p', 'meaning-meta', 'meaning-meta'), meaningHeading, named('p', 'meaning-expression', 'question-example'), named('p', 'meaning-prompt', 'sorting-note'), options);
+        meaning.append(meaningTopline, meaningTitle, named('p', 'meaning-expression', 'question-example'), named('p', 'meaning-prompt', 'sorting-note'), options);
         const meaningActions = actions(); meaningActions.append(button('previous-meaning', 'text-button', '이전 단계', previousMeaning), button('grade-meaning', 'primary-button', '채점하기', gradeMeaning)); meaning.append(meaningActions);
         const meaningFeedback = named('section', 'meaning-feedback', 'panel feedback-panel');
         const feedbackTitle = named('h2', 'meaning-feedback-title'); feedbackTitle.tabIndex = -1;

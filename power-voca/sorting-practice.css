@@ -1,6 +1,12 @@
 /* The sorting workspace shares the site's palette; every rule stays in its view. */
 #sorting-view .sort-title{margin:0 0 14px;font-size:22px;font-weight:700;line-height:1.55;letter-spacing:-.025em;overflow-wrap:anywhere}
 #sorting-view .sort-counter,#sorting-view .meaning-meta{color:var(--muted);font-size:15px;line-height:1.7}
+#sorting-view .sort-meaning-topline{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+#sorting-view .sort-meaning-topline .meaning-meta{min-width:0;margin:0}
+#sorting-view .sort-meaning-topline .sort-bookmark-slot{flex:0 0 auto;margin-left:auto}
+#sorting-view .category-word:has(.bookmark-button){display:grid;grid-template-columns:minmax(0,1fr) 28px;column-gap:6px}
+#sorting-view .category-word .bookmark-button{grid-column:2;grid-row:1;align-self:start;width:28px;min-width:28px;height:28px;min-height:28px;flex-basis:28px;border-radius:8px}
+#sorting-view .category-word .category-badge{grid-column:1 / -1;justify-self:start}
 #sorting-view .sort-counter{margin:8px 0 18px}
 #sorting-view .table-instruction{font-size:15px;color:var(--muted);line-height:1.7;margin:8px 0 16px}
 #sorting-view .sort-workspace{display:block;padding:27px 28px;margin-top:20px}

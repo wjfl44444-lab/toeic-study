@@ -729,7 +729,6 @@
   }
   function paintBookmarkButton(button) {
     var value = bookmarkIndex[button.dataset.bookmarkKey], starred = Boolean(value && value.starred);
-    button.textContent = starred ? "★" : "☆";
     button.setAttribute("aria-pressed", String(starred));
     button.setAttribute("aria-label", starred ? "별표 해제" : "별표 표시");
     button.title = starred ? "별표 해제" : "별표 표시";
@@ -737,6 +736,7 @@
   function renderBookmarkButtons() { document.querySelectorAll("[data-bookmark-key]").forEach(paintBookmarkButton); }
   function bookmarkButton(question) {
     var button = node("button", "bookmark-button"); button.type = "button";
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2 14.7 8.65 20.7 9.52 16.35 13.76 17.38 19.76 12 16.92 6.62 19.76 7.65 13.76 3.3 9.52 9.3 8.65Z"/></svg>';
     button.dataset.bookmarkKey = bookmarkKey(question); paintBookmarkButton(button);
     button.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); } });
     button.addEventListener("click", function (event) {
