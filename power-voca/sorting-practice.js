@@ -367,12 +367,17 @@
         if (session().cards.some(card => !answered(card.stages[0]))) { host.announce('아직 선택하지 않은 단어가 있어요.'); return; }
         meta().phase = 'sort-feedback'; session().cards.forEach(finishCard); save(); render(true);
       }
-      function formExplanation(card) {
-        if (card.question.sortingTopic !== 'verb-forms') return null;
-        const note = clean(sourceCard(card).note);
+      function noteExplanation(card) {
+        const source = sourceCard(card), note = clean(source.note);
         if (!note) return null;
-        const lines = note.replace(/\s*(?:\/\s*)?\(([1-5])v\)/gi, '\n($1V)').trim();
-        return element('p', 'result-detail result-note form-lines', lines);
+        let lines = note.replace(/\s*(?:\/\s*)?\(([1-5])v\)/gi, '\n($1V)')
+          .replace(/\s*(?:\/\s*)?\(((?:prep|conj|adv|adj|n|v)\.?)\)/gi, '\n($1)')
+          .replace(/\s*(?:\/\s*)?\((일반 부사|접속부사)\)/g, '\n($1)').trim();
+        if (card.question.sortingTopic === 'verb-complements') {
+          const word = source.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          lines = lines.replace(new RegExp('\\s*/\\s*(?=' + word + '\\s+(?:to\\s+V|V-ing)\\b)', 'g'), '\n');
+        }
+        return element('p', 'result-detail result-note', lines);
       }
       function resultRow(card, meanings) {
         const source = sourceCard(card), group = currentGroup(), classified = correct(card.stages[0]);
@@ -402,9 +407,8 @@
           const details = element('details', 'result-disclosure');
           details.append(element('summary', '', '예문·설명 보기'));
           if (source.examples.length) details.append(element('p', 'result-detail result-examples', source.examples.join('\n')));
-          const forms = formExplanation(card);
-          if (forms) details.append(forms);
-          else if (clean(source.note)) details.append(element('p', 'result-detail result-note', source.note));
+          const note = noteExplanation(card);
+          if (note) details.append(note);
           if (labels.length) details.append(element('p', 'source-note', labels.join(' · ')));
           row.append(details);
         }
@@ -593,8 +597,8 @@
         if (graded) {
           elements['meaning-feedback-title'].textContent = correct(item.stage) ? '✓ 정답' : '다시 확인';
           elements['meaning-answer'].textContent = (step.expression || source.text) + ' → ' + meaningText(item.stage.data.options[item.stage.data.answer]);
-          const forms = formExplanation(item.card);
-          elements['meaning-explanation'].replaceChildren(...(forms ? [forms] : [element('p', '', clean(source.note))]));
+          const note = noteExplanation(item.card);
+          elements['meaning-explanation'].replaceChildren(...(note ? [note] : []));
           elements['next-meaning'].textContent = selectedPractice ? '표로 돌아가기' : index === items.length - 1 ? '세트 결과 보기' : '다음 뜻 확인';
         }
         showPanel('meaning-panel', focus ? graded ? 'meaning-feedback-title' : 'meaning-title' : null);
