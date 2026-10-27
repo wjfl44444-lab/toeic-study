@@ -44,6 +44,7 @@
 #sorting-view .category-missing{display:block;padding:4px 6px;color:var(--muted);opacity:.35;font-size:15px;line-height:1.5}
 #sorting-view .category-word{display:flex;flex-wrap:wrap;align-items:center;gap:4px 5px;max-width:100%;padding:4px 6px;color:var(--ink);font-size:16px;line-height:1.5;overflow-wrap:anywhere}
 #sorting-view .category-word-text{min-width:0;overflow-wrap:anywhere}
+#sorting-view [data-result-meaning]{scroll-margin-top:88px}
 #sorting-view button.category-word{appearance:none;width:100%;border:0;border-radius:5px;background:transparent;font:inherit;font-size:16px;text-align:left;cursor:pointer}
 #sorting-view button.category-word.selected-meaning-word{background:#b6dec51c;outline:1px solid var(--mint);outline-offset:-1px}
 #sorting-view button.category-word:focus-visible{outline:2px solid #f0d38f;outline-offset:2px}
@@ -51,6 +52,7 @@
 #sorting-view .result-meaning-actions .table-instruction{margin:0;font-size:14px;overflow-wrap:anywhere}
 #sorting-view .result-meaning-actions .primary-button{min-height:38px;padding:7px 12px;font-size:14px;white-space:nowrap}
 #sorting-view .category-word.incorrect{color:#f2bba9}
+#sorting-view .category-word.extra-choice .category-word-text{text-decoration:line-through;text-decoration-thickness:1.5px}
 #sorting-view .category-shared-row:has(.category-word:hover) .category-word{background:#b6dec529;border-radius:4px;box-shadow:inset 0 0 0 1px #b6dec540}
 #sorting-view .category-badge{flex-shrink:0;border:1px solid var(--border);border-radius:5px;padding:0 4px;font-size:11px;font-weight:600;line-height:1.65;white-space:nowrap}
 #sorting-view .category-badge.incorrect{border-color:#a27769;color:#f2bba9}
