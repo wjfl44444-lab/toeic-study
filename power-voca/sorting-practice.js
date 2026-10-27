@@ -510,11 +510,12 @@
           const rowIndex = rows.indexOf(row), column = row ? Array.from(row.children).indexOf(cell) : -1;
           const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
           const direction = key === 'ArrowLeft' || key === 'ArrowUp' ? -1 : 1;
-          const limit = horizontal ? currentGroup().bins.length : rows.length;
-          for (let index = (horizontal ? column : rowIndex) + direction; index >= 0 && index < limit; index += direction) {
-            const destination = horizontal ? row.children[index] : rows[index].children[column];
-            next = destination && destination.querySelector('[data-result-meaning]');
-            if (next) break;
+          if (horizontal) next = words[words.indexOf(word) + direction];
+          else for (let index = rowIndex + direction; index >= 0 && index < rows.length; index += direction) {
+            const candidates = Array.from(rows[index].children).map((cell, col) => ({
+              word: cell.querySelector('[data-result-meaning]'), column: col, distance: Math.abs(col - column)
+            })).filter(item => item.word).sort((a, b) => a.distance - b.distance || a.column - b.column);
+            if (candidates.length) { next = candidates[0].word; break; }
           }
         }
         if (next) {
