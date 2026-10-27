@@ -370,8 +370,9 @@
       function noteExplanation(card) {
         const source = sourceCard(card), note = clean(source.note);
         if (!note) return null;
+        const labels = { prep: '전치사', conj: '접속사', adv: '일반 부사', adj: '형용사', n: '명사', v: '동사' };
         let lines = note.replace(/\s*(?:\/\s*)?\(([1-5])v\)/gi, '\n($1V)')
-          .replace(/\s*(?:\/\s*)?\(((?:prep|conj|adv|adj|n|v)\.?)\)/gi, '\n($1)')
+          .replace(/\s*(?:\/\s*)?\((prep|conj|adv|adj|n|v)\.?\)/gi, (_, label) => '\n(' + labels[label.toLowerCase()] + ')')
           .replace(/\s*(?:\/\s*)?\((일반 부사|접속부사)\)/g, '\n($1)').trim();
         if (card.question.sortingTopic === 'verb-complements') {
           const word = source.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
