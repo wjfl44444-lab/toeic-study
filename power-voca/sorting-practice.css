@@ -4,9 +4,6 @@
 #sorting-view .sort-meaning-topline{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
 #sorting-view .sort-meaning-topline .meaning-meta{min-width:0;margin:0}
 #sorting-view .sort-meaning-topline .sort-bookmark-slot{flex:0 0 auto;margin-left:auto}
-#sorting-view .category-word:has(.bookmark-button){display:grid;grid-template-columns:minmax(0,1fr) 28px;column-gap:6px}
-#sorting-view .category-word .bookmark-button{grid-column:2;grid-row:1;align-self:start;width:28px;min-width:28px;height:28px;min-height:28px;flex-basis:28px;border-radius:8px}
-#sorting-view .category-word .category-badge{grid-column:1 / -1;justify-self:start}
 #sorting-view .sort-counter{margin:8px 0 18px}
 #sorting-view .table-instruction{font-size:15px;color:var(--muted);line-height:1.7;margin:8px 0 16px}
 #sorting-view .sort-workspace{display:block;padding:27px 28px;margin-top:20px}
@@ -47,6 +44,12 @@
 #sorting-view .category-missing{display:block;padding:4px 6px;color:var(--muted);opacity:.35;font-size:15px;line-height:1.5}
 #sorting-view .category-word{display:flex;flex-wrap:wrap;align-items:center;gap:4px 5px;max-width:100%;padding:4px 6px;color:var(--ink);font-size:16px;line-height:1.5;overflow-wrap:anywhere}
 #sorting-view .category-word-text{min-width:0;overflow-wrap:anywhere}
+#sorting-view button.category-word{appearance:none;width:100%;border:0;border-radius:5px;background:transparent;font:inherit;font-size:16px;text-align:left;cursor:pointer}
+#sorting-view button.category-word.selected-meaning-word{background:#b6dec51c;outline:1px solid var(--mint);outline-offset:-1px}
+#sorting-view button.category-word:focus-visible{outline:2px solid #f0d38f;outline-offset:2px}
+#sorting-view .result-meaning-actions{position:sticky;top:8px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;margin:12px 0;border:1px solid var(--border);border-radius:10px;background:var(--panel)}
+#sorting-view .result-meaning-actions .table-instruction{margin:0;font-size:14px;overflow-wrap:anywhere}
+#sorting-view .result-meaning-actions .primary-button{min-height:38px;padding:7px 12px;font-size:14px;white-space:nowrap}
 #sorting-view .category-word.incorrect{color:#f2bba9}
 #sorting-view .category-shared-row:has(.category-word:hover) .category-word{background:#b6dec529;border-radius:4px;box-shadow:inset 0 0 0 1px #b6dec540}
 #sorting-view .category-badge{flex-shrink:0;border:1px solid var(--border);border-radius:5px;padding:0 4px;font-size:11px;font-weight:600;line-height:1.65;white-space:nowrap}

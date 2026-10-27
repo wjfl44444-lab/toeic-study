@@ -200,6 +200,7 @@
       const elements = Object.create(null);
       let mounted = false, composing = false, tableAtGrade = false, reviewIndex = null, reviewSession = null;
       let tableInputs = new Map(), tableRows = new Map(), renderedTableSession = null;
+      let resultSelection = null, selectedPractice = null, selectionSession = null, resultScroll = null;
       const session = () => host.getSession();
       const meta = () => session().sorting;
       const currentGroup = () => {
@@ -236,8 +237,10 @@
         elements['grade-table'].addEventListener('focus', () => { tableAtGrade = true; updateTableNavigation(); });
         table.append(tableActions);
         const feedback = named('div', 'feedback-panel', 'panel feedback-panel');
+        const selectedActions = element('div', 'result-meaning-actions');
+        selectedActions.append(named('p', 'selected-meaning-label', 'table-instruction', '단어를 선택하세요.'), button('selected-meaning', 'primary-button', '선택한 뜻 풀기', openSelectedMeaning));
         feedback.append(named('p', 'result-topic', 'sort-counter'), heading('result-title', ''), named('p', 'result-description', 'table-instruction', '분류별로 어떤 단어들이 있는지 함께 확인해 보세요.'),
-          named('div', 'category-results', 'category-results'), named('div', 'sort-results', 'card-results'));
+          selectedActions, named('div', 'category-results', 'category-results'), named('div', 'sort-results', 'card-results'));
         const feedbackActions = actions(); feedbackActions.append(button('skip-meaning', 'secondary-button', '분류만 마치기', skipMeaning), button('begin-meaning', 'primary-button', '뜻 확인하기', beginMeaning)); feedback.append(feedbackActions);
         const meaning = named('div', 'meaning-panel', 'panel question-panel');
         const options = named('div', 'meaning-options', 'meaning-options'); options.setAttribute('role', 'group'); options.setAttribute('aria-label', '뜻 보기');
@@ -266,7 +269,7 @@
       }
       function showPanel(id, focus) {
         ['table-panel', 'feedback-panel', 'meaning-panel', 'review-panel'].forEach(key => { elements[key].hidden = key !== id; });
-        elements['meaning-feedback'].hidden = id !== 'meaning-panel' || meta().phase !== 'meaning-feedback';
+        elements['meaning-feedback'].hidden = id !== 'meaning-panel' || !(selectedPractice ? selectedPractice.graded : meta().phase === 'meaning-feedback');
         host.showView('sorting');
         if (focus) focusHeading(focus);
       }
@@ -399,10 +402,17 @@
         function wordLabel(card, binIndex) {
           const source = sourceCard(card), stage = card.stages[0];
           const incorrect = !correct(stage) && !selection(stage).includes(binIndex);
-          const word = element('span', 'category-word' + (incorrect ? ' incorrect' : ''));
+          const item = meaningFor(card, binIndex);
+          const word = element(item ? 'button' : 'span', 'category-word' + (incorrect ? ' incorrect' : ''));
+          if (item) {
+            word.type = 'button'; word.dataset.resultMeaning = card.question.id + ':' + binIndex;
+            word.setAttribute('aria-label', source.text + ' · ' + group.bins[binIndex].label + ' 뜻 선택');
+            word.addEventListener('click', () => {
+              resultSelection = { id: card.question.id, binIndex };
+              updateResultSelection();
+            });
+          }
           word.append(element('span', 'category-word-text', source.text));
-          const bookmark = typeof host.bookmarkButton === 'function' && host.bookmarkButton(card.question);
-          if (bookmark) word.append(bookmark);
           if (incorrect) { const badge = element('span', 'category-badge incorrect', '오답'); badge.setAttribute('aria-hidden', 'true'); word.append(badge); }
           word.append(element('span', 'sr-only', ' · 해당 분류: ' + group.bins.filter(bin => source.correctBins.includes(bin.id)).map(bin => bin.label).join(' · ') + (incorrect ? ' · 분류 오답' : '')));
           return word;
@@ -432,11 +442,49 @@
           appendRow(singleColumns.map(words => words[index] || null), 'category-single-row');
         }
         table.append(body); wrap.append(table); target.append(wrap);
+        updateResultSelection();
         const meanings = queue().length > 0, results = elements['sort-results']; results.replaceChildren();
         cards.filter(card => !correct(card.stages[0])).forEach(card => results.append(resultRow(card, false)));
         if (count === cards.length) results.append(element('p', 'table-instruction', '모두 정확하게 분류했어요.'));
         elements['skip-meaning'].hidden = !meanings;
         elements['begin-meaning'].textContent = meanings ? '뜻 확인하기' : '결과 보기'; showPanel('feedback-panel', focus ? 'result-title' : null);
+      }
+      function meaningFor(card, binIndex) {
+        const source = sourceCard(card), bin = currentGroup().bins[binIndex];
+        if (!source || !bin || !source.steps.length) return null;
+        let index = source.steps.findIndex(step => step.id.endsWith('-' + bin.id) || step.label.replace(/\s*뜻$/, '').trim() === bin.label);
+        if (index < 0 && source.steps.length === 1) index = 0;
+        return index < 0 ? null : { card, cardIndex: session().cards.indexOf(card), stage: card.stages[index + 1], stageIndex: index + 1 };
+      }
+      function selectedMeaning() {
+        const card = resultSelection && session().cards.find(card => card.question.id === resultSelection.id);
+        return card ? meaningFor(card, resultSelection.binIndex) : null;
+      }
+      function updateResultSelection() {
+        const item = selectedMeaning();
+        elements['category-results'].querySelectorAll('[data-result-meaning]').forEach(word => {
+          const selected = Boolean(item && word.dataset.resultMeaning === resultSelection.id + ':' + resultSelection.binIndex);
+          word.classList.toggle('selected-meaning-word', selected); word.setAttribute('aria-pressed', String(selected));
+        });
+        elements['selected-meaning'].disabled = !item;
+        elements['selected-meaning-label'].textContent = item ? sourceCard(item.card).text + ' · ' + currentGroup().bins[resultSelection.binIndex].label : '단어를 선택하세요.';
+      }
+      function openSelectedMeaning() {
+        if (!host.ready() || meta().phase !== 'sort-feedback') return;
+        const item = selectedMeaning(); if (!item) return;
+        const wrap = elements['category-results'].querySelector('.category-comparison-wrap');
+        resultScroll = { top: win.scrollY || 0, left: wrap ? wrap.scrollLeft || 0 : 0 };
+        selectedPractice = { ...item, stage: { ...item.stage, selected: null }, graded: false };
+        renderMeaning(true);
+      }
+      function closeSelectedMeaning() {
+        if (!selectedPractice) return;
+        selectedPractice = null; renderSortFeedback(false);
+        const wrap = elements['category-results'].querySelector('.category-comparison-wrap');
+        if (wrap && resultScroll) wrap.scrollLeft = resultScroll.left;
+        const selected = Array.from(elements['category-results'].querySelectorAll('[data-result-meaning]')).find(word => word.getAttribute('aria-pressed') === 'true');
+        if (selected) selected.focus({ preventScroll: true });
+        if (resultScroll) win.scrollTo({ top: resultScroll.top, behavior: 'auto' });
       }
       function pointTo(item) {
         session().index = item.cardIndex; meta().active = item.card.question.id; item.card.stageIndex = item.stageIndex;
@@ -455,9 +503,14 @@
         finish();
       }
       function meaningItem() {
+        if (selectedPractice) return selectedPractice;
         const card = current(); return queue().find(item => item.card === card && item.stageIndex === card.stageIndex);
       }
       function chooseMeaning(originalIndex) {
+        if (selectedPractice) {
+          if (selectedPractice.graded) return;
+          selectedPractice.stage.selected = originalIndex; renderMeaning(false); return;
+        }
         if (!host.ready() || meta().phase !== 'meaning') return;
         const item = meaningItem(); if (!item || checked(item.card, item.stageIndex)) return;
         item.stage.selected = originalIndex; save(); renderMeaning(false);
@@ -465,8 +518,8 @@
       function renderMeaning(focus) {
         const item = meaningItem(); if (!item) return;
         const items = queue(), index = items.findIndex(row => row.card === item.card && row.stageIndex === item.stageIndex);
-        const source = sourceCard(item.card), step = source.steps[item.stageIndex - 1], graded = checked(item.card, item.stageIndex);
-        elements['meaning-meta'].textContent = currentGroup().title + ' · 뜻 확인 ' + (index + 1) + ' / ' + items.length + '단계';
+        const source = sourceCard(item.card), step = source.steps[item.stageIndex - 1], graded = selectedPractice ? selectedPractice.graded : checked(item.card, item.stageIndex);
+        elements['meaning-meta'].textContent = selectedPractice ? '선택 뜻 연습 · 누적 점수에 합산하지 않아요' : currentGroup().title + ' · 뜻 확인 ' + (index + 1) + ' / ' + items.length + '단계';
         elements['meaning-title'].textContent = source.text + ' · ' + step.label;
         const bookmarkSlot = elements['meaning-bookmark'];
         if (bookmarkSlot && bookmarkSlot.dataset.questionId !== item.card.question.id) {
@@ -481,27 +534,34 @@
           option.type = 'button'; option.disabled = graded; option.dataset.sortingMeaning = String(displayIndex); option.setAttribute('aria-pressed', String(selected));
           option.append(element('span', 'option-number', String(displayIndex + 1)), element('span', '', choice.text)); option.addEventListener('click', () => chooseMeaning(choice.originalIndex)); list.append(option);
         });
-        elements['previous-meaning'].hidden = index === 0; elements['grade-meaning'].hidden = graded; elements['grade-meaning'].disabled = !answered(item.stage);
+        elements['previous-meaning'].hidden = !selectedPractice && index === 0; elements['previous-meaning'].textContent = selectedPractice ? '표로 돌아가기' : '이전 단계';
+        elements['grade-meaning'].hidden = graded; elements['grade-meaning'].disabled = !answered(item.stage);
         if (graded) {
           elements['meaning-feedback-title'].textContent = correct(item.stage) ? '✓ 정답' : '다시 확인';
           elements['meaning-answer'].textContent = (step.expression || source.text) + ' → ' + item.stage.data.options[item.stage.data.answer];
           elements['meaning-explanation'].textContent = clean(source.note);
-          elements['next-meaning'].textContent = index === items.length - 1 ? '세트 결과 보기' : '다음 뜻 확인';
+          elements['next-meaning'].textContent = selectedPractice ? '표로 돌아가기' : index === items.length - 1 ? '세트 결과 보기' : '다음 뜻 확인';
         }
         showPanel('meaning-panel', focus ? graded ? 'meaning-feedback-title' : 'meaning-title' : null);
       }
       function gradeMeaning() {
+        if (selectedPractice) {
+          if (!answered(selectedPractice.stage) || selectedPractice.graded) return;
+          selectedPractice.graded = true; renderMeaning(true); return;
+        }
         if (!host.ready() || meta().phase !== 'meaning') return;
         const item = meaningItem(); if (!item || !answered(item.stage)) { host.announce('뜻을 먼저 선택해 주세요.'); return; }
         if (!checked(item.card, item.stageIndex)) meta().checked[item.card.question.id].push(item.stageIndex);
         meta().checked[item.card.question.id].sort((a, b) => a - b); meta().phase = 'meaning-feedback'; finishCard(item.card); save(); render(true);
       }
       function previousMeaning() {
+        if (selectedPractice) { closeSelectedMeaning(); return; }
         if (!host.ready() || !['meaning', 'meaning-feedback'].includes(meta().phase)) return;
         const item = meaningItem(), items = queue(), index = items.findIndex(row => row.card === item.card && row.stageIndex === item.stageIndex);
         if (index > 0) { pointTo(items[index - 1]); save(); render(true); }
       }
       function nextMeaning() {
+        if (selectedPractice) { closeSelectedMeaning(); return; }
         if (!host.ready() || meta().phase !== 'meaning-feedback') return;
         const item = meaningItem(), items = queue(), index = items.findIndex(row => row.card === item.card && row.stageIndex === item.stageIndex);
         if (index < items.length - 1) { pointTo(items[index + 1]); save(); render(true); }
@@ -542,6 +602,8 @@
       function render(focus) {
         const s = session(); if (!s || !s.sorting) return;
         mount();
+        if (selectionSession !== s) { resultSelection = null; selectedPractice = null; resultScroll = null; selectionSession = s; }
+        if (selectedPractice) { renderMeaning(focus); return; }
         if (reviewSession !== s) { reviewIndex = null; reviewSession = null; }
         if (reviewIndex !== null) { renderReview(focus); return; }
         // The saved active word, rather than a results-list click, owns resume.
@@ -566,10 +628,20 @@
         if (field && !(field.type === 'checkbox' && field.dataset.sortingCard)) return;
         const control = target && target.closest && target.closest('button,a,summary');
         const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-skip-meaning', 'sorting-previous-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
-        if (control && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && !allowed.includes(control.id)) return;
+        if (control && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && control.dataset.resultMeaning === undefined && control.id !== 'sorting-selected-meaning' && !allowed.includes(control.id)) return;
         const number = /^[1-8]$/.test(event.key) ? Number(event.key) - 1 : null;
         if (number === null && event.key !== 'Enter') return;
         if (event.repeat) { event.preventDefault(); return; }
+        if (selectedPractice) {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            if (control && control.id === 'sorting-previous-meaning' || selectedPractice.graded) closeSelectedMeaning();
+            else gradeMeaning();
+          } else if (number !== null && !selectedPractice.graded && number < selectedPractice.stage.choices.length) {
+            event.preventDefault(); chooseMeaning(selectedPractice.stage.choices[number].originalIndex);
+          }
+          return;
+        }
         if (s.sorting.phase === 'sorting') {
           if (number !== null && number < currentGroup().bins.length) {
             event.preventDefault(); const input = tableInputs.get(s.sorting.active + ':' + number); if (input) input.click();
@@ -578,7 +650,14 @@
             if (event.shiftKey || control && control.id === 'sorting-previous-word') previousTableWord();
             else if (control && control.id === 'sorting-grade-table') gradeSort(); else nextTableWord();
           }
-        } else if (s.sorting.phase === 'sort-feedback' && event.key === 'Enter') { event.preventDefault(); if (control && control.id === 'sorting-skip-meaning') skipMeaning(); else beginMeaning(); }
+        } else if (s.sorting.phase === 'sort-feedback' && event.key === 'Enter') {
+          event.preventDefault();
+          if (control && control.id === 'sorting-skip-meaning') skipMeaning();
+          else if (control && control.id === 'sorting-begin-meaning') beginMeaning();
+          else if (control && control.dataset.resultMeaning && control.getAttribute('aria-pressed') !== 'true') control.click();
+          else if (selectedMeaning()) openSelectedMeaning();
+          else beginMeaning();
+        }
         else if (s.sorting.phase === 'meaning' || s.sorting.phase === 'meaning-feedback') {
           const item = meaningItem(); if (!item) return;
           if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); previousMeaning(); return; }
