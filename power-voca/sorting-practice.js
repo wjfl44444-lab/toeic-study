@@ -213,6 +213,9 @@
       const checked = (card, index) => meta().checked[card.question.id].includes(index);
       const queue = () => meta().classificationOnly === true ? [] : session().cards.flatMap((card, cardIndex) => card.stages.slice(1).map((stage, index) => ({ card, cardIndex, stage, stageIndex: index + 1 })));
       function element(tag, cls, text) { return host.node(tag, cls, text); }
+      function meaningText(value) {
+        return currentGroup().id === 'noun-countability' ? String(value).replace(/\(\s*n\s*\)\s*/gi, '').trim() : value;
+      }
       function named(tag, id, cls, text) {
         const item = element(tag, cls, text); item.id = 'sorting-' + id; elements[id] = item; return item;
       }
@@ -333,7 +336,16 @@
       function focusWord(id) {
         selectWord(id); const input = tableInputs.get(id + ':0');
         if (input) input.focus({ preventScroll: true });
-        const row = tableRows.get(id); if (row) row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        const row = tableRows.get(id); if (!row) return;
+        const wrap = elements['table-wrap'], head = wrap.querySelector('thead');
+        const headerHeight = head && typeof head.getBoundingClientRect === 'function' ? head.getBoundingClientRect().height : 0;
+        if (headerHeight) wrap.style.setProperty('--classification-header-offset', (headerHeight + 8) + 'px');
+        row.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        if (typeof wrap.getBoundingClientRect !== 'function' || typeof row.getBoundingClientRect !== 'function') return;
+        const viewport = wrap.getBoundingClientRect(), bounds = row.getBoundingClientRect();
+        const visibleTop = viewport.top + headerHeight + 8, visibleBottom = viewport.bottom - 8;
+        if (bounds.top < visibleTop) wrap.scrollTop -= visibleTop - bounds.top;
+        else if (bounds.bottom > visibleBottom) wrap.scrollTop += bounds.bottom - visibleBottom;
       }
       function previousTableWord() {
         if (!host.ready() || meta().phase !== 'sorting') return;
@@ -380,7 +392,7 @@
             const step = source.steps[index];
             const meaning = element('p', 'result-detail meaning-result' + (correct(stage) ? '' : ' incorrect'));
             meaning.append(element('span', 'meaning-result-label', (step.expression || source.text) + ' · ' + step.label),
-              element('span', 'meaning-result-answer', (!correct(stage) ? '내 선택: ' + selection(stage).map(choice => stage.data.options[choice]).join(' · ') + ' → 정답: ' : '') + stage.data.options[stage.data.answer]));
+              element('span', 'meaning-result-answer', (!correct(stage) ? '내 선택: ' + selection(stage).map(choice => meaningText(stage.data.options[choice])).join(' · ') + ' → 정답: ' : '') + meaningText(stage.data.options[stage.data.answer])));
             meaningResults.append(meaning);
           });
           if (card.stages.length > 1) row.append(meaningResults);
@@ -439,8 +451,12 @@
           header.append(cell);
         });
         head.append(header); table.append(head); const body = element('tbody');
+        let hasMultiple = false, singleBoundary = false;
         function appendRow(words, cls, id) {
           const row = element('tr', cls); if (id) row.dataset.categoryRow = id;
+          const multiple = words.some(card => card && sourceCard(card).correctBins.length > 1);
+          if (!multiple && hasMultiple && !singleBoundary) { row.classList.add('category-single-start'); singleBoundary = true; }
+          if (multiple) hasMultiple = true;
           words.forEach((card, index) => {
             const cell = element('td');
             if (card) cell.append(wordLabel(card, index));
@@ -569,13 +585,13 @@
           const selected = item.stage.selected === choice.originalIndex, right = choice.originalIndex === item.stage.data.answer;
           const option = element('button', 'meaning-option' + (selected ? ' selected' : '') + (graded && right ? ' correct' : '') + (graded && selected && !right ? ' incorrect' : ''));
           option.type = 'button'; option.disabled = graded; option.dataset.sortingMeaning = String(displayIndex); option.setAttribute('aria-pressed', String(selected));
-          option.append(element('span', 'option-number', String(displayIndex + 1)), element('span', '', choice.text)); option.addEventListener('click', () => chooseMeaning(choice.originalIndex)); list.append(option);
+          option.append(element('span', 'option-number', String(displayIndex + 1)), element('span', '', meaningText(choice.text))); option.addEventListener('click', () => chooseMeaning(choice.originalIndex)); list.append(option);
         });
         elements['previous-meaning'].hidden = !selectedPractice && index === 0; elements['previous-meaning'].textContent = selectedPractice ? '표로 돌아가기' : '이전 단계';
         elements['grade-meaning'].hidden = graded; elements['grade-meaning'].disabled = !answered(item.stage);
         if (graded) {
           elements['meaning-feedback-title'].textContent = correct(item.stage) ? '✓ 정답' : '다시 확인';
-          elements['meaning-answer'].textContent = (step.expression || source.text) + ' → ' + item.stage.data.options[item.stage.data.answer];
+          elements['meaning-answer'].textContent = (step.expression || source.text) + ' → ' + meaningText(item.stage.data.options[item.stage.data.answer]);
           const forms = formExplanation(item.card);
           elements['meaning-explanation'].replaceChildren(...(forms ? [forms] : [element('p', '', clean(source.note))]));
           elements['next-meaning'].textContent = selectedPractice ? '표로 돌아가기' : index === items.length - 1 ? '세트 결과 보기' : '다음 뜻 확인';

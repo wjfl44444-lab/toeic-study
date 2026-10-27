@@ -9,7 +9,7 @@
 #sorting-view .sort-workspace{display:block;padding:27px 28px;margin-top:20px}
 #sorting-view .sort-workspace .sort-counter{margin:0 0 9px}
 #sorting-view .sort-workspace .sort-title{font-size:22px;margin-bottom:5px}
-#sorting-view .classification-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:12px;max-height:62vh;scrollbar-color:#56715d transparent}
+#sorting-view .classification-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:12px;max-height:62vh;scrollbar-color:#56715d transparent;scroll-padding-top:var(--classification-header-offset,64px);scroll-padding-bottom:8px}
 #sorting-view .classification-table{width:100%;min-width:calc(155px + var(--bin-count,5)*64px);table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:16px}
 #sorting-view .classification-table th,#sorting-view .classification-table td{border-bottom:1px solid #b6dec51c;border-right:1px solid #b6dec51c;padding:0;text-align:center}
 #sorting-view .classification-table tr>*:last-child{border-right:0}
@@ -39,6 +39,7 @@
 #sorting-view .category-comparison{border-collapse:collapse;table-layout:fixed;width:100%;min-width:calc(var(--bin-count,2)*140px)}
 #sorting-view .category-comparison thead th{text-align:left;vertical-align:middle;padding:12px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:17px;line-height:1.4;font-weight:600}
 #sorting-view .category-comparison td{vertical-align:middle;padding:5px 6px;border-bottom:1px solid var(--border)}
+#sorting-view .category-comparison .category-single-start td{border-top:2px solid var(--border);padding-top:16px}
 #sorting-view .category-comparison tbody tr:last-child>*{border-bottom:0}
 #sorting-view .category-comparison th+th,#sorting-view .category-comparison td+td{border-left:1px solid var(--border)}
 #sorting-view .category-missing{display:block;padding:4px 6px;color:var(--muted);opacity:.35;font-size:15px;line-height:1.5}
