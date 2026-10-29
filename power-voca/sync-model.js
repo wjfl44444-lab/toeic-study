@@ -15,10 +15,11 @@
   function studyScope(value) { return typeof value === "string" && /^[a-zA-Z0-9 _-]{1,40}$/.test(value) && !["__proto__", "constructor", "prototype"].includes(value); }
   function studyPass(value) { return count(value) && value > 0; }
   function studyRun(value) {
-    if (!object(value) || Object.keys(value).some(function (name) { return !["scope", "pass", "size"].includes(name); }) || !studyScope(value.scope) || !studyPass(value.pass) ||
-        value.size !== undefined && !["20", "50", "100", "all"].includes(value.size)) { throw new Error("Invalid study run"); }
+    if (!object(value) || Object.keys(value).some(function (name) { return !["scope", "pass", "size", "collection"].includes(name); }) || !studyScope(value.scope) || !studyPass(value.pass) ||
+        value.size !== undefined && !["20", "50", "100", "all"].includes(value.size) || value.collection !== undefined && value.collection !== "starred") { throw new Error("Invalid study run"); }
     var result = { scope: value.scope, pass: value.pass };
     if (value.size !== undefined) { result.size = value.size; }
+    if (value.collection !== undefined) { result.collection = value.collection; }
     return result;
   }
   function studyProgress(value) {
@@ -134,8 +135,9 @@
     // silently reinterpret an existing round using newer practice overlays.
     if (value.practiceVersion !== undefined) { result.practiceVersion = value.practiceVersion; }
     if (value.studyRun !== undefined) {
-      if (value.mode !== "all") { throw new Error("Invalid study run mode"); }
+      if (value.mode !== "all" && value.mode !== "starred") { throw new Error("Invalid study run mode"); }
       result.studyRun = studyRun(value.studyRun);
+      if ((value.mode === "starred") !== (result.studyRun.collection === "starred")) { throw new Error("Invalid study run collection"); }
     }
     if (value.resumeStudyRun !== undefined) {
       if (value.mode !== "wrong") { throw new Error("Invalid resume study run mode"); }
@@ -202,6 +204,7 @@
         result.grammarImportOwner = value.grammarImportOwner;
       }
       if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
+      if (value.starredStudyProgress !== undefined) { result.starredStudyProgress = studyProgress(value.starredStudyProgress); }
       if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
       return result;
     } catch (_) { return null; }
@@ -231,6 +234,7 @@
     if (value.grammarImported === true) { result.grammarImported = true; }
     if (value.grammarImportOwner) { result.grammarImportOwner = value.grammarImportOwner; }
     if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
+    if (value.starredStudyProgress !== undefined) { result.starredStudyProgress = studyProgress(value.starredStudyProgress); }
     if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
@@ -279,17 +283,18 @@
     if (receipts.length) { result._studySync = { version: 1, commits: Array.from(new Set(receipts)).slice(-256) }; }
     if (local.grammarImported || remote.grammarImported || base && base.grammarImported) { result.grammarImported = true; }
     if (local.grammarImportOwner || remote.grammarImportOwner || base && base.grammarImportOwner) { result.grammarImportOwner = local.grammarImportOwner || remote.grammarImportOwner || base.grammarImportOwner; }
-    var progress = [base, local, remote].filter(function (value) { return value && value.studyProgress; });
-    if (progress.length) {
-      result.studyProgress = { version: 1, completed: Object.create(null), scopes: Object.create(null) };
+    ["studyProgress", "starredStudyProgress"].forEach(function (field) {
+      var progress = [base, local, remote].filter(function (value) { return value && value[field]; });
+      if (!progress.length) { return; }
+      result[field] = { version: 1, completed: Object.create(null), scopes: Object.create(null) };
       progress.forEach(function (value) {
         ["completed", "scopes"].forEach(function (name) {
-          Object.keys(value.studyProgress[name]).forEach(function (id) {
-            result.studyProgress[name][id] = Math.max(result.studyProgress[name][id] || 0, value.studyProgress[name][id]);
+          Object.keys(value[field][name]).forEach(function (id) {
+            result[field][name][id] = Math.max(result[field][name][id] || 0, value[field][name][id]);
           });
         });
       });
-    }
+    });
     var marked = [base, local, remote].filter(function (value) { return value && value.bookmarks !== undefined; });
     if (marked.length) {
       result.bookmarks = Object.create(null);

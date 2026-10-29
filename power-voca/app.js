@@ -88,7 +88,7 @@
   var storageKey = "power-voca-full-v1";
   var history = Object.create(null);
   var bookmarks = Object.create(null), bookmarkIndex = Object.create(null);
-  var studyProgress = null;
+  var studyProgress = null, starredStudyProgress = null;
   var questionMap = new Map();
   var signatures = new Map();
   var storageWarning = "";
@@ -286,6 +286,7 @@
     if (grammarImported) { saved.grammarImported = true; }
     if (grammarImportOwner) { saved.grammarImportOwner = grammarImportOwner; }
     if (studyProgress) { saved.studyProgress = studyProgress; }
+    if (starredStudyProgress) { saved.starredStudyProgress = starredStudyProgress; }
     return syncModel ? syncModel.stringify(saved, compact) : JSON.stringify(saved);
   }
   function preserveOriginal() {
@@ -400,6 +401,7 @@
         history = saved.history;
         bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex();
         studyProgress = saved.studyProgress || null;
+        starredStudyProgress = saved.starredStudyProgress || null;
         grammarImported = saved.grammarImported === true;
         grammarImportOwner = saved.grammarImportOwner || null;
         archivedHistory = saved.archivedHistory;
@@ -459,6 +461,7 @@
         history = merged.history; archivedHistory = merged.archivedHistory;
         bookmarks = merged.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
         studyProgress = merged.studyProgress || null;
+        starredStudyProgress = merged.starredStudyProgress || null;
         grammarImported = merged.grammarImported === true;
         grammarImportOwner = merged.grammarImportOwner || null;
         syncReceipts = merged._studySync || null;
@@ -475,6 +478,7 @@
         bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
         if (options.accountSwitch === true) { el("bookmarks-only").checked = false; }
         studyProgress = saved.studyProgress || null;
+        starredStudyProgress = saved.starredStudyProgress || null;
         grammarImported = saved.grammarImported === true;
         grammarImportOwner = saved.grammarImportOwner || null;
         if (!options.deferReady && grammarImported && currentOwner() && grammarImportOwner === fingerprint(currentOwner())) { unifiedImportReady = true; }
@@ -698,6 +702,10 @@
       ensureStudyProgress();
       studyProgress = progressManager.mark(studyProgress, id, session.studyRun ? session.studyRun.pass : 1);
     }
+    if (progressManager && session && session.mode === "starred") {
+      ensureStarredStudyProgress();
+      starredStudyProgress = progressManager.mark(starredStudyProgress, id, session.studyRun ? session.studyRun.pass : 1);
+    }
   }
   function renderHistory() {
     var items = Object.keys(history).map(function (id) { return history[id]; }).concat(archivedHistory);
@@ -810,8 +818,9 @@
   }
   function renderStarredReview() {
     var entries = starredReviewEntries(), pages = Math.max(1, Math.ceil(entries.length / wrongReviewPageSize));
+    var progress = unifiedImportReady && progressForRun({ scope: "all", collection: "starred" });
     starredReviewPage = Math.min(starredReviewPage, pages - 1);
-    text("starred-review-summary", entries.length ? "별표한 문제 " + entries.length + "개" : "아직 별표한 문제가 없어요.");
+    text("starred-review-summary", entries.length ? "별표한 문제 " + entries.length + "개" + (progress ? " · 남은 " + progress.remaining + "문제" : "") : "아직 별표한 문제가 없어요.");
     var list = el("starred-review-list"); list.replaceChildren();
     entries.slice(starredReviewPage * wrongReviewPageSize, (starredReviewPage + 1) * wrongReviewPageSize).forEach(function (entry) {
       var row = node("li", "wrong-review-row");
@@ -823,7 +832,8 @@
     text("starred-review-page", (starredReviewPage + 1) + " / " + pages);
     el("starred-review-previous").disabled = starredReviewPage === 0;
     el("starred-review-next").disabled = starredReviewPage >= pages - 1;
-    text("starred-review-start", entries.length ? "별표 " + entries.length + "문제 풀기" : "별표 문제 풀기");
+    var size = currentSettings().roundSize, count = progress ? size === "all" ? progress.remaining : Math.min(Number(size), progress.remaining) : entries.length;
+    text("starred-review-start", progress && progress.complete ? "별표 " + (progress.pass + 1) + "회독 시작" : entries.length ? "별표 " + count + "문제 풀기" : "별표 문제 풀기");
     el("starred-review-start").disabled = !entries.length || !unifiedImportReady;
   }
   function startStarredReview() {
@@ -831,7 +841,9 @@
     var entries = starredReviewEntries();
     if (!entries.length) { return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
-    begin(entries.map(function (entry) { return entry.question; }), "starred", false);
+    var state = progressForRun({ scope: "all", collection: "starred" });
+    if (state && state.complete) { advanceStudyPass("all", currentSettings().roundSize, "starred"); }
+    else { beginStarredRemaining("all", currentSettings().roundSize); }
   }
   function showReviewCollection(mode) {
     ["wrong", "starred"].forEach(function (name) {
@@ -934,6 +946,22 @@
   function progressFor(pool, scope) {
     return progressManager ? progressManager.snapshot(ensureStudyProgress() || window.PowerVocaStudyProgress.empty(), pool, scope) : null;
   }
+  function ensureStarredStudyProgress() {
+    if (!progressManager || !unifiedImportReady) { return null; }
+    ensureStudyProgress();
+    if (!starredStudyProgress) {
+      starredStudyProgress = window.PowerVocaStudyProgress.empty();
+      if (session && session.mode === "starred") {
+        session.cards.filter(function (card) { return card.graded; }).forEach(function (card) {
+          starredStudyProgress = progressManager.mark(starredStudyProgress, card.question.historyKey || card.question.id, session.studyRun ? session.studyRun.pass : 1);
+        });
+      }
+    }
+    return starredStudyProgress;
+  }
+  function starredPool(scope) {
+    return scope === "all" ? starredReviewEntries().map(function (entry) { return entry.question; }) : poolForScope(scope).filter(isBookmarked);
+  }
   function progressLabel(state) {
     return state.pass + "회독 · " + state.completed + " / " + state.total + "문제 완료 · 남은 " + state.remaining + "문제";
   }
@@ -945,7 +973,6 @@
   }
   function sessionStudyRun() {
     if (!session) { return null; }
-    if (session.mode === "starred") { return null; }
     // A cumulative wrong review has no ordinary range to resume. Only an
     // explicit transition from an ordinary round carries its frozen context.
     if (session.mode === "wrong") { return session.resumeStudyRun ? Object.assign({}, session.resumeStudyRun) : null; }
@@ -966,18 +993,32 @@
       setting = scopes.length === 1 ? scopes[0] : groups.length === 1 ? "group-" + groups[0] : "all";
     }
     var length = String(session.cards.length), size = ["20", "50", "100"].indexOf(length) !== -1 ? length : currentSettings().roundSize;
-    return { scope: setting, pass: 1, size: size };
+    var inferred = { scope: setting, pass: 1, size: size };
+    if (session.mode === "starred") { inferred.collection = "starred"; }
+    return inferred;
   }
   function progressForRun(run) {
-    var state = progressFor(poolForScope(run.scope), run.scope);
+    var starred = run.collection === "starred";
+    var progress = starred ? ensureStarredStudyProgress() : ensureStudyProgress();
+    var state = progressManager && progressManager.snapshot(progress || window.PowerVocaStudyProgress.empty(), starred ? starredPool(run.scope) : poolForScope(run.scope), run.scope);
     if (!state) { return null; }
-    var completed = (ensureStudyProgress() || window.PowerVocaStudyProgress.empty()).completed;
+    if (!run.pass) { return state; }
+    var completed = (progress || window.PowerVocaStudyProgress.empty()).completed;
     state.pass = run.pass;
     state.remainingQuestions = state.questions.filter(function (q) { return (completed[q.id] || 0) < run.pass; });
     state.remaining = state.remainingQuestions.length;
     state.completed = state.total - state.remaining;
     state.complete = state.total > 0 && state.remaining === 0;
     return state;
+  }
+  function beginStarredRemaining(scope, size, pass) {
+    var state = progressForRun({ scope: scope, pass: pass, collection: "starred" });
+    if (!state || !state.remaining) { return false; }
+    var questions = el("shuffle-questions").checked ? shuffled(state.remainingQuestions) : state.remainingQuestions;
+    if (size !== "all") { questions = questions.slice(0, Number(size)); }
+    el("round-size").value = size;
+    begin(questions, "starred", false, { scope: scope, pass: state.pass, size: size, collection: "starred" });
+    return true;
   }
   function beginRemaining(scope, size, pass) {
     var pool = poolForScope(scope), progress = pass ? progressForRun({ scope: scope, pass: pass }) : progressFor(pool, scope);
@@ -989,29 +1030,31 @@
     begin(remaining, "all", false, progress ? { scope: scope, pass: progress.pass, size: size } : null);
     return true;
   }
-  function advanceStudyPass(scope, size) {
-    var pool = poolForScope(scope), state = progressFor(pool, scope);
+  function advanceStudyPass(scope, size, collection) {
+    var starred = collection === "starred";
+    var pool = starred ? starredPool(scope) : poolForScope(scope), state = progressForRun({ scope: scope, collection: collection });
     if (!state || !state.complete || !unifiedImportReady) { return; }
-    var before = studyProgress;
-    studyProgress = progressManager.nextPass(studyProgress, pool, scope);
-    if (!saveState()) { studyProgress = before; return; }
-    beginRemaining(scope, size);
+    var before = starred ? starredStudyProgress : studyProgress;
+    if (starred) { starredStudyProgress = progressManager.nextPass(starredStudyProgress, pool, scope); }
+    else { studyProgress = progressManager.nextPass(studyProgress, pool, scope); }
+    if (!saveState()) { if (starred) { starredStudyProgress = before; } else { studyProgress = before; } return; }
+    if (starred) { beginStarredRemaining(scope, size); } else { beginRemaining(scope, size); }
   }
   function renderStudyContinuation() {
     var run = sessionStudyRun(), state = run && progressForRun(run);
     var available = Boolean(state && state.total && unifiedImportReady);
     el("results-study-progress").hidden = !available;
-    text("results-study-progress", available ? scopeLabel(run.scope) + " · " + progressLabel(state) : "");
+    text("results-study-progress", available ? (run.collection === "starred" ? "별표 · " : "") + scopeLabel(run.scope) + " · " + progressLabel(state) : "");
     el("next-batch-button").hidden = !available || session.mode !== "wrong" && totals().ungraded > 0 || state.complete;
     el("next-pass-button").hidden = !available || totals().ungraded > 0 || !state.complete;
     if (available) {
-      text("next-batch-button", session.mode === "wrong" ? reviewNextBatchLabel(run, state) : "남은 문제 계속 풀기 (" + state.remaining + "개)");
+      text("next-batch-button", session.mode === "wrong" || run.collection === "starred" ? reviewNextBatchLabel(run, state) : "남은 문제 계속 풀기 (" + state.remaining + "개)");
       text("next-pass-button", (state.pass + 1) + "회독 시작");
     }
   }
   function reviewNextBatchLabel(run, state) {
     var size = run.size || "20", count = size === "all" ? state.remaining : Math.min(Number(size), state.remaining);
-    return (size !== "all" && count === Number(size) ? "다음 " : "남은 ") + count + "문제 풀기 · 일반 연습";
+    return (size !== "all" && count === Number(size) ? "다음 " : "남은 ") + count + "문제 풀기 · " + (run.collection === "starred" ? "별표 연습" : "일반 연습");
   }
   function mountReviewContinuation() {
     var parent = el("quiz-view") && el("quiz-view").parentNode;
@@ -1031,12 +1074,13 @@
     panel.hidden = !available;
     if (!available) { return; }
     text("review-next-batch-button", reviewNextBatchLabel(run, state));
-    text("review-next-batch-summary", scopeLabel(run.scope) + " · 남은 " + state.remaining + "문제");
+    text("review-next-batch-summary", (run.collection === "starred" ? "별표 · " : "") + scopeLabel(run.scope) + " · 남은 " + state.remaining + "문제");
   }
   function continueStudyRun() {
     var run = sessionStudyRun();
     if (run && unifiedImportReady && (session.mode === "wrong" || !totals().ungraded)) {
-      beginRemaining(run.scope, run.size || "20", run.pass);
+      if (run.collection === "starred") { beginStarredRemaining(run.scope, run.size || "20", run.pass); }
+      else { beginRemaining(run.scope, run.size || "20", run.pass); }
     }
   }
   function updateSettings() {
@@ -1046,7 +1090,8 @@
     text("question-shuffle-label", "문제 순서 섞기");
     el("step-filter-label").hidden = false;
     var starred = el("bookmarks-only").checked;
-    var pool = filteredQuestions(), size = el("round-size").value, state = starred ? null : progressFor(pool, currentSettings().step);
+    var pool = starred ? starredPool(currentSettings().step) : filteredQuestions(), size = el("round-size").value;
+    var state = starred ? progressForRun({ scope: currentSettings().step, collection: "starred" }) : progressFor(pool, currentSettings().step);
     var available = state ? state.remaining : pool.length;
     var count = size === "all" ? available : Math.min(Number(size), available);
     text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "남은 " + available + "문제 중 " + count + "문제" : "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요.");
@@ -1072,10 +1117,7 @@
     if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     if (el("bookmarks-only").checked) {
-      var pool = filteredQuestions(), size = el("round-size").value;
-      if (!pool.length) { return; }
-      if (el("shuffle-questions").checked) { pool = shuffled(pool); }
-      begin(size === "all" ? pool : pool.slice(0, Number(size)), "starred", false); return;
+      beginStarredRemaining(currentSettings().step, el("round-size").value); return;
     }
     beginRemaining(currentSettings().step, el("round-size").value);
   }
@@ -1607,7 +1649,7 @@
   el("start-button").addEventListener("click", startSelected);
   el("start-next-pass-button").addEventListener("click", function () {
     if (session && totals().ungraded && !window.confirm("새 회독을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 기록은 남아요. 시작할까요?")) { return; }
-    advanceStudyPass(currentSettings().step, el("round-size").value);
+    advanceStudyPass(currentSettings().step, el("round-size").value, el("bookmarks-only").checked ? "starred" : undefined);
   });
   el("next-batch-button").addEventListener("click", function () {
     continueStudyRun();
@@ -1615,7 +1657,7 @@
   if (el("review-next-batch-button")) { el("review-next-batch-button").addEventListener("click", continueStudyRun); }
   el("next-pass-button").addEventListener("click", function () {
     var run = sessionStudyRun();
-    if (run && !totals().ungraded) { advanceStudyPass(run.scope, run.size || currentSettings().roundSize); }
+    if (run && !totals().ungraded) { advanceStudyPass(run.scope, run.size || currentSettings().roundSize, run.collection); }
   });
   window.addEventListener("compositionstart", function () { keyboardComposing = true; });
   window.addEventListener("compositionend", function () { keyboardComposing = false; });
