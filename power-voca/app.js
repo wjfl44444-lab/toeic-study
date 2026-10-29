@@ -735,19 +735,22 @@
     button.title = starred ? "별표 해제" : "별표 표시";
   }
   function renderBookmarkButtons() { document.querySelectorAll("[data-bookmark-key]").forEach(paintBookmarkButton); }
+  function toggleBookmark(question) {
+    var key = bookmarkKey(question), previous = bookmarkIndex[key], before = bookmarks[key];
+    bookmarks[key] = { starred: !(previous && previous.starred), updatedAt: new Date(Math.max(Date.now(), previous ? Date.parse(previous.updatedAt) + 1 : 0)).toISOString() };
+    rebuildBookmarkIndex();
+    if (!saveState()) { if (before) { bookmarks[key] = before; } else { delete bookmarks[key]; } rebuildBookmarkIndex(); }
+    renderBookmarkButtons(); if (view === "start") { updateSettings(); }
+    announce(isBookmarked(question) ? "별표를 표시했어요." : "별표를 해제했어요.");
+  }
   function bookmarkButton(question) {
     var button = node("button", "bookmark-button"); button.type = "button";
     button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2 14.7 8.65 20.7 9.52 16.35 13.76 17.38 19.76 12 16.92 6.62 19.76 7.65 13.76 3.3 9.52 9.3 8.65Z"/></svg>';
     button.dataset.bookmarkKey = bookmarkKey(question); paintBookmarkButton(button);
-    button.addEventListener("keydown", function (event) { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); } });
+    button.addEventListener("keydown", function (event) { if (event.key === " ") { event.stopPropagation(); } });
     button.addEventListener("click", function (event) {
       event.stopPropagation();
-      var key = bookmarkKey(question), previous = bookmarkIndex[key], before = bookmarks[key];
-      bookmarks[key] = { starred: !(previous && previous.starred), updatedAt: new Date(Math.max(Date.now(), previous ? Date.parse(previous.updatedAt) + 1 : 0)).toISOString() };
-      rebuildBookmarkIndex();
-      if (!saveState()) { if (before) { bookmarks[key] = before; } else { delete bookmarks[key]; } rebuildBookmarkIndex(); }
-      renderBookmarkButtons(); if (view === "start") { updateSettings(); }
-      announce(isBookmarked(question) ? "별표를 표시했어요." : "별표를 해제했어요.");
+      toggleBookmark(question);
     });
     return button;
   }
@@ -1488,20 +1491,21 @@
     var control = target.closest("button, a, summary, [role='button']");
     var allowed = ["grade-button", "next-button", "feedback-next-button"];
     if (backward) { allowed = allowed.concat(["previous-stage-button", "previous-button"]); }
-    return !control || key === "Enter" && allowed.indexOf(control.id) !== -1;
+    return !control || control.dataset.bookmarkKey || key === "0" || key === "Enter" && allowed.indexOf(control.id) !== -1;
   }
   function handleQuizShortcut(event) {
     if (event.defaultPrevented || view !== "quiz" || !session || !unifiedImportReady ||
         event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "Enter") ||
         event.isComposing || keyboardComposing || event.keyCode === 229 || document.querySelector("dialog[open]")) { return; }
-    var digit = /^[1-8]$/.test(event.key), enter = event.key === "Enter";
-    if ((!digit && !enter) || !shortcutTargetAllowed(event.target, event.key, event.shiftKey)) { return; }
+    var digit = /^[1-8]$/.test(event.key), enter = event.key === "Enter", bookmark = event.key === "0";
+    if ((!digit && !enter && !bookmark) || !shortcutTargetAllowed(event.target, event.key, event.shiftKey)) { return; }
     // Suppress held-key repetitions as well as the native button activation;
     // a fresh Enter is required to leave the explanation after grading.
     if (event.repeat) { event.preventDefault(); return; }
     if (event.shiftKey) { event.preventDefault(); previousStep(); return; }
     var card = currentCard();
-    if (digit) {
+    if (bookmark) { event.preventDefault(); toggleBookmark(card.question); }
+    else if (digit) {
       if (card.graded) { return; }
       var input = el("options-list").querySelectorAll("input")[Number(event.key) - 1];
       if (!input || input.disabled) { return; }
@@ -1558,7 +1562,7 @@
     sortingController = sortingPractice.createController({
       el: el, node: node, getSession: function () { return session; }, getView: function () { return view; },
       ready: function () { return unifiedImportReady; }, save: saveState, record: recordCard,
-      showView: showView, showResults: showResults, announce: announce, bookmarkButton: bookmarkButton
+      showView: showView, showResults: showResults, announce: announce, bookmarkButton: bookmarkButton, toggleBookmark: toggleBookmark
     });
   }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });

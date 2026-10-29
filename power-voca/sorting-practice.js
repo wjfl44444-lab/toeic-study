@@ -688,7 +688,15 @@
         if (field && !(field.type === 'checkbox' && field.dataset.sortingCard)) return;
         const control = target && target.closest && target.closest('button,a,summary');
         const allowed = ['sorting-previous-word', 'sorting-grade-table', 'sorting-begin-meaning', 'sorting-skip-meaning', 'sorting-previous-meaning', 'sorting-grade-meaning', 'sorting-next-meaning'];
-        if (control && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && control.dataset.resultMeaning === undefined && control.id !== 'sorting-selected-meaning' && !allowed.includes(control.id)) return;
+        if (control && !control.dataset.bookmarkKey && !control.dataset.sortingWord && control.dataset.sortingMeaning === undefined && control.dataset.resultMeaning === undefined && control.id !== 'sorting-selected-meaning' && !allowed.includes(control.id) && event.key !== '0') return;
+        if (event.key === '0') {
+          event.preventDefault();
+          if (event.repeat || typeof host.toggleBookmark !== 'function') return;
+          const item = selectedPractice || (['meaning', 'meaning-feedback'].includes(s.sorting.phase) ? meaningItem() : s.sorting.phase === 'sort-feedback' ? selectedMeaning() : null);
+          const card = item ? item.card : s.sorting.phase === 'sorting' ? current() : null;
+          if (card) host.toggleBookmark(card.question);
+          return;
+        }
         if (s.sorting.phase === 'sort-feedback' && !selectedPractice && /^Arrow(?:Left|Right|Up|Down)$/.test(event.key)) {
           event.preventDefault(); moveResultSelection(event.key, target); return;
         }
