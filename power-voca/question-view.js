@@ -281,6 +281,7 @@
         result.context = '';
       }
       if (/^conn-directive-/.test(id)) result.context = '';
+      if (/^conn-object-/.test(id) && result.context === '사람 A와 그 사람이 할 행동을 연결해요.') result.context = '';
       if (['conn-prefer', 'conn-begin', 'conn-remind', 'conn-noun-way', 'conn-difficulty'].indexOf(id) !== -1) {
         result.context = result.context.replace(/두 연결이에요\./, '연결을 고르세요.');
       }
