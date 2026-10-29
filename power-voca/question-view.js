@@ -20,6 +20,31 @@
   var phrase = '빈칸에 알맞은 표현을 고르세요.';
   var sentence = '어법상 올바른 문장을 고르세요.';
   var meaning = '다음 뜻에 맞는 표현을 고르세요.';
+  var redundantConnectionContexts = new Set([
+    '사람 A와 그 사람이 할 행동을 연결해요.',
+    '앞으로 할 일과 이미 한 일을 연결해요.',
+    '행동 자체를 목적어로 직접 받는 연결을 고르세요.',
+    '주어의 행동을 직접 잇는 연결을 고르세요.',
+    '자신이 할 행동 또는 절로 나타낸 의견을 직접 연결해요.',
+    '자신의 행동·다른 사람의 행동·절 내용을 연결해요.',
+    '주어 자신 또는 다른 사람이 할 행동을 연결해요.',
+    '행동의 주체는 자신 또는 다른 사람이에요.',
+    '행동 또는 절 내용을 직접 연결해요.',
+    '다른 사람을 O로 두는 연결을 고르세요.',
+    '자신의 행동 또는 절로 나타낸 사실을 직접 연결해요.',
+    '행동을 직접 목적어로 받아요.',
+    '명사의 내용을 뒤에서 전치사 없이 직접 설명해요.',
+    '행동 방법을 설명하는 연결을 고르세요.',
+    '행동을 직접 연결해요.',
+    '주어가 하도록 전달받은 행동을 연결해요.',
+    '사실·내용을 전치사 없이 바로 목적어로 받아요.',
+    '뒤에서 행동을 직접 연결해요.',
+    '뒤에 행동을 잇는 연결을 고르세요.',
+    '뒤에 행동을 전치사 없이 직접 연결해요.',
+    '어떤 행동을 할 권리인지 직접 연결해요.',
+    '뒤에 행동을 직접 연결해요.',
+    '주어의 행동 또는 절 내용을 직접 연결해요.'
+  ]);
 
   // Reviewed derivation tasks ask for the word relationship first. A short
   // role/derivation constraint is retained only where several offered words
@@ -281,7 +306,6 @@
         result.context = '';
       }
       if (/^conn-directive-/.test(id)) result.context = '';
-      if (/^conn-object-/.test(id) && result.context === '사람 A와 그 사람이 할 행동을 연결해요.') result.context = '';
       if (['conn-prefer', 'conn-begin', 'conn-remind', 'conn-noun-way', 'conn-difficulty'].indexOf(id) !== -1) {
         result.context = result.context.replace(/두 연결이에요\./, '연결을 고르세요.');
       }
@@ -316,6 +340,14 @@
     if (stageIndex === 0 && question.id === 'usage1-qs-p111-temporary') result.prompt = '‘일시적인’에 해당하는 형용사를 고르세요.';
     if (stageIndex === 0 && question.id === 'semantic1-ui2-qs-p167-during-event-noun') {
       result.prompt = result.prompt.replace(/^행사 참석 동작을 동명사로 바꾸지 않고, 교재의 during 구조를 완성하세요\.\n/, '');
+    }
+    if (isGrammar && stage && stage.kind === 'structure' && /^conn-/.test(id)) {
+      if (redundantConnectionContexts.has(result.context)) result.context = '';
+      if (result.context === '주어 자신의 상태·행동을 전치사 없이 직접 연결해요.') {
+        result.context = /^conn-verb-(?:want|choose|wish)$/.test(id) ? '주어 자신이 할 행동' : '';
+      }
+      result.context = result.context.replace(/ · 필요한 전치사와 뒤에 오는 형태를 함께 확인해요\.$/, '')
+        .replace(/ · 행동을 연결해요\.$/, '');
     }
     return result;
   }
