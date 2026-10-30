@@ -17,6 +17,33 @@
     content = content || {};
     return { instruction: String(content.instruction || ''), prompt: String(content.prompt || ''), context: String(content.context || '') };
   }
+  // Printed headwords may include an alternative such as issues [problems].
+  // Keep that learning note in the source and feedback, but do not give the
+  // alternative away in a question. Only remove lexical notes declared by the
+  // target itself; square brackets used for blanks or grammar stay meaningful.
+  var grammaticalNotes = new Set(['n', 'noun', 'nouns', 'plural noun', 'singular noun', 'adj', 'adjective',
+    'adv', 'adverb', 'prep', 'preposition', 'conj', 'conjunction', 'clause', 'object', 'subject',
+    'complement', 'verb', 'infinitive', 'gerund', 'participle']);
+  function withoutTargetAlternatives(question, content) {
+    var alternatives = new Set();
+    [question.source && question.source.headword, question.answerSummary && question.answerSummary.expression,
+      question.displayExpression].forEach(function (target) {
+      if (typeof target !== 'string') return;
+      target.replace(/\[([^\[\]]+)\]/g, function (_, note) {
+        note = note.trim();
+        if (/^[a-z][a-z'’\-]*(?:[ /][a-z][a-z'’\-]*)*$/.test(note) && !grammaticalNotes.has(note)) alternatives.add(note);
+        return _;
+      });
+    });
+    if (!alternatives.size) return content;
+    ['instruction', 'prompt', 'context'].forEach(function (key) {
+      var cleaned = content[key].replace(/[ \t]*\[([^\[\]]+)\]/g, function (whole, note) {
+        return alternatives.has(note.trim()) ? '' : whole;
+      }).trim();
+      content[key] = cleaned;
+    });
+    return content;
+  }
   var phrase = '빈칸에 알맞은 표현을 고르세요.';
   var sentence = '어법상 올바른 문장을 고르세요.';
   var meaning = '다음 뜻에 맞는 표현을 고르세요.';
@@ -295,7 +322,8 @@
   ]);
   function present(question, stageIndex, defaultContent) {
     var result = copy(defaultContent);
-    if (!question || question.presentationReviewed === true) return result;
+    if (!question) return result;
+    if (question.presentationReviewed === true) return withoutTargetAlternatives(question, result);
     var stage = question.stages && question.stages[stageIndex];
     var id = question.grammarOriginId || String(question.id || '').replace(/^semantic1-grammar-/, '');
     var isGrammar = Boolean(question.grammarOriginId || /^semantic1-grammar-/.test(question.id || ''));
@@ -349,7 +377,7 @@
       result.context = result.context.replace(/ · 필요한 전치사와 뒤에 오는 형태를 함께 확인해요\.$/, '')
         .replace(/ · 행동을 연결해요\.$/, '');
     }
-    return result;
+    return withoutTargetAlternatives(question, result);
   }
-  return { VERSION: '20261026-neutral2', present: present };
+  return { VERSION: '20261030-neutral3', present: present };
 });

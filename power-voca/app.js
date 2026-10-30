@@ -1539,7 +1539,8 @@
     text("grade-button", posFirst ? "답 확인 →" : card.stageIndex < card.stages.length - 1 ? blindSet(card) ? "다음 단계 →" : "답 확인 →" : blindSet(card) ? "세트 채점하기" : "채점하기");
     el("next-button").hidden = !card.graded;
     el("next-button").disabled = !card.graded;
-    var nextLabel = session.index === session.cards.length - 1 ? "풀이 결과 보기" : "다음 문제 →";
+    var nextLabel = card.graded && nextAnsweredStage(card) !== -1 ? "다음 단계 →" :
+      session.index === session.cards.length - 1 ? "풀이 결과 보기" : "다음 문제 →";
     text("next-button", nextLabel); text("feedback-next-button", nextLabel);
     text("choice-hint", card.graded ? "선택한 답은 채점 후 변경되지 않아요. 오답 연습에서 다시 도전할 수 있어요." : posFirst ? "학습한 품사가 아닌 것을 고르면 이 문제를 종료해요. 선택한 정답 품사의 뜻만 이어서 물어요." : blindSet(card) ?
       (stage.data.multiple ? "해당하는 답을 모두 선택하세요. " : "") + "중간에는 정오답을 표시하지 않아요. 세트를 마친 뒤 선택한 답과 정답을 함께 확인해요." : card.stages.length > 1 ?
@@ -1576,8 +1577,17 @@
     el("feedback-title").focus({ preventScroll: true });
     el("feedback-panel").scrollIntoView({ block: "start", behavior: "auto" });
   }
+  function nextAnsweredStage(card) {
+    for (var i = card.stageIndex + 1; i < card.stages.length; i += 1) {
+      if (card.stages[i].selected !== null) { return i; }
+    }
+    return -1;
+  }
   function next() {
-    if (!currentCard().graded) { return; }
+    var card = currentCard();
+    if (!card.graded) { return; }
+    var followingStage = nextAnsweredStage(card);
+    if (followingStage !== -1) { card.stageIndex = followingStage; renderQuestion(true); return; }
     if (session.index < session.cards.length - 1) { session.index += 1; renderQuestion(true); }
     else { showResults(); }
   }
