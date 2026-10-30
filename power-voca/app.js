@@ -5,6 +5,7 @@
   var quickstartData = window.TOEIC_QUICKSTART || null;
   var memoryPractice = window.POWER_VOCA_MEMORY_PRACTICE || null;
   var memoryVersion = "20261023-memory3";
+  var prepSelectionVersion = "20261030-prepselect1";
   var memoryReady = memoryPractice && memoryPractice.version === memoryVersion &&
     memoryPractice.stages && Array.isArray(memoryPractice.questions);
   // Never append to or annotate the original corpus: fingerprints for old
@@ -1140,6 +1141,7 @@
       stage.optionReasons.every(function (value) { return typeof value === "string" && value.trim(); });
   }
   function hasPracticeOptions(version) {
+    if (version === prepSelectionVersion) { return hasPracticeOptions(memoryVersion); }
     var previousReady = practice && practice.version === previousPracticeVersion && practice.stages && typeof practice.stages === "object";
     if (version === previousPracticeVersion) { return previousReady; }
     if (version === memoryVersion) { return Boolean(memoryReady && hasPracticeOptions(practiceVersion)); }
@@ -1151,6 +1153,16 @@
   }
   function practiceStage(question, index, version) {
     var original = question.stages[index];
+    if (version === prepSelectionVersion) {
+      if (question.grammarPool === "prepositions" && index === 0) {
+        var selection = Object.assign({}, original, { multiple: true,
+          answers: original.multiple ? original.answers.slice() : [original.answer],
+          instruction: "알맞은 전치사·부사를 선택하세요." });
+        delete selection.answer;
+        return selection;
+      }
+      version = memoryVersion;
+    }
     if (!hasPracticeOptions(version)) { return original; }
     var patch = practice.stages[question.id] && practice.stages[question.id][index];
     var harder = (version === practiceVersion || version === memoryVersion) && hardPractice.stages[question.id] && hardPractice.stages[question.id][index];
@@ -1161,11 +1173,11 @@
   }
   function isLinkedMeaningStage(card, index) {
     if (card.question.grammarOriginId) { return false; }
-    var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
+    var meta = session && (session.practiceVersion === memoryVersion || session.practiceVersion === prepSelectionVersion) && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
     return index > 0 && !blindSet(card) && !(meta && meta.independent) && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
   }
   function questionDetail(card, key) {
-    var meta = session && session.practiceVersion === memoryVersion && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
+    var meta = session && (session.practiceVersion === memoryVersion || session.practiceVersion === prepSelectionVersion) && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
     return meta && meta[key] || card.question[key];
   }
   function stagePrompt(card, index) {
@@ -1254,6 +1266,7 @@
     questions = questions.map(function (q) { return q.routeRoot && questionMap.get(q.routeRoot) || q; });
     var ordered = mixQuestions ? shuffled(questions) : questions.slice();
     var version = latestPracticeVersion();
+    if (hasPracticeOptions(prepSelectionVersion) && ordered.some(function (q) { return q.grammarPool === "prepositions"; })) { version = prepSelectionVersion; }
     session = { mode: mode, index: 0, startedAt: new Date().toISOString(), practiceVersion: version, cards: ordered.map(function (question) {
       var sharedChoices = Object.create(null);
       return { question: question, stageIndex: 0, graded: false, deferred: false,
@@ -1467,7 +1480,7 @@
     var list = el("options-list"); list.replaceChildren();
     list.classList.toggle("options-grid", stage.choices.length > 4);
     list.style.gridTemplateRows = stage.choices.length > 4 ? "repeat(" + Math.ceil(stage.choices.length / 2) + ", auto)" : "";
-    text("options-legend", stage.data.multiple ? "해당하는 답을 모두 선택하세요." : "정답을 하나 선택하세요.");
+    text("options-legend", session.practiceVersion === prepSelectionVersion && card.question.grammarPool === "prepositions" ? "알맞은 답을 선택하세요." : stage.data.multiple ? "해당하는 답을 모두 선택하세요." : "정답을 하나 선택하세요.");
     stage.choices.forEach(function (choice, index) { list.append(createOption(card, stage, choice, index)); });
     el("previous-button").disabled = session.index === 0;
     el("grade-button").hidden = card.graded;
