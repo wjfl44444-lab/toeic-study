@@ -37,10 +37,17 @@
       answers.every(index => Number.isInteger(index) && index >= 0 && index < source.options.length);
   }
   function signature(question) { return JSON.stringify(answerWords(question).slice().sort()); }
+  // Compare distinct uses, rather than different blanks in the same expression.
+  // These originals remain available in ordinary practice and saved rounds.
+  const representedUses = new Set([
+    'semantic1-grammar-prep-fill-in-2f4f9b59ba', // Writing: represented by fill in/out the form.
+    'semantic1-grammar-prep-set-a-from-35ceb6d237' // Another blank in set A apart from B.
+  ]);
   function groups(pool) {
     const byWord = new Map();
     (Array.isArray(pool) ? pool : []).forEach(question => {
-      if (!validSource(question)) return;
+      if (!validSource(question) || representedUses.has(question.id) ||
+          question.source && question.source.section === '구동사의 목적어 위치') return;
       const word = wordOf(question);
       if (!byWord.has(word)) byWord.set(word, []);
       byWord.get(word).push(question);
