@@ -505,6 +505,17 @@ function setView(view, options = {}) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function pauseLearning() {
+  if (currentView === "quiz" && quizSession?.mode === "typing" && !quizSession.feedback) {
+    const input = document.querySelector("#typing-answer");
+    const question = quizSession.queue[quizSession.index];
+    if (input && question && !question.answered) question.draftAnswer = input.value;
+  }
+  // Keep the current queue, position and ungraded answer; do not complete it.
+  if (!saveState()) return;
+  setView("home");
+}
+
 function showToast(message, tone = "") {
   clearTimeout(toastTimer);
   toastNode.textContent = message;
@@ -748,7 +759,7 @@ function renderStudyCard() {
   const back = getAnswerLabel(word, studySession.direction);
   const alreadyRated = Boolean(studySession.ratings?.[studySession.index]) || studySession.index < (studySession.furthestIndex || 0) || studySession.completed;
   return `<section class="session-shell" aria-label="암기 카드 학습">
-      <div class="session-top"><button class="ghost-button" type="button" data-action="end-study">← 학습 설정</button><div class="session-progress"><div class="progress-label"><span>${studySession.index + 1} / ${studySession.wordIds.length}</span><span>${progress}%</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>
+      <div class="session-top"><button class="ghost-button" type="button" data-action="end-study">← 저장하고 나가기</button><div class="session-progress"><div class="progress-label"><span>${studySession.index + 1} / ${studySession.wordIds.length}</span><span>${progress}%</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>
       <div class="card-meta">${batchSummary(studySession, "flashcard")}${bookmarkButton(word.id)}</div>
       <div class="study-card-wrap"><button class="study-card ${studySession.revealed ? "revealed" : ""}" type="button" data-action="reveal-card" aria-label="${studySession.revealed ? "정답이 공개된 카드" : "뜻 보기"}" aria-live="polite">
         <span class="card-face front" aria-hidden="${studySession.revealed ? "true" : "false"}"><span class="card-kicker">${studySession.direction === "word-to-meaning" ? "이 단어의 뜻은?" : "이 뜻의 영단어는?"}</span><strong class="card-prompt">${h(front)}</strong><span class="part-label">${h(word.partOfSpeech || "품사 미지정")}</span><span class="card-hint">카드를 눌러 정답 보기</span></span>
@@ -807,7 +818,7 @@ function renderQuizQuestion() {
   const prompt = getPrompt(word, quizSession.direction);
   const answers = quizSession.mode === "multiple" ? renderMultipleAnswers(question, word) : renderTypingAnswer();
   const feedback = quizSession.feedback ? renderFeedback(word) : "";
-  return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 퀴즈 설정</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>${batchSummary(quizSession, quizSession.mode)}<article class="quiz-card"><div class="question-meta">${bookmarkButton(word.id)}<span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}${quizSession.feedback ? "" : `<button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button>`}${quizSession.returnBatchSettings ? nextBatchButton(quizSession) : ""}</article></section>`;
+  return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 저장하고 나가기</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>${batchSummary(quizSession, quizSession.mode)}<article class="quiz-card"><div class="question-meta">${bookmarkButton(word.id)}<span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}${quizSession.feedback ? "" : `<button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button>`}${quizSession.returnBatchSettings ? nextBatchButton(quizSession) : ""}</article></section>`;
 }
 
 function renderMultipleAnswers(question, word) {
@@ -826,7 +837,7 @@ function renderMultipleAnswers(question, word) {
 
 function renderTypingAnswer() {
   if (quizSession.feedback) return "";
-  return `<form id="typing-form" class="typing-form"><label for="typing-answer">정답 입력</label><div class="typing-row"><input id="typing-answer" name="answer" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="정답을 입력하세요" required /><button class="primary-button" type="submit">정답 확인</button></div></form>`;
+  return `<form id="typing-form" class="typing-form"><label for="typing-answer">정답 입력</label><div class="typing-row"><input id="typing-answer" name="answer" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="정답을 입력하세요" value="${h(quizSession.queue[quizSession.index].draftAnswer || "")}" required /><button class="primary-button" type="submit">정답 확인</button></div></form>`;
 }
 
 function renderFeedback(word) {
@@ -1305,10 +1316,7 @@ document.addEventListener("click", (event) => {
   }
   else if (action === "rate-card") rateStudy(button.dataset.rating);
   else if (action === "end-study") {
-    if (!studySession || confirm("진행 중인 카드 학습을 끝낼까요? 학습한 기록은 저장되어 있습니다.")) {
-      studySession = null;
-      render();
-    }
+    pauseLearning();
   }
   else if (action === "restart-study") {
     studySession = null;
@@ -1344,10 +1352,7 @@ document.addEventListener("click", (event) => {
   else if (action === "confirm-option" && quizSession && quizSession.queue[quizSession.index]?.selected !== null) submitQuizAnswer(quizSession.queue[quizSession.index].selected);
   else if (action === "next-quiz") nextQuiz();
   else if (action === "end-quiz") {
-    if (!quizSession || confirm("진행 중인 퀴즈를 끝낼까요? 이미 푼 단어의 기록은 저장되어 있습니다.")) {
-      quizSession = null;
-      render();
-    }
+    pauseLearning();
   }
   else if (action === "restart-quiz") {
     quizSession = null;
