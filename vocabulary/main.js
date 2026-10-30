@@ -28,7 +28,7 @@ import { readStoredState, writeStoredState } from "./storage.js?v=20261001-2";
 
 const VIEW_NAMES = {
   home: "홈",
-  wordbook: "단어장",
+  wordbook: "단어 목록",
   study: "암기 카드",
   quiz: "퀴즈",
   mistakes: "오답노트"
@@ -58,6 +58,7 @@ let studySession = validSavedStudy(state.activeStudy) ? state.activeStudy : null
 let quizSession = validSavedQuiz(state.activeQuiz) ? state.activeQuiz : null;
 let studyDefaults = studySettings(studySession);
 let quizDefaults = quizSettings(quizSession);
+let homeMode = studySession && !studySession.completed && !(quizSession && !quizSession.completed) ? "flashcard" : quizDefaults.mode;
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
 let mistakeFilter = "all";
 let studySync = null;
@@ -500,7 +501,7 @@ function render(persist = true) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  document.title = `${VIEW_NAMES[currentView]} · 토익 포켓 단어장`;
+  document.title = `${VIEW_NAMES[currentView]} · 토익 단어장`;
   const renderers = { home: renderHome, wordbook: renderWordbook, study: renderStudy, quiz: renderQuiz, mistakes: renderMistakes };
   document.body.classList.toggle("is-studying", (currentView === "study" && studySession && !studySession.completed) || (currentView === "quiz" && quizSession && !quizSession.completed));
   viewRoot.innerHTML = `${loaded.error ? `<div class="storage-alert" role="alert">${h(storageNotice)}</div>` : ""}<div class="screen-enter">${renderers[currentView]()}</div>`;
@@ -515,46 +516,32 @@ function render(persist = true) {
 function renderPageHeader(eyebrow, title, description, actions = "") {
   return `
     <header class="page-header">
-      <div><p class="eyebrow">${h(eyebrow)}</p><h1>${h(title)}</h1>${description ? `<p>${h(description)}</p>` : ""}</div>
+      <div><h1>${h(title)}</h1>${description ? `<p>${h(description)}</p>` : ""}</div>
       ${actions ? `<div class="page-actions">${actions}</div>` : ""}
     </header>`;
 }
 
 function renderHome() {
   const stats = computeDashboardStats(state);
-  const priority = [...state.words].filter((word) => word.wrongCount > 0).sort((a, b) => b.wrongCount - a.wrongCount || new Date(b.lastWrongAt || 0) - new Date(a.lastWrongAt || 0)).slice(0, 3);
-  const recent = state.sessions.at(-1);
-  const accuracy = stats.recentAccuracy == null ? "—" : `${stats.recentAccuracy}%`;
-  const bannerTitle = state.words.length === 0 ? "먼저 외울 단어를 추가해 주세요" : stats.mistakes > 0 ? `오답 ${stats.mistakes}개부터 정리해 볼까요?` : "오늘은 새 단어부터 가볍게 시작해요";
-  const bannerCopy = state.words.length === 0 ? "단어를 직접 입력하거나 여러 개를 한 번에 붙여 넣을 수 있어요." : "헷갈린 단어는 다음 학습에서 더 자주 보여드릴게요.";
+  const settings = homeMode === "flashcard" ? studyDefaults : quizDefaults;
+  const saved = [];
+  if (studySession && !studySession.completed) saved.push({ view: "study", label: "암기 카드", completed: studySession.index, total: studySession.wordIds.length });
+  if (quizSession && !quizSession.completed) saved.push({ view: "quiz", label: quizSession.mode === "typing" ? "직접 입력" : "객관식 퀴즈", completed: quizSession.originalAnswered, total: quizSession.originalTotal });
   return `
-    ${renderPageHeader(new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", weekday: "long" }).format(new Date()), "오늘의 학습", "내가 모은 단어, 하나씩 내 것으로.", `<button class="secondary-button" type="button" data-action="open-word-dialog">＋ 단어 추가</button>`)}
-    <section class="stats-grid" aria-label="학습 현황">
-      <article class="stat-card"><span>전체 단어</span><strong>${stats.total}</strong><small>내 단어장</small></article>
-      <article class="stat-card"><span>오늘 학습</span><strong>${stats.studiedToday}</strong><small>오늘 본 단어</small></article>
-      <article class="stat-card"><span>암기 완료</span><strong>${stats.mastered}</strong><small>전체의 ${stats.total ? Math.round(stats.mastered / stats.total * 100) : 0}%</small></article>
-      <article class="stat-card"><span>오답 단어</span><strong>${stats.mistakes}</strong><small>복습이 필요한 단어</small></article>
-      <article class="stat-card accent"><span>최근 정답률</span><strong>${accuracy}</strong><small>최근 퀴즈 10회 기준</small></article>
-    </section>
-    <section class="study-banner" aria-labelledby="study-title">
-      <div><span class="pill">${studySession && !studySession.completed || quizSession && !quizSession.completed ? "이어서 학습" : "오늘의 추천"}</span><h2 id="study-title">${h(bannerTitle)}</h2><p>${h(bannerCopy)}</p></div>
-      <div class="home-actions"><button class="primary-button" type="button" data-view="${quizSession && !quizSession.completed ? "quiz" : "study"}">${studySession && !studySession.completed || quizSession && !quizSession.completed ? "이어서 학습" : "학습 시작"} →</button>${stats.mistakes > 0 ? `<button class="secondary-button" type="button" data-action="start-wrong-quiz">오답 복습</button>` : ""}</div>
-    </section>
-    <section class="home-grid">
-      <article class="panel">
-        <div class="panel-heading"><div><h2>학습 방식</h2></div></div>
-        <div class="quick-actions">
-          <button type="button" data-view="study"><span class="action-icon blue" aria-hidden="true">▣</span><span><strong>플래시카드</strong><small>뜻을 가리고 빠르게 확인</small></span><b aria-hidden="true">→</b></button>
-          <button type="button" data-action="open-quiz-multiple"><span class="action-icon yellow" aria-hidden="true">✓</span><span><strong>객관식 퀴즈</strong><small>네 개의 보기에서 정답 찾기</small></span><b aria-hidden="true">→</b></button>
-          <button type="button" data-action="open-quiz-typing"><span class="action-icon mint" aria-hidden="true">⌨</span><span><strong>직접 입력</strong><small>철자와 뜻을 정확하게 연습</small></span><b aria-hidden="true">→</b></button>
-        </div>
-        ${recent ? `<div class="recent-session"><span><strong>최근 학습 · ${recent.mode === "flashcard" ? "암기 카드" : recent.mode === "typing" ? "직접 입력" : "객관식"}</strong><small>${formatDate(recent.finishedAt, true)} · ${recent.total}문제</small></span><strong>${recent.total ? Math.round((recent.correct / recent.total) * 100) : 0}%</strong></div>` : ""}
-      </article>
-      <article class="panel priority-panel">
-        <div class="panel-heading"><div><p class="eyebrow">복습 우선</p><h2>${priority.length ? "자주 틀린 단어" : "아직 오답이 없어요"}</h2></div></div>
-        ${priority.length ? `<div class="priority-list">${priority.map((word) => `<div class="priority-word"><span><strong>${h(word.word)}</strong><small>${h(word.meanings.join(", "))}</small></span><span class="mistake-count">${word.wrongCount}회 오답</span></div>`).join("")}</div><button class="text-button" type="button" data-action="start-wrong-quiz">오답만 복습하기 →</button>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>좋은 출발이에요</strong><br />퀴즈에서 틀린 단어가 여기에 모입니다.</p></div><button class="text-button" type="button" data-action="open-quiz-multiple">퀴즈 풀러 가기 →</button>`}
-      </article>
-    </section>`;
+    <form id="home-config" class="home-study-panel">
+      <h1>${state.words.length ? "단어 학습" : "단어를 추가해 주세요"}</h1>
+      <p class="home-intro">뜻을 익히고, 헷갈린 단어를 다시 확인해요.</p>
+      <div class="home-stats" aria-label="학습 현황"><span>전체 단어 <strong>${stats.total}</strong></span><span>암기 완료 <strong>${stats.mastered}</strong></span><span>오답 단어 <strong>${stats.mistakes}</strong></span></div>
+      <div class="form-grid two-columns home-settings">
+        <label><span>학습 방식</span><select name="mode"><option value="multiple" ${homeMode === "multiple" ? "selected" : ""}>객관식 퀴즈</option><option value="typing" ${homeMode === "typing" ? "selected" : ""}>직접 입력</option><option value="flashcard" ${homeMode === "flashcard" ? "selected" : ""}>암기 카드</option></select></label>
+        <label><span>학습 범위</span><select name="tag">${configTagOptions(settings.tag)}</select></label>
+        <label><span>출제 방향</span><select name="direction"><option value="word-to-meaning" ${settings.direction === "word-to-meaning" ? "selected" : ""}>단어 → 뜻</option><option value="meaning-to-word" ${settings.direction === "meaning-to-word" ? "selected" : ""}>뜻 → 단어</option></select></label>
+        <label><span>${homeMode === "flashcard" ? "카드 수" : "문제 수"}</span><select name="count">${configCountOptions(settings.count, homeMode === "flashcard" ? "개" : "문제")}</select></label>
+      </div>
+      <div class="home-start-actions"><button class="text-button" type="button" data-view="wordbook">단어 목록 보기</button><button class="primary-button" type="submit" ${state.words.length ? "" : "disabled"}>학습 시작</button></div>
+    </form>
+    ${saved.length ? `<section class="home-continuation"><div><h2>저장된 학습</h2>${saved.map((item) => `<p>${item.label} · ${item.completed} / ${item.total}개 완료</p>`).join("")}</div><div class="button-row">${saved.map((item) => `<button class="secondary-button" type="button" data-view="${item.view}">${saved.length > 1 ? `${item.label} 이어서` : "이어서 풀기"}</button>`).join("")}</div></section>` : ""}
+    <section class="home-continuation"><div><h2>오답 복습</h2><p>${stats.mistakes ? `${stats.mistakes}개의 헷갈린 단어를 다시 확인해요.` : "헷갈린 단어를 모아서 다시 풀어요."}</p></div><button class="secondary-button" type="button" data-view="mistakes">오답노트 보기</button></section>`;
 }
 
 function getFilteredWordbookWords() {
@@ -573,7 +560,7 @@ function getFilteredWordbookWords() {
 function renderWordbook() {
   const tags = allTags();
   return `
-    ${renderPageHeader("내 단어 모음", "단어장", "검색하고 수정하면서 나만의 토익 단어장을 관리하세요.", `<button class="secondary-button" type="button" data-action="open-bulk-dialog">여러 단어 추가</button><button class="primary-button" type="button" data-action="open-word-dialog">＋ 단어 추가</button>`)}
+    ${renderPageHeader("내 단어 모음", "단어 목록", "", `<button class="secondary-button" type="button" data-action="open-bulk-dialog">여러 단어 추가</button><button class="primary-button" type="button" data-action="open-word-dialog">＋ 단어 추가</button>`)}
     <div class="toolbar">
       <label class="search-box"><span class="sr-only">단어 검색</span><input id="word-search" type="search" value="${h(wordFilters.search)}" placeholder="단어, 뜻, 예문, 태그 검색" autocomplete="off" /></label>
       <div class="filters" aria-label="단어 필터">
@@ -585,7 +572,7 @@ function renderWordbook() {
     </div>
     <div class="list-caption"><p id="result-count" class="result-count" aria-live="polite"></p><button class="text-button" type="button" data-action="reset-word-filters">필터 초기화</button></div>
     <div id="word-results"></div>
-    <div class="data-tools" aria-label="백업과 복원"><span>같은 단어는 뜻과 메모를 합쳐 하나로 관리합니다.</span><button class="small-button" type="button" data-action="open-bulk-dialog">＋ 일괄 추가</button><button class="small-button" type="button" data-action="export-json">JSON 백업</button><button class="small-button" type="button" data-action="export-csv">CSV 백업</button><button class="small-button" type="button" data-action="import-data">파일 가져오기</button></div>`;
+    <details class="data-tools"><summary>백업·가져오기</summary><div class="button-row"><button class="small-button" type="button" data-action="open-bulk-dialog">＋ 일괄 추가</button><button class="small-button" type="button" data-action="export-json">JSON 백업</button><button class="small-button" type="button" data-action="export-csv">CSV 백업</button><button class="small-button" type="button" data-action="import-data">파일 가져오기</button></div></details>`;
 }
 
 function renderWordbookResults() {
@@ -601,7 +588,15 @@ function renderWordbookResults() {
 }
 
 function renderWordCard(word) {
-  return `<article class="word-card ${word.status === "mastered" ? "mastered" : ""}"><div class="word-main"><h3>${h(word.word)}</h3><p>${h(word.partOfSpeech || "품사 미지정")}</p></div><div class="word-meaning"><strong>${h(word.meanings.join(", "))}</strong><div class="tag-row">${word.tags.map((tag) => `<span class="tag">${h(tag)}</span>`).join("")}</div></div><div class="word-actions"><select class="status-select" data-status-id="${h(word.id)}" aria-label="${h(word.word)} 암기 상태">${WORD_STATUSES.map((status) => `<option value="${status}" ${word.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="small-button edit-button" type="button" data-action="edit-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 수정">✎ <span>수정</span></button><button class="small-button delete-button" type="button" data-action="delete-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 삭제">× <span>삭제</span></button></div><details class="word-details"><summary>예문과 학습 기록 보기</summary><div class="detail-grid"><div><span>영어 예문</span><p>${h(word.example || "등록된 예문이 없습니다.")}</p></div><div><span>예문 해석</span><p>${h(word.translation || "등록된 해석이 없습니다.")}</p></div><div><span>메모</span><p>${h(word.memo || "등록된 메모가 없습니다.")}</p></div><div><span>학습 기록</span><p>정답 ${word.correctCount}회 · 오답 ${word.wrongCount}회 · ${formatDate(word.lastStudiedAt)}</p></div></div></details></article>`;
+  return `<article class="word-card ${word.status === "mastered" ? "mastered" : ""}">
+    <div class="word-main"><h3>${h(word.word)}</h3></div>
+    <div class="word-meaning"><strong>${h(word.meanings.join(", "))}</strong></div>
+    <div class="word-actions"><select class="status-select" data-status-id="${h(word.id)}" aria-label="${h(word.word)} 암기 상태">${WORD_STATUSES.map((status) => `<option value="${status}" ${word.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="small-button edit-button" type="button" data-action="edit-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 수정">수정</button></div>
+    <details class="word-details"><summary>품사·쓰임·학습 기록 보기</summary><div class="detail-grid">
+      <div><span>품사</span><p>${h(word.partOfSpeech || "품사 미지정")}</p></div><div><span>태그</span><div class="tag-row">${word.tags.map((tag) => `<span class="tag">${h(tag)}</span>`).join("")}</div></div>
+      <div><span>영어 예문</span><p>${h(word.example || "등록된 예문이 없습니다.")}</p></div><div><span>예문 해석</span><p>${h(word.translation || "등록된 해석이 없습니다.")}</p></div><div><span>메모</span><p>${h(word.memo || "등록된 메모가 없습니다.")}</p></div><div><span>학습 기록</span><p>정답 ${word.correctCount}회 · 오답 ${word.wrongCount}회 · ${formatDate(word.lastStudiedAt)}</p></div>
+      <div><button class="small-button delete-button" type="button" data-action="delete-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 삭제">단어 삭제</button></div>
+    </div></details></article>`;
 }
 
 function studySettings(session) {
@@ -691,7 +686,7 @@ function renderQuizSetup() {
       <header><span class="setup-symbol" aria-hidden="true">✓</span><div><h2>퀴즈 방식을 골라 주세요</h2><p>약 3분이면 10문제를 풀 수 있어요.</p></div></header>
       <div class="form-grid">
         <div><span class="field-label">퀴즈 유형</span><div class="choice-group">
-          <label class="choice-card"><input type="radio" name="mode" value="multiple" ${quizDefaults.mode === "multiple" ? "checked" : ""} /><span><strong>객관식</strong><small>같은 품사의 네 보기 · 선택 즉시 자동 채점</small></span></label>
+          <label class="choice-card"><input type="radio" name="mode" value="multiple" ${quizDefaults.mode === "multiple" ? "checked" : ""} /><span><strong>객관식</strong><small>같은 품사의 네 보기</small></span></label>
           <label class="choice-card"><input type="radio" name="mode" value="typing" ${quizDefaults.mode === "typing" ? "checked" : ""} /><span><strong>직접 입력</strong><small>뜻이나 철자를 직접 입력</small></span></label>
         </div></div>
         <div class="form-grid three-columns">
@@ -732,8 +727,9 @@ function renderMultipleAnswers(question, word) {
       if (normalizeText(option) === normalizeText(correctLabel)) resultClass = "correct";
       else if (option === question.selected) resultClass = "wrong";
     }
-    return `<button class="option-button ${resultClass}" type="button" data-action="choose-option" data-answer="${h(option)}" ${quizSession.feedback ? "disabled" : ""}><span class="option-letter" aria-hidden="true">${resultClass === "correct" ? "✓" : resultClass === "wrong" ? "×" : index + 1}</span><span>${h(option)}${resultClass ? `<small>${resultClass === "correct" ? "정답" : "선택한 오답"}</small>` : ""}</span></button>`;
-  }).join("")}</div>`;
+    const selected = question.selected === option;
+    return `<button class="option-button ${resultClass} ${selected && !quizSession.feedback ? "selected" : ""}" type="button" data-action="choose-option" data-answer="${h(option)}" aria-pressed="${selected}" ${quizSession.feedback ? "disabled" : ""}><span class="option-letter" aria-hidden="true">${resultClass === "correct" ? "✓" : resultClass === "wrong" ? "×" : index + 1}</span><span>${h(option)}${resultClass ? `<small>${resultClass === "correct" ? "정답" : "선택한 오답"}</small>` : ""}</span></button>`;
+  }).join("")}</div>${!quizSession.feedback ? `<div class="quiz-question-actions"><button class="primary-button" type="button" data-action="confirm-option" ${question.selected === null ? "disabled" : ""}>채점하기</button></div>` : ""}`;
 }
 
 function renderTypingAnswer() {
@@ -776,6 +772,28 @@ function renderNoWords() {
   return `<div class="empty-state"><div><span class="empty-icon" aria-hidden="true">A</span><h2>학습할 단어가 없어요</h2><p>새 단어를 직접 입력하거나 여러 단어를 한 번에 추가해 주세요.</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-action="open-bulk-dialog">여러 단어 추가</button><button class="primary-button" type="button" data-action="open-word-dialog">단어 추가</button></div></div></div>`;
 }
 
+function startHome(form) {
+  const data = new FormData(form);
+  const mode = String(data.get("mode"));
+  if (!["flashcard", "multiple", "typing"].includes(mode)) return;
+  const pending = mode === "flashcard" ? studySession : quizSession;
+  if (pending && !pending.completed && !confirm("새 학습을 시작하면 이 방식의 이어 풀기가 새 풀이로 바뀌어요. 누적 학습 기록은 유지돼요. 시작할까요?")) return;
+  homeMode = mode;
+  const previousView = currentView;
+  currentView = mode === "flashcard" ? "study" : "quiz";
+  const result = mode === "flashcard" ? { ok: startStudy(form) } : beginQuiz({
+    mode, direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: false,
+    count: data.get("count") === "all" ? "all" : Number(data.get("count"))
+  });
+  if (!result.ok) {
+    currentView = previousView;
+    render();
+    if (result.error) showToast(result.error, "error");
+    return;
+  }
+  history.replaceState(null, "", `#${currentView}`);
+}
+
 function startStudy(form) {
   const data = new FormData(form);
   studyDefaults = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
@@ -783,11 +801,12 @@ function startStudy(form) {
   const selected = selectWeightedWords(state.words, studyDefaults.count === "all" ? state.words.length : studyDefaults.count, { tag: studyDefaults.tag, onlyWrong: false });
   if (selected.length === 0) {
     showToast("선택한 범위에 학습할 단어가 없습니다.", "error");
-    return;
+    return false;
   }
   studySession = { wordIds: selected.map((word) => word.id), index: 0, direction: studyDefaults.direction, tag: studyDefaults.tag, requestedCount: studyDefaults.count, revealed: false, results: { known: 0, confused: 0, unknown: 0 }, completed: false, recorded: false };
   render();
   window.scrollTo({ top: 0, behavior: "instant" });
+  return true;
 }
 
 function rateStudy(rating) {
@@ -873,6 +892,14 @@ function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, count = 10
   window.scrollTo({ top: 0, behavior: "instant" });
   if (selected.length < Number(count)) showToast(`현재 조건에서 출제 가능한 ${selected.length}문제로 시작합니다.`);
   return { ok: true, count: selected.length, mode, direction, onlyWrong };
+}
+
+function selectQuizOption(answer) {
+  if (!quizSession || quizSession.mode !== "multiple" || quizSession.feedback || quizSession.completed) return;
+  const question = quizSession.queue[quizSession.index];
+  if (!question || question.answered || !question.options.includes(answer)) return;
+  question.selected = answer;
+  render();
 }
 
 function submitQuizAnswer(answer) {
@@ -1158,7 +1185,8 @@ document.addEventListener("click", (event) => {
     quizDefaults = { ...quizDefaults, onlyWrong: true };
     setView("quiz");
   }
-  else if (action === "choose-option") submitQuizAnswer(button.dataset.answer);
+  else if (action === "choose-option") selectQuizOption(button.dataset.answer);
+  else if (action === "confirm-option" && quizSession && quizSession.queue[quizSession.index]?.selected !== null) submitQuizAnswer(quizSession.queue[quizSession.index].selected);
   else if (action === "next-quiz") nextQuiz();
   else if (action === "end-quiz") {
     if (!quizSession || confirm("진행 중인 퀴즈를 끝낼까요? 이미 푼 단어의 기록은 저장되어 있습니다.")) {
@@ -1196,7 +1224,8 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (event.target === wordForm) submitWordForm();
+  if (event.target.id === "home-config") startHome(event.target);
+  else if (event.target === wordForm) submitWordForm();
   else if (event.target === bulkForm) submitBulkForm();
   else if (event.target.id === "study-config") startStudy(event.target);
   else if (event.target.id === "quiz-config") startQuiz(event.target);
@@ -1225,6 +1254,14 @@ document.addEventListener("change", (event) => {
   } else if (event.target.id === "sort-filter") {
     wordFilters.sort = event.target.value;
     renderWordbookResults();
+  } else if (event.target.closest?.("#home-config")) {
+    const data = new FormData(event.target.closest("#home-config"));
+    homeMode = String(data.get("mode"));
+    const settings = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: data.get("count") === "all" ? "all" : Number(data.get("count")) };
+    if (homeMode === "flashcard") studyDefaults = settings;
+    else quizDefaults = { ...settings, mode: homeMode, onlyWrong: false };
+    rememberStudyTag(settings.tag);
+    if (event.target.name === "mode") render();
   } else if (event.target.closest?.("#quiz-config")) {
     const data = new FormData(event.target.closest("#quiz-config"));
     quizDefaults = { mode: String(data.get("mode")), direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: data.get("onlyWrong") === "on", count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
@@ -1246,7 +1283,22 @@ let composing = false;
 document.addEventListener("compositionstart", () => { composing = true; });
 document.addEventListener("compositionend", () => { composing = false; });
 document.addEventListener("keydown", (event) => {
-  if (event.isComposing || composing || event.keyCode === 229 || event.repeat || document.querySelector("dialog[open]")) return;
+  if (event.isComposing || composing || event.keyCode === 229 || event.repeat || event.ctrlKey || event.metaKey || event.altKey || document.querySelector("dialog[open]")) return;
+  if (currentView === "quiz" && quizSession && !quizSession.completed && !event.shiftKey && !event.target.closest("input, textarea, select, [contenteditable]")) {
+    const control = event.target.closest("button");
+    const allowed = !control || ["choose-option", "confirm-option", "next-quiz"].includes(control.dataset.action);
+    if (allowed && event.key === "Enter") {
+      event.preventDefault();
+      if (quizSession.feedback) nextQuiz();
+      else if (quizSession.mode === "multiple" && quizSession.queue[quizSession.index].selected !== null) submitQuizAnswer(quizSession.queue[quizSession.index].selected);
+      return;
+    }
+    if (allowed && quizSession.mode === "multiple" && !quizSession.feedback && /^[1-4]$/.test(event.key)) {
+      event.preventDefault();
+      selectQuizOption(quizSession.queue[quizSession.index].options[Number(event.key) - 1]);
+      return;
+    }
+  }
   if (event.key === "Enter" && currentView === "quiz" && quizSession?.feedback && !event.target.closest("button")) {
     event.preventDefault();
     nextQuiz();
