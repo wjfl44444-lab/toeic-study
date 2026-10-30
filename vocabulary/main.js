@@ -14,6 +14,7 @@ import {
   isoDateKey,
   mergeWordCollections,
   normalizeText,
+  normalizeAnswer,
   normalizeWordRecord,
   parseBulkLines,
   quizPartKey,
@@ -23,15 +24,17 @@ import {
   uniqueStrings,
   wordsToCsv,
   wordIdentity
-} from "./core.js?v=20261001-2";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261001-2";
+} from "./core.js?v=20261031-features1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261031-features1";
+
+import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress } from "./progress.js?v=20261031-features1";
 
 const VIEW_NAMES = {
   home: "홈",
   wordbook: "단어 목록",
   study: "암기 카드",
   quiz: "퀴즈",
-  mistakes: "오답노트"
+  mistakes: "복습"
 };
 
 const viewRoot = document.querySelector("#view-root");
@@ -61,6 +64,11 @@ let quizDefaults = quizSettings(quizSession);
 let homeMode = studySession && !studySession.completed && !(quizSession && !quizSession.completed) ? "flashcard" : quizDefaults.mode;
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
 let mistakeFilter = "all";
+let reviewKind = "wrong";
+let reviewMinWrong = 1;
+let reviewCount = 20;
+let reviewMode = "multiple";
+const payloadChecks = new Map();
 let studySync = null;
 let payloadRevision = 0;
 // An open card/question keeps its original wording even if another device edits
@@ -144,8 +152,17 @@ function wordCollectionContent(words) {
     .sort((first, second) => wordIdentity(first.word).localeCompare(wordIdentity(second.word), "en")));
 }
 
+function checkedPayloadSemantic(raw) {
+  if (payloadChecks.has(raw)) return payloadChecks.get(raw);
+  const { updatedAt, ...next } = decodeStudyPayload(raw);
+  const value = canonicalJson(next);
+  payloadChecks.set(raw, value);
+  if (payloadChecks.size > 2) payloadChecks.delete(payloadChecks.keys().next().value);
+  return value;
+}
+
 function validateStudyPayload(raw) {
-  try { decodeStudyPayload(raw); return true; }
+  try { checkedPayloadSemantic(raw); return true; }
   catch { return false; }
 }
 
@@ -194,6 +211,8 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
   importFile.value = "";
   wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
   mistakeFilter = "all";
+  reviewKind = "wrong";
+  reviewMinWrong = 1;
   studyDefaults = studySettings(studySession);
   quizDefaults = quizSettings(quizSession);
   render(false);
@@ -361,6 +380,8 @@ function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
     || sessionKey(a).localeCompare(sessionKey(b)));
   const merged = {
     ...local, version: STORAGE_VERSION, words, sessions: sessions.slice(-80),
+    bookmarks: mergeBookmarks(local.bookmarks, remote.bookmarks, idAliases),
+    studyProgress: mergeStudyProgress(base?.studyProgress, local.studyProgress, remote.studyProgress, idAliases),
     // Progress is device-local while the page is open; the full payload still
     // lets a freshly opened device resume the last cloud-saved session.
     activeStudy: local.activeStudy, activeQuiz: local.activeQuiz,
@@ -384,8 +405,7 @@ function hasStudyData(raw) {
 }
 
 function semanticStudyPayload(raw) {
-  const { updatedAt, ...next } = decodeStudyPayload(raw);
-  return canonicalJson(next);
+  return checkedPayloadSemantic(raw);
 }
 
 async function connectVocabularySync() {
@@ -481,7 +501,7 @@ function setView(view, options = {}) {
   if (options.quizMode) quizDefaults.mode = options.quizMode;
   if (typeof options.onlyWrong === "boolean") quizDefaults.onlyWrong = options.onlyWrong;
   history.replaceState(null, "", `#${view}`);
-  render();
+  render(false);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -521,6 +541,74 @@ function renderPageHeader(eyebrow, title, description, actions = "") {
     </header>`;
 }
 
+function batchSettings(session, mode = session?.mode || "multiple") {
+  return { mode, direction: session?.direction || "word-to-meaning", tag: session?.tag || "all",
+    count: session?.requestedCount || 10, collection: session?.collection || (session?.onlyWrong ? "wrong" : "regular"),
+    minWrong: session?.minWrong || 1 };
+}
+
+function adoptBatch(session, mode) {
+  if (!session || session.scopeKey) return;
+  const settings = batchSettings(session, mode);
+  session.scopeKey = progressScopeKey(settings);
+  const previous = state.studyProgress[session.scopeKey];
+  session.pass = previous?.pass || 1;
+  state.studyProgress[session.scopeKey] ||= { pass: session.pass, completedIds: [], updatedAt: new Date().toISOString() };
+  const ids = mode === "flashcard" ? session.wordIds.slice(0, session.completed ? session.wordIds.length : session.index) : session.queue.filter(q => q.answered && !q.isRetry).map(q => q.wordId);
+  for (const id of ids) state.studyProgress = markStudyWord(state.studyProgress, session.scopeKey, id, { pass: session.pass });
+}
+
+function batchSummary(session, mode) {
+  if (!session) return "";
+  const settings = batchSettings(session, mode);
+  const entry = state.studyProgress[session.scopeKey || progressScopeKey(settings)];
+  const excluded = new Set(session.unavailableIds || (quizSession?.scopeKey === (session.scopeKey || progressScopeKey(settings)) ? quizSession.unavailableIds : []) || []);
+  const eligible = eligibleStudyWords(state.words, settings, state.bookmarks).filter(word => !excluded.has(word.id));
+  const done = new Set(entry?.completedIds || []);
+  const remaining = eligible.filter(word => !done.has(word.id)).length;
+  return `<p class="batch-progress">${entry?.pass || 1}회독 · 남은 ${remaining} / ${eligible.length}개</p>`;
+}
+
+function bookmarkButton(wordId) {
+  const starred = state.bookmarks[wordId]?.starred === true;
+  return `<button type="button" class="bookmark-button ${starred ? "is-starred" : ""}" data-action="toggle-bookmark" data-word-id="${h(wordId)}" aria-label="${starred ? "별표 해제" : "별표 표시"}" aria-pressed="${starred}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1 6.2L12 17.3l-5.6 2.9 1-6.2-4.5-4.4 6.3-.9Z"/></svg></button>`;
+}
+
+function toggleBookmark(wordId) {
+  if (!state.words.some(word => word.id === wordId)) return;
+  const prior = state.bookmarks[wordId];
+  state.bookmarks[wordId] = { starred: !prior?.starred, updatedAt: new Date(Math.max(Date.now(), Date.parse(prior?.updatedAt || "") + 1 || 0)).toISOString() };
+  saveState();
+  if (currentView === "mistakes") render(false);
+  else document.querySelectorAll('[data-action="toggle-bookmark"]').forEach(button => {
+    const active = state.bookmarks[button.dataset.wordId]?.starred === true;
+    button.classList.toggle("is-starred", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-label", active ? "별표 해제" : "별표 표시");
+    button.blur?.();
+  });
+}
+
+function nextBatch() {
+  const session = currentView === "study" ? studySession : quizSession;
+  if (!session) return;
+  adoptBatch(session, currentView === "study" ? "flashcard" : session.mode);
+  const settings = session.returnBatchSettings || batchSettings(session, currentView === "study" ? "flashcard" : session.mode);
+  currentView = settings.mode === "flashcard" ? "study" : "quiz";
+  if (settings.mode === "flashcard") startStudy({ data: null }, settings);
+  else {
+    const result = beginQuiz(settings);
+    if (!result.ok) showToast(result.error, "error");
+  }
+  history.replaceState(null, "", `#${currentView}`);
+}
+
+function nextBatchButton(session) {
+  const settings = session.returnBatchSettings || batchSettings(session, currentView === "study" ? "flashcard" : session.mode);
+  const label = settings.collection === "starred" ? "별표" : settings.collection === "wrong" ? "오답" : "일반";
+  return `<button class="primary-button" type="button" data-action="next-batch">${settings.count === "all" ? "남은" : "다음 " + settings.count + "개"} ${label} 묶음 풀기</button>`;
+}
+
 function renderHome() {
   const stats = computeDashboardStats(state);
   const settings = homeMode === "flashcard" ? studyDefaults : quizDefaults;
@@ -539,9 +627,10 @@ function renderHome() {
         <label><span>${homeMode === "flashcard" ? "카드 수" : "문제 수"}</span><select name="count">${configCountOptions(settings.count, homeMode === "flashcard" ? "개" : "문제")}</select></label>
       </div>
       <div class="home-start-actions"><button class="text-button" type="button" data-view="wordbook">단어 목록 보기</button><button class="primary-button" type="submit" ${state.words.length ? "" : "disabled"}>학습 시작</button></div>
+      ${batchSummary({ ...settings, mode: homeMode, collection: "regular" }, homeMode)}
     </form>
     ${saved.length ? `<section class="home-continuation"><div><h2>저장된 학습</h2>${saved.map((item) => `<p>${item.label} · ${item.completed} / ${item.total}개 완료</p>`).join("")}</div><div class="button-row">${saved.map((item) => `<button class="secondary-button" type="button" data-view="${item.view}">${saved.length > 1 ? `${item.label} 이어서` : "이어서 풀기"}</button>`).join("")}</div></section>` : ""}
-    <section class="home-continuation"><div><h2>오답 복습</h2><p>${stats.mistakes ? `${stats.mistakes}개의 헷갈린 단어를 다시 확인해요.` : "헷갈린 단어를 모아서 다시 풀어요."}</p></div><button class="secondary-button" type="button" data-view="mistakes">오답노트 보기</button></section>`;
+    <section class="home-continuation"><div><h2>오답·별표 복습</h2><p>${stats.mistakes ? `${stats.mistakes}개의 헷갈린 단어를 다시 확인해요.` : "헷갈린 단어를 모아서 다시 풀어요."}</p></div><button class="secondary-button" type="button" data-view="mistakes">복습하기</button></section>`;
 }
 
 function getFilteredWordbookWords() {
@@ -591,7 +680,7 @@ function renderWordCard(word) {
   return `<article class="word-card ${word.status === "mastered" ? "mastered" : ""}">
     <div class="word-main"><h3>${h(word.word)}</h3></div>
     <div class="word-meaning"><strong>${h(word.meanings.join(", "))}</strong></div>
-    <div class="word-actions"><select class="status-select" data-status-id="${h(word.id)}" aria-label="${h(word.word)} 암기 상태">${WORD_STATUSES.map((status) => `<option value="${status}" ${word.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="small-button edit-button" type="button" data-action="edit-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 수정">수정</button></div>
+    <div class="word-actions">${bookmarkButton(word.id)}<select class="status-select" data-status-id="${h(word.id)}" aria-label="${h(word.word)} 암기 상태">${WORD_STATUSES.map((status) => `<option value="${status}" ${word.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="small-button edit-button" type="button" data-action="edit-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 수정">수정</button></div>
     <details class="word-details"><summary>품사·쓰임·학습 기록 보기</summary><div class="detail-grid">
       <div><span>품사</span><p>${h(word.partOfSpeech || "품사 미지정")}</p></div><div><span>태그</span><div class="tag-row">${word.tags.map((tag) => `<span class="tag">${h(tag)}</span>`).join("")}</div></div>
       <div><span>영어 예문</span><p>${h(word.example || "등록된 예문이 없습니다.")}</p></div><div><span>예문 해석</span><p>${h(word.translation || "등록된 해석이 없습니다.")}</p></div><div><span>메모</span><p>${h(word.memo || "등록된 메모가 없습니다.")}</p></div><div><span>학습 기록</span><p>정답 ${word.correctCount}회 · 오답 ${word.wrongCount}회 · ${formatDate(word.lastStudiedAt)}</p></div>
@@ -631,7 +720,7 @@ function configCountOptions(selected = 10, unit = "문제") {
 function renderStudy() {
   if (state.words.length === 0 && !studySession) return `${renderPageHeader("단어 익히기", "암기 카드", "뜻을 가리고 빠르게 기억을 확인하세요.")}${renderNoWords()}`;
   if (!studySession) return renderStudySetup();
-  if (studySession.completed) return renderStudyResult();
+  if (studySession.completed && !studySession.reviewing) return renderStudyResult();
   return renderStudyCard();
 }
 
@@ -657,25 +746,28 @@ function renderStudyCard() {
   const progress = Math.round((studySession.index / studySession.wordIds.length) * 100);
   const front = getPrompt(word, studySession.direction);
   const back = getAnswerLabel(word, studySession.direction);
+  const alreadyRated = Boolean(studySession.ratings?.[studySession.index]) || studySession.index < (studySession.furthestIndex || 0) || studySession.completed;
   return `<section class="session-shell" aria-label="암기 카드 학습">
       <div class="session-top"><button class="ghost-button" type="button" data-action="end-study">← 학습 설정</button><div class="session-progress"><div class="progress-label"><span>${studySession.index + 1} / ${studySession.wordIds.length}</span><span>${progress}%</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>
+      <div class="card-meta">${batchSummary(studySession, "flashcard")}${bookmarkButton(word.id)}</div>
       <div class="study-card-wrap"><button class="study-card ${studySession.revealed ? "revealed" : ""}" type="button" data-action="reveal-card" aria-label="${studySession.revealed ? "정답이 공개된 카드" : "뜻 보기"}" aria-live="polite">
         <span class="card-face front" aria-hidden="${studySession.revealed ? "true" : "false"}"><span class="card-kicker">${studySession.direction === "word-to-meaning" ? "이 단어의 뜻은?" : "이 뜻의 영단어는?"}</span><strong class="card-prompt">${h(front)}</strong><span class="part-label">${h(word.partOfSpeech || "품사 미지정")}</span><span class="card-hint">카드를 눌러 정답 보기</span></span>
         <span class="card-face back" aria-hidden="${studySession.revealed ? "false" : "true"}"><span class="card-kicker">${h(word.word)}</span><strong class="card-prompt">${h(back)}</strong>${word.example ? `<span class="example-box"><span>${h(word.example)}</span><small>${h(word.translation)}</small></span>` : ""}${word.memo ? `<span class="study-memo">${h(word.memo)}</span>` : ""}<span class="card-hint">아래에서 기억 정도를 선택해 주세요</span></span>
       </button></div>
-      ${studySession.revealed ? `<div class="rating-row" aria-label="기억 정도"><button class="rating-button unknown" type="button" data-action="rate-card" data-rating="unknown">! 모름</button><button class="rating-button confused" type="button" data-action="rate-card" data-rating="confused">? 헷갈림</button><button class="rating-button known" type="button" data-action="rate-card" data-rating="known">✓ 알고 있음</button></div>` : `<div class="reveal-row"><button class="primary-button" type="button" data-action="reveal-card">뜻 보기</button></div>`}
+      <div class="quiz-nav"><button class="text-button" type="button" data-action="previous-study" ${studySession.index === 0 ? "disabled" : ""}>← 이전 문제</button>${alreadyRated ? `<button class="primary-button" type="button" data-action="next-study">${studySession.index === studySession.wordIds.length - 1 ? "결과 보기" : "다음 문제"}</button>` : ""}</div>
+      ${alreadyRated ? "" : studySession.revealed ? `<div class="rating-row" aria-label="기억 정도"><button class="rating-button unknown" type="button" data-action="rate-card" data-rating="unknown">! 모름</button><button class="rating-button confused" type="button" data-action="rate-card" data-rating="confused">? 헷갈림</button><button class="rating-button known" type="button" data-action="rate-card" data-rating="known">✓ 알고 있음</button></div>` : `<div class="reveal-row"><button class="primary-button" type="button" data-action="reveal-card">뜻 보기</button></div>`}
     </section>`;
 }
 
 function renderStudyResult() {
   const total = studySession.wordIds.length;
-  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">✓</span><p class="eyebrow">암기 카드 완료</p><h1>오늘의 카드 학습을 마쳤어요</h1><p>헷갈리거나 모른 단어는 다음 학습에서 더 자주 나옵니다.</p><div class="result-stats"><div><strong>${total}</strong><span>학습 카드</span></div><div><strong>${studySession.results.known}</strong><span>알고 있음</span></div><div><strong>${studySession.results.confused + studySession.results.unknown}</strong><span>다시 볼 단어</span></div></div><div class="result-actions"><button class="secondary-button" type="button" data-action="restart-study">다시 학습</button>${studySession.results.confused + studySession.results.unknown > 0 ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 퀴즈 풀기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
+  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">✓</span><p class="eyebrow">암기 카드 완료</p><h1>오늘의 카드 학습을 마쳤어요</h1><p>헷갈리거나 모른 단어는 다음 학습에서 더 자주 나옵니다.</p><div class="result-stats"><div><strong>${total}</strong><span>학습 카드</span></div><div><strong>${studySession.results.known}</strong><span>알고 있음</span></div><div><strong>${studySession.results.confused + studySession.results.unknown}</strong><span>다시 볼 단어</span></div></div>${batchSummary(studySession, "flashcard")}<div class="result-actions"><button class="text-button" type="button" data-action="previous-study">← 이전 문제</button><button class="secondary-button" type="button" data-action="restart-study">학습 설정</button>${nextBatchButton(studySession)}${studySession.results.confused + studySession.results.unknown > 0 ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 퀴즈 풀기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
 }
 
 function renderQuiz() {
   if (state.words.length === 0 && !quizSession) return `${renderPageHeader("실전 확인", "퀴즈", "객관식 또는 직접 입력으로 기억을 확인하세요.")}${renderNoWords()}`;
   if (!quizSession) return renderQuizSetup();
-  if (quizSession.completed) return renderQuizResult();
+  if (quizSession.completed && !quizSession.reviewing) return renderQuizResult();
   return renderQuizQuestion();
 }
 
@@ -715,7 +807,7 @@ function renderQuizQuestion() {
   const prompt = getPrompt(word, quizSession.direction);
   const answers = quizSession.mode === "multiple" ? renderMultipleAnswers(question, word) : renderTypingAnswer();
   const feedback = quizSession.feedback ? renderFeedback(word) : "";
-  return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 퀴즈 설정</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div><article class="quiz-card"><div class="question-meta"><span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}</article></section>`;
+  return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 퀴즈 설정</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>${batchSummary(quizSession, quizSession.mode)}<article class="quiz-card"><div class="question-meta">${bookmarkButton(word.id)}<span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}${quizSession.feedback ? "" : `<button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button>`}${quizSession.returnBatchSettings ? nextBatchButton(quizSession) : ""}</article></section>`;
 }
 
 function renderMultipleAnswers(question, word) {
@@ -740,32 +832,34 @@ function renderTypingAnswer() {
 function renderFeedback(word) {
   const feedback = quizSession.feedback;
   const question = quizSession.queue[quizSession.index];
-  return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div>`;
+  return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
 }
 
 function renderQuizResult() {
   const total = quizSession.originalTotal;
   const accuracy = total ? Math.round((quizSession.originalCorrect / total) * 100) : 0;
   const wrongWords = uniqueStrings(quizSession.wrongWordIds.map((id) => state.words.find((word) => word.id === id)?.word).filter(Boolean));
-  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">${accuracy >= 80 ? "✓" : "A"}</span><p class="eyebrow">퀴즈 완료</p><h1>${accuracy >= 80 ? "아주 잘했어요!" : accuracy >= 60 ? "조금만 더 복습해요" : "오답부터 차근차근 볼까요?"}</h1><p>점수는 복습 재출제를 제외한 첫 시도 ${total}문제를 기준으로 계산했습니다.</p><div class="score-ring" style="--score:${accuracy}%" aria-label="정답률 ${accuracy}퍼센트"><strong>${accuracy}%</strong></div><div class="result-stats"><div><strong>${total}</strong><span>출제 문제</span></div><div><strong>${quizSession.originalCorrect}</strong><span>정답</span></div><div><strong>${quizSession.originalWrong}</strong><span>오답</span></div></div>${wrongWords.length ? `<div class="wrong-summary"><h2>이번에 틀린 단어</h2><div class="wrong-chips">${wrongWords.map((word) => `<span class="wrong-chip">${h(word)}</span>`).join("")}</div></div>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>전부 맞혔어요</strong><br />현재 범위의 단어를 잘 기억하고 있습니다.</p></div>`}<div class="result-actions"><button class="secondary-button" type="button" data-action="restart-quiz">다시 풀기</button>${state.words.some((word) => word.wrongCount > 0) ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습하기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
+  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">${accuracy >= 80 ? "✓" : "A"}</span><p class="eyebrow">퀴즈 완료</p><h1>${accuracy >= 80 ? "아주 잘했어요!" : accuracy >= 60 ? "조금만 더 복습해요" : "오답부터 차근차근 볼까요?"}</h1><p>점수는 복습 재출제를 제외한 첫 시도 ${total}문제를 기준으로 계산했습니다.</p><div class="score-ring" style="--score:${accuracy}%" aria-label="정답률 ${accuracy}퍼센트"><strong>${accuracy}%</strong></div><div class="result-stats"><div><strong>${total}</strong><span>출제 문제</span></div><div><strong>${quizSession.originalCorrect}</strong><span>정답</span></div><div><strong>${quizSession.originalWrong}</strong><span>오답</span></div></div>${wrongWords.length ? `<div class="wrong-summary"><h2>이번에 틀린 단어</h2><div class="wrong-chips">${wrongWords.map((word) => `<span class="wrong-chip">${h(word)}</span>`).join("")}</div></div>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>전부 맞혔어요</strong><br />현재 범위의 단어를 잘 기억하고 있습니다.</p></div>`}${batchSummary(quizSession, quizSession.mode)}<div class="result-actions"><button class="text-button" type="button" data-action="previous-quiz">← 이전 문제</button>${nextBatchButton(quizSession)}<button class="secondary-button" type="button" data-action="restart-quiz">학습 설정</button>${state.words.some((word) => word.wrongCount > 0) ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습하기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
 }
 
 function getMistakeWords() {
-  const cutoff = Date.now() - 7 * 86_400_000;
-  return state.words.filter((word) => {
-    if (word.wrongCount === 0) return false;
-    if (mistakeFilter === "recent") return word.lastWrongAt && new Date(word.lastWrongAt).getTime() >= cutoff;
-    if (mistakeFilter === "frequent") return word.wrongCount >= 3;
-    return true;
-  }).sort((a, b) => b.wrongCount - a.wrongCount || new Date(b.lastWrongAt || 0) - new Date(a.lastWrongAt || 0));
+  return eligibleStudyWords(state.words, { tag: quizDefaults.tag, collection: reviewKind, minWrong: reviewMinWrong }, state.bookmarks)
+    .sort((a,b) => reviewKind === "wrong" ? b.wrongCount - a.wrongCount || a.word.localeCompare(b.word,"en") : a.word.localeCompare(b.word,"en"));
 }
 
 function renderMistakes() {
-  const allWrong = state.words.filter((word) => word.wrongCount > 0);
   const words = getMistakeWords();
-  if (allWrong.length === 0) return `${renderPageHeader("틀린 만큼 더 단단하게", "오답노트", "틀린 단어의 횟수와 최근 기록을 모아 보여드립니다.")}<div class="empty-state"><div><span class="empty-icon" aria-hidden="true">✓</span><h2>복습할 오답이 없어요</h2><p>퀴즈를 풀면 틀린 단어와 누적 횟수가 자동으로 여기에 기록됩니다.</p><button class="primary-button" type="button" data-action="open-quiz-multiple">새 퀴즈 풀기</button></div></div>`;
-  const totalWrong = allWrong.reduce((sum, word) => sum + word.wrongCount, 0);
-  return `${renderPageHeader("틀린 만큼 더 단단하게", "오답노트", "많이 틀린 단어부터 정리하고 오답만 다시 풀어보세요.", `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습 시작</button>`)}<section class="mistake-overview"><article class="mistake-spotlight"><span>누적 오답</span><strong>${totalWrong}회</strong><p>${allWrong.length}개의 단어를 다시 보면 좋아요.</p></article><article class="mistake-controls"><div><strong>표시 기준</strong><p>오답 횟수가 많은 순서로 정렬됩니다.</p></div><div class="segmented" aria-label="오답 필터"><button type="button" class="${mistakeFilter === "all" ? "active" : ""}" data-action="mistake-filter" data-filter="all">전체</button><button type="button" class="${mistakeFilter === "recent" ? "active" : ""}" data-action="mistake-filter" data-filter="recent">최근 7일</button><button type="button" class="${mistakeFilter === "frequent" ? "active" : ""}" data-action="mistake-filter" data-filter="frequent">3회 이상</button></div></article></section>${words.length ? `<div class="mistake-table" role="table" aria-label="오답 단어 목록"><div class="mistake-row header" role="row"><span>단어</span><span>뜻</span><span>오답</span><span>정답률</span><span>관리</span></div>${words.map((word) => { const rate = formatPercent(word.correctCount, word.wrongCount); return `<div class="mistake-row" role="row"><span><strong>${h(word.word)}</strong><small>${formatDate(word.lastWrongAt)} 오답</small></span><span>${h(word.meanings.join(", "))}</span><span><strong>${word.wrongCount}회</strong></span><span><strong>${rate}%</strong><span class="rate-bar" aria-hidden="true"><span style="width:${rate}%"></span></span></span><span><button class="small-button" type="button" data-action="reset-wrong" data-word-id="${h(word.id)}">횟수 초기화</button></span></div>`; }).join("")}</div>` : `<div class="empty-state"><div><span class="empty-icon" aria-hidden="true">!</span><h2>선택한 조건의 오답이 없어요</h2><p>다른 표시 기준을 선택해 주세요.</p><button class="secondary-button" type="button" data-action="mistake-filter" data-filter="all">전체 오답 보기</button></div></div>`}`;
+  return `${renderPageHeader("", "복습", "")}
+    <div class="review-tabs" role="tablist" aria-label="복습 종류"><button role="tab" type="button" data-action="review-kind" data-kind="wrong" aria-selected="${reviewKind === "wrong"}">오답</button><button role="tab" type="button" data-action="review-kind" data-kind="starred" aria-selected="${reviewKind === "starred"}">별표</button></div>
+    <form id="review-config" class="setup-card"><div class="review-settings">
+      <label><span>학습 범위</span><select name="tag">${configTagOptions(quizDefaults.tag)}</select></label>
+      ${reviewKind === "wrong" ? `<label><span>누적 오답</span><input type="number" name="minWrong" min="1" max="999999" value="${reviewMinWrong}" aria-label="누적 오답 횟수"/><span>회 이상</span></label>` : ""}
+      <label><span>학습 방식</span><select name="mode"><option value="multiple" ${reviewMode === "multiple" ? "selected" : ""}>객관식</option><option value="typing" ${reviewMode === "typing" ? "selected" : ""}>직접 입력</option><option value="flashcard" ${reviewMode === "flashcard" ? "selected" : ""}>암기 카드</option></select></label>
+      <label><span>문제 수</span><select name="count">${configCountOptions(reviewCount)}</select></label>
+      <button type="submit" class="primary-button" ${words.length ? "" : "disabled"}>${reviewKind === "wrong" ? "오답" : "별표"} 풀기</button>
+    </div>${batchSummary({ mode: reviewMode, tag: quizDefaults.tag, direction: quizDefaults.direction, collection: reviewKind, minWrong: reviewMinWrong }, reviewMode)}</form>
+    <p class="result-count">${words.length}개 단어</p>
+    ${words.length ? `<div class="word-list">${words.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span>오답 ${word.wrongCount}회</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}`;
 }
 
 function renderNoWords() {
@@ -782,7 +876,7 @@ function startHome(form) {
   const previousView = currentView;
   currentView = mode === "flashcard" ? "study" : "quiz";
   const result = mode === "flashcard" ? { ok: startStudy(form) } : beginQuiz({
-    mode, direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: false,
+    mode, direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: false, collection: "regular",
     count: data.get("count") === "all" ? "all" : Number(data.get("count"))
   });
   if (!result.ok) {
@@ -794,16 +888,17 @@ function startHome(form) {
   history.replaceState(null, "", `#${currentView}`);
 }
 
-function startStudy(form) {
-  const data = new FormData(form);
-  studyDefaults = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
-  rememberStudyTag(studyDefaults.tag);
-  const selected = selectWeightedWords(state.words, studyDefaults.count === "all" ? state.words.length : studyDefaults.count, { tag: studyDefaults.tag, onlyWrong: false });
-  if (selected.length === 0) {
-    showToast("선택한 범위에 학습할 단어가 없습니다.", "error");
-    return false;
-  }
-  studySession = { wordIds: selected.map((word) => word.id), index: 0, direction: studyDefaults.direction, tag: studyDefaults.tag, requestedCount: studyDefaults.count, revealed: false, results: { known: 0, confused: 0, unknown: 0 }, completed: false, recorded: false };
+function startStudy(form, settings = null) {
+  const data = settings ? null : new FormData(form);
+  const options = settings || { mode: "flashcard", direction: String(data.get("direction")), tag: String(data.get("tag")), count: data.get("count") === "all" ? "all" : Number(data.get("count")), collection: "regular" };
+  studyDefaults = { ...options, mode: "flashcard" };
+  rememberStudyTag(options.tag);
+  const batch = selectNextBatch(state.words, options.count, { ...options, mode: "flashcard" }, state.studyProgress, state.bookmarks, selectWeightedWords);
+  if (!batch.words.length) { showToast("선택한 범위에 학습할 단어가 없습니다.", "error"); return false; }
+  state.studyProgress[batch.scopeKey] = batch.entry;
+  studySession = { wordIds: batch.words.map(word => word.id), index: 0, direction: options.direction, tag: options.tag, requestedCount: options.count,
+    collection: options.collection || "regular", minWrong: options.minWrong || 1, scopeKey: batch.scopeKey, pass: batch.pass,
+    ratings: {}, furthestIndex: 0, revealed: false, results: { known: 0, confused: 0, unknown: 0 }, completed: false, recorded: false };
   render();
   window.scrollTo({ top: 0, behavior: "instant" });
   return true;
@@ -812,6 +907,12 @@ function startStudy(form) {
 function rateStudy(rating) {
   if (!studySession?.revealed || studySession.completed || !["known", "confused", "unknown"].includes(rating)) return;
   const wordId = studySession.wordIds[studySession.index];
+  if (studySession.ratings?.[studySession.index] || studySession.index < (studySession.furthestIndex || 0)) return;
+  adoptBatch(studySession, "flashcard");
+  studySession.ratings ||= {};
+  studySession.ratings[studySession.index] = rating;
+  studySession.furthestIndex = Math.max(studySession.furthestIndex || 0, studySession.index + 1);
+  state.studyProgress = markStudyWord(state.studyProgress, studySession.scopeKey, wordId, { pass: studySession.pass });
   studySession.results[rating] += 1;
   updateWordStats(wordId, rating === "known");
   if (studySession.index >= studySession.wordIds.length - 1) {
@@ -840,58 +941,52 @@ function startQuiz(form) {
   if (!result.ok) showToast(result.error, "error");
 }
 
-function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, count = 10 }) {
+function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection = onlyWrong ? "wrong" : "regular", minWrong = 1, count = 10, returnBatchSettings = null }) {
   if (!["multiple", "typing"].includes(mode)) return { ok: false, error: "지원하지 않는 퀴즈 유형입니다." };
   if (!["word-to-meaning", "meaning-to-word"].includes(direction)) return { ok: false, error: "지원하지 않는 문제 방향입니다." };
-  const optionsById = new Map();
+  const settings = { mode, direction, tag, onlyWrong: collection === "wrong", collection, minWrong, count };
   const wordsByPart = new Map();
+  let pool = state.words;
+  const scoped = eligibleStudyWords(state.words, settings, state.bookmarks);
   if (mode === "multiple") {
+    const labels = new Map(), meanings = new Map();
     for (const word of state.words) {
       const key = quizPartKey(word);
       if (!wordsByPart.has(key)) wordsByPart.set(key, []);
       wordsByPart.get(key).push(word);
+      labels.set(word.id, normalizeText(getAnswerLabel(word, direction)));
+      meanings.set(word.id, new Set(word.meanings.map(value => normalizeAnswer(value).replace(/\s+/g, ""))));
     }
+    // Cheap eligibility check; generate randomized choices only for this batch.
+    pool = scoped.filter(word => {
+      const seen = new Set([labels.get(word.id)]), target = meanings.get(word.id);
+      for (const other of wordsByPart.get(quizPartKey(word)) || []) {
+        if (word.id === other.id || wordIdentity(word.word) === wordIdentity(other.word)
+          || other.meanings.some(value => target.has(normalizeAnswer(value).replace(/\s+/g, "")))) continue;
+        seen.add(labels.get(other.id));
+        if (seen.size >= 4) return true;
+      }
+      return false;
+    });
   }
-  const pool = mode === "multiple" ? state.words.filter((word) => {
-    if ((tag !== "all" && !word.tags.includes(tag)) || (onlyWrong && word.wrongCount === 0)) return false;
-    const options = buildQuizOptions(word, wordsByPart.get(quizPartKey(word)), direction);
-    if (options.length !== 4) return false;
-    optionsById.set(word.id, options);
-    return true;
-  }) : state.words;
-  const selected = selectWeightedWords(pool, count === "all" ? pool.length : Number(count), { tag, onlyWrong });
-  if (selected.length === 0) {
-    return { ok: false, error: mode === "multiple" ? "같은 품사의 서로 다른 보기 4개를 만들 수 없어요. 단어를 더 추가하거나 직접 입력 퀴즈를 선택해 주세요." : "선택한 범위에 출제할 단어가 없습니다." };
-  }
-  const preparedQueue = selected.map((word) => ({ qid: createId("question"), wordId: word.id, isRetry: false, answered: false, selected: null, options: mode === "multiple" ? optionsById.get(word.id) : null }));
-  if (mode === "multiple" && preparedQueue.some((question) => question.options.length < 4)) {
-    return { ok: false, error: "객관식 보기를 만들려면 서로 다른 답을 가진 단어가 최소 4개 필요합니다." };
-  }
-  quizDefaults = { mode, direction, tag, onlyWrong, count };
+  const batch = selectNextBatch(pool, count, settings, state.studyProgress, state.bookmarks, selectWeightedWords);
+  const selected = batch.words;
+  if (!selected.length) return { ok: false, error: mode === "multiple" ? "현재 조건에서 같은 품사의 보기 4개를 만들 수 없어요. 직접 입력을 선택하거나 단어를 더 추가해 주세요." : "선택한 범위에 출제할 단어가 없습니다." };
+  const preparedQueue = selected.map(word => ({ qid: createId("question"), wordId: word.id, isRetry: false, answered: false, selected: null,
+    options: mode === "multiple" ? buildQuizOptions(word, wordsByPart.get(quizPartKey(word)), direction) : null }));
+  if (mode === "multiple" && preparedQueue.some(question => question.options.length !== 4)) return { ok:false, error:"객관식 보기를 만들 수 없는 단어가 있어요. 직접 입력을 선택해 주세요." };
+  state.studyProgress[batch.scopeKey] = batch.entry;
+  quizDefaults = settings;
   rememberStudyTag(tag);
-  quizSession = {
-    mode,
-    direction,
-    tag,
-    onlyWrong,
-    requestedCount: count,
-    queue: preparedQueue,
-    index: 0,
-    originalTotal: selected.length,
-    originalAnswered: 0,
-    originalCorrect: 0,
-    originalWrong: 0,
-    retriesCompleted: 0,
-    scheduledWordIds: [],
-    wrongWordIds: [],
-    feedback: null,
-    completed: false,
-    recorded: false
-  };
+  const availableIds = new Set(pool.map(word => word.id));
+  quizSession = { unavailableIds: mode === "multiple" ? scoped.filter(word => !availableIds.has(word.id)).map(word => word.id) : [], mode, direction, tag, onlyWrong: collection === "wrong", collection, minWrong, requestedCount: count,
+    scopeKey: batch.scopeKey, pass: batch.pass, returnBatchSettings, queue: preparedQueue, index: 0, originalTotal: selected.length,
+    originalAnswered: 0, originalCorrect: 0, originalWrong: 0, retriesCompleted: 0, scheduledWordIds: [], wrongWordIds: [],
+    feedback: null, completed: false, recorded: false };
   render();
   window.scrollTo({ top: 0, behavior: "instant" });
-  if (selected.length < Number(count)) showToast(`현재 조건에서 출제 가능한 ${selected.length}문제로 시작합니다.`);
-  return { ok: true, count: selected.length, mode, direction, onlyWrong };
+  if (count !== "all" && selected.length < Number(count)) showToast(`남은 ${selected.length}문제로 시작합니다.`);
+  return { ok: true, count: selected.length, mode, direction, onlyWrong: collection === "wrong" };
 }
 
 function selectQuizOption(answer) {
@@ -899,7 +994,15 @@ function selectQuizOption(answer) {
   const question = quizSession.queue[quizSession.index];
   if (!question || question.answered || !question.options.includes(answer)) return;
   question.selected = answer;
-  render();
+  // Selection changes only these controls, preserving the page and keyboard focus.
+  document.querySelectorAll('[data-action="choose-option"]').forEach(button => {
+    const selected = button.dataset.answer === answer;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  const confirm = document.querySelector('[data-action="confirm-option"]');
+  if (confirm) confirm.disabled = false;
+  saveState();
 }
 
 function submitQuizAnswer(answer) {
@@ -911,6 +1014,8 @@ function submitQuizAnswer(answer) {
   const correct = quizSession.mode === "multiple"
     ? normalizeText(answer) === normalizeText(getAnswerLabel(word, quizSession.direction))
     : answerIsCorrect(word, quizSession.direction, answer);
+  adoptBatch(quizSession, quizSession.mode);
+  if (!question.isRetry) state.studyProgress = markStudyWord(state.studyProgress, quizSession.scopeKey, word.id, { pass: quizSession.pass });
   question.answered = true;
   question.selected = String(answer);
   let retryScheduled = false;
@@ -938,18 +1043,61 @@ function submitQuizAnswer(answer) {
   }
   const updated = updateWordStats(word.id, correct);
   quizSession.feedback = { correct, retryScheduled, wrongCount: updated?.wrongCount ?? word.wrongCount };
+  question.feedback = { ...quizSession.feedback };
+  render();
+}
+
+function questionFeedback(question) {
+  if (!question?.answered) return null;
+  if (question.feedback) return { ...question.feedback };
+  const word = sessionWord(quizSession, question.wordId);
+  if (!word) return null;
+  return { correct: quizSession.mode === "multiple"
+    ? normalizeText(question.selected) === normalizeText(getAnswerLabel(word, quizSession.direction))
+    : answerIsCorrect(word, quizSession.direction, question.selected), retryScheduled: false, wrongCount: word.wrongCount };
+}
+
+function previousQuiz() {
+  if (!quizSession) return;
+  if (quizSession.completed && !quizSession.reviewing) {
+    quizSession.reviewing = true;
+    quizSession.index = quizSession.queue.length - 1;
+  } else if (quizSession.index > 0) quizSession.index -= 1;
+  else return;
+  quizSession.feedback = questionFeedback(quizSession.queue[quizSession.index]);
   render();
 }
 
 function nextQuiz() {
   if (!quizSession?.feedback) return;
-  if (quizSession.index >= quizSession.queue.length - 1) finishQuiz();
-  else {
+  if (quizSession.index >= quizSession.queue.length - 1) {
+    if (quizSession.completed) quizSession.reviewing = false;
+    else finishQuiz();
+  } else {
     quizSession.index += 1;
-    quizSession.feedback = null;
+    quizSession.feedback = questionFeedback(quizSession.queue[quizSession.index]);
   }
   render();
-  window.scrollTo({ top: 0, behavior: "instant" });
+  document.querySelector(".session-shell, .result-card")?.scrollIntoView({ block: "start", behavior: "instant" });
+}
+
+function previousStudy() {
+  if (!studySession) return;
+  studySession.furthestIndex ??= studySession.index;
+  if (studySession.completed && !studySession.reviewing) { studySession.reviewing = true; studySession.index = studySession.wordIds.length - 1; }
+  else if (studySession.index > 0) studySession.index -= 1;
+  else return;
+  studySession.revealed = true;
+  render();
+}
+
+function nextStudy() {
+  if (!studySession) return;
+  const rated = studySession.ratings?.[studySession.index] || studySession.index < (studySession.furthestIndex || 0) || studySession.completed;
+  if (!rated) return;
+  if (studySession.index >= studySession.wordIds.length - 1) studySession.reviewing = false;
+  else { studySession.index += 1; studySession.revealed = Boolean(studySession.ratings?.[studySession.index]) || studySession.index < (studySession.furthestIndex || 0); }
+  render();
 }
 
 function finishQuiz() {
@@ -976,13 +1124,11 @@ function updateWordStats(wordId, correct) {
     updatedWord = { ...word, correctCount: nextCorrect, wrongCount: nextWrong, status, lastStudiedAt: now, lastWrongAt: correct ? word.lastWrongAt : now };
     return updatedWord;
   });
-  saveState();
   return updatedWord;
 }
 
 function addSession(session) {
   state.sessions = [...state.sessions, { id: createId("session"), ...session, finishedAt: new Date().toISOString() }].slice(-80);
-  saveState();
 }
 
 function openWordEditor(wordId = "") {
@@ -1034,7 +1180,7 @@ function submitWordForm() {
   }
   saveState();
   wordDialog.close();
-  render();
+  render(false);
 }
 
 function submitBulkForm() {
@@ -1050,7 +1196,7 @@ function submitBulkForm() {
   saveState();
   bulkDialog.close();
   bulkForm.reset();
-  render();
+  render(false);
   showToast(`${result.addedCount}개 추가 · ${result.updatedCount}개 뜻·메모 보충 · 형식 오류 ${invalidCount}개`, "success");
 }
 
@@ -1107,7 +1253,7 @@ async function importData(file) {
     if (!confirm(`${summary}\n\n기존 단어장에 추가하시겠어요?`)) return;
     state.words = result.words;
     saveState();
-    render();
+    render(false);
     showToast(`파일 가져오기 완료 · ${summary}`, "success");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "파일을 읽을 수 없습니다.", "error");
@@ -1139,14 +1285,14 @@ document.addEventListener("click", (event) => {
     if (word && confirm(`‘${word.word}’ 단어와 학습 기록을 삭제할까요?`)) {
       state.words = state.words.filter((item) => item.id !== word.id);
       saveState();
-      render();
+      render(false);
       showToast("단어를 삭제했습니다.");
     }
   }
   else if (action === "reset-word-filters") {
     wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
     rememberStudyTag("all");
-    render();
+    render(false);
   }
   else if (action === "word-page") {
     wordFilters.page = Number(button.dataset.page);
@@ -1170,20 +1316,29 @@ document.addEventListener("click", (event) => {
   }
   else if (action === "open-quiz-multiple") {
     quizSession = null;
-    quizDefaults = { ...quizDefaults, mode: "multiple", onlyWrong: false };
+    quizDefaults = { ...quizDefaults, mode: "multiple", onlyWrong: false, collection: "regular" };
+    saveState();
     setView("quiz");
   }
   else if (action === "open-quiz-typing") {
     quizSession = null;
-    quizDefaults = { ...quizDefaults, mode: "typing", onlyWrong: false };
+    quizDefaults = { ...quizDefaults, mode: "typing", onlyWrong: false, collection: "regular" };
+    saveState();
     setView("quiz");
   }
+  else if (action === "toggle-bookmark") toggleBookmark(button.dataset.wordId);
+  else if (action === "previous-quiz") previousQuiz();
+  else if (action === "previous-study") previousStudy();
+  else if (action === "next-study") nextStudy();
+  else if (action === "next-batch") nextBatch();
+  else if (action === "review-kind") { reviewKind = button.dataset.kind === "starred" ? "starred" : "wrong"; render(false); }
   else if (action === "start-wrong-quiz") {
-    if (currentView === "quiz" && quizSession) quizDefaults = quizSettings(quizSession);
-    else if (currentView === "study" && studySession) quizDefaults = { ...quizDefaults, ...studySettings(studySession) };
-    quizSession = null;
-    quizDefaults = { ...quizDefaults, onlyWrong: true };
-    setView("quiz");
+    const previous = currentView === "study" ? studySession : quizSession;
+    const parent = previous && batchSettings(previous, currentView === "study" ? "flashcard" : previous.mode);
+    if (previous) quizDefaults = { ...quizDefaults, ...studySettings(previous) };
+    const result = beginQuiz({ ...quizDefaults, mode: "multiple", collection: "wrong", onlyWrong: true, minWrong: 1, returnBatchSettings: parent });
+    if (result.ok) { currentView = "quiz"; history.replaceState(null, "", "#quiz"); render(false); }
+    else showToast(result.error, "error");
   }
   else if (action === "choose-option") selectQuizOption(button.dataset.answer);
   else if (action === "confirm-option" && quizSession && quizSession.queue[quizSession.index]?.selected !== null) submitQuizAnswer(quizSession.queue[quizSession.index].selected);
@@ -1200,14 +1355,14 @@ document.addEventListener("click", (event) => {
   }
   else if (action === "mistake-filter") {
     mistakeFilter = button.dataset.filter;
-    render();
+    render(false);
   }
   else if (action === "reset-wrong") {
     const word = state.words.find((item) => item.id === button.dataset.wordId);
     if (word && confirm(`‘${word.word}’의 오답 횟수를 0으로 초기화할까요?`)) {
       state.words = state.words.map((item) => item.id === word.id ? { ...item, wrongCount: 0, lastWrongAt: null } : item);
       saveState();
-      render();
+      render(false);
       showToast("오답 횟수를 초기화했습니다.", "success");
     }
   }
@@ -1224,7 +1379,18 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (event.target.id === "home-config") startHome(event.target);
+  if (event.target.id === "review-config") {
+    const data = new FormData(event.target);
+    reviewMinWrong = Math.max(1, Math.floor(Number(data.get("minWrong")) || 1));
+    reviewCount = data.get("count") === "all" ? "all" : Number(data.get("count"));
+    reviewMode = String(data.get("mode"));
+    const settings = { mode: reviewMode, direction: quizDefaults.direction, tag: String(data.get("tag")), count: reviewCount, minWrong: reviewMinWrong, collection: reviewKind };
+    const previousView = currentView; currentView = reviewMode === "flashcard" ? "study" : "quiz";
+    const ok = reviewMode === "flashcard" ? startStudy(null, settings) : beginQuiz(settings).ok;
+    if (!ok) { currentView = previousView; render(false); }
+    else history.replaceState(null, "", `#${currentView}`);
+  }
+  else if (event.target.id === "home-config") startHome(event.target);
   else if (event.target === wordForm) submitWordForm();
   else if (event.target === bulkForm) submitBulkForm();
   else if (event.target.id === "study-config") startStudy(event.target);
@@ -1254,6 +1420,13 @@ document.addEventListener("change", (event) => {
   } else if (event.target.id === "sort-filter") {
     wordFilters.sort = event.target.value;
     renderWordbookResults();
+  } else if (event.target.closest?.("#review-config")) {
+    const data = new FormData(event.target.closest("#review-config"));
+    reviewMinWrong = Math.max(1, Math.floor(Number(data.get("minWrong")) || 1));
+    reviewCount = data.get("count") === "all" ? "all" : Number(data.get("count"));
+    reviewMode = String(data.get("mode"));
+    rememberStudyTag(String(data.get("tag")));
+    render(false);
   } else if (event.target.closest?.("#home-config")) {
     const data = new FormData(event.target.closest("#home-config"));
     homeMode = String(data.get("mode"));
@@ -1261,12 +1434,12 @@ document.addEventListener("change", (event) => {
     if (homeMode === "flashcard") studyDefaults = settings;
     else quizDefaults = { ...settings, mode: homeMode, onlyWrong: false };
     rememberStudyTag(settings.tag);
-    if (event.target.name === "mode") render();
+    if (event.target.name === "mode") render(false);
   } else if (event.target.closest?.("#quiz-config")) {
     const data = new FormData(event.target.closest("#quiz-config"));
     quizDefaults = { mode: String(data.get("mode")), direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: data.get("onlyWrong") === "on", count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
     rememberStudyTag(quizDefaults.tag);
-    render();
+    render(false);
   } else if (event.target.closest?.("#study-config")) {
     const data = new FormData(event.target.closest("#study-config"));
     studyDefaults = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
@@ -1274,7 +1447,7 @@ document.addEventListener("change", (event) => {
   } else if (event.target.matches("[data-status-id]")) {
     state.words = state.words.map((word) => word.id === event.target.dataset.statusId ? { ...word, status: event.target.value } : word);
     saveState();
-    render();
+    render(false);
     showToast("암기 상태를 변경했습니다.", "success");
   }
 });
@@ -1284,29 +1457,30 @@ document.addEventListener("compositionstart", () => { composing = true; });
 document.addEventListener("compositionend", () => { composing = false; });
 document.addEventListener("keydown", (event) => {
   if (event.isComposing || composing || event.keyCode === 229 || event.repeat || event.ctrlKey || event.metaKey || event.altKey || document.querySelector("dialog[open]")) return;
-  if (currentView === "quiz" && quizSession && !quizSession.completed && !event.shiftKey && !event.target.closest("input, textarea, select, [contenteditable]")) {
-    const control = event.target.closest("button");
-    const allowed = !control || ["choose-option", "confirm-option", "next-quiz"].includes(control.dataset.action);
-    if (allowed && event.key === "Enter") {
+  const editable = event.target.closest("input, textarea, select, [contenteditable]");
+  const current = currentView === "quiz" ? quizSession : currentView === "study" ? studySession : null;
+  if (!current) return;
+  if (event.shiftKey && event.key === "Enter" && currentView === "quiz" && event.target.id === "typing-answer") { event.preventDefault(); previousQuiz(); return; }
+  if (editable) return;
+  const wordId = currentView === "quiz" ? current.queue[current.index]?.wordId : current.wordIds[current.index];
+  if (!event.shiftKey && event.key === "0" && wordId && (!current.completed || current.reviewing)) { event.preventDefault(); toggleBookmark(wordId); return; }
+  if (event.shiftKey && event.key === "Enter") { event.preventDefault(); currentView === "quiz" ? previousQuiz() : previousStudy(); return; }
+  if (event.shiftKey) return;
+  const control = event.target.closest("button");
+  const allowed = !control || ["choose-option", "confirm-option", "next-quiz", "previous-quiz", "toggle-bookmark", "reveal-card", "rate-card", "previous-study", "next-study"].includes(control.dataset.action);
+  if (!allowed) return;
+  if (currentView === "quiz" && (!current.completed || current.reviewing)) {
+    if (event.key === "Enter") {
       event.preventDefault();
-      if (quizSession.feedback) nextQuiz();
-      else if (quizSession.mode === "multiple" && quizSession.queue[quizSession.index].selected !== null) submitQuizAnswer(quizSession.queue[quizSession.index].selected);
-      return;
+      if (current.feedback) nextQuiz();
+      else if (current.mode === "multiple" && current.queue[current.index].selected !== null) submitQuizAnswer(current.queue[current.index].selected);
+    } else if (current.mode === "multiple" && !current.feedback && /^[1-4]$/.test(event.key)) {
+      event.preventDefault(); selectQuizOption(current.queue[current.index].options[Number(event.key)-1]);
     }
-    if (allowed && quizSession.mode === "multiple" && !quizSession.feedback && /^[1-4]$/.test(event.key)) {
-      event.preventDefault();
-      selectQuizOption(quizSession.queue[quizSession.index].options[Number(event.key) - 1]);
-      return;
-    }
-  }
-  if (event.key === "Enter" && currentView === "quiz" && quizSession?.feedback && !event.target.closest("button")) {
-    event.preventDefault();
-    nextQuiz();
-  }
-  if (event.target.closest("input, textarea, select, button")) return;
-  if (currentView === "study" && studySession && !studySession.completed) {
-    if (event.code === "Space" && !studySession.revealed) { event.preventDefault(); studySession.revealed = true; render(); }
-    else if (studySession.revealed && ["1", "2", "3"].includes(event.key)) { event.preventDefault(); rateStudy({ "1": "unknown", "2": "confused", "3": "known" }[event.key]); }
+  } else if (currentView === "study" && (!current.completed || current.reviewing)) {
+    if (event.key === "Enter" && (current.ratings?.[current.index] || current.index < (current.furthestIndex || 0) || current.completed)) { event.preventDefault(); nextStudy(); }
+    else if ((event.code === "Space" || event.key === "Enter") && !current.revealed) { event.preventDefault(); current.revealed = true; render(); }
+    else if (current.revealed && ["1","2","3"].includes(event.key)) { event.preventDefault(); rateStudy({"1":"unknown","2":"confused","3":"known"}[event.key]); }
   }
 });
 
@@ -1316,7 +1490,7 @@ window.addEventListener("hashchange", () => {
   const view = location.hash.slice(1);
   if (validView(view) && view !== currentView) {
     currentView = view;
-    render();
+    render(false);
   }
 });
 
@@ -1477,7 +1651,7 @@ function registerWebMcpTools() {
   });
 }
 
-render();
+render(false);
 registerWebMcpTools();
 if (storageNotice) requestAnimationFrame(() => showToast(storageNotice, storageNoticeTone));
 void connectVocabularySync();

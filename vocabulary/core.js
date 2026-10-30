@@ -1,9 +1,10 @@
 import { handwrittenWordTemplates } from "./handwritten-words.js";
 import { lessonWordTemplates } from "./lesson-words.js";
 import { octoberWordTemplates } from "./lesson-words-1001.js";
+import { normalizeBookmarks, normalizeStudyProgress, mergeBookmarks, mergeStudyProgress } from "./progress.js?v=20261031-features1";
 
 export const STORAGE_KEY = "toeic-pocket-state-v1";
-export const STORAGE_VERSION = 5;
+export const STORAGE_VERSION = 6;
 export const WORD_STATUSES = ["new", "learning", "mastered"];
 
 const seedWordTemplates = [
@@ -128,6 +129,8 @@ export function createInitialState(now = new Date().toISOString()) {
     version: STORAGE_VERSION,
     words: mergeWordCollections(createHandwrittenWords(now), [...lessonWordTemplates, ...octoberWordTemplates], now).words,
     sessions: [],
+    bookmarks: {},
+    studyProgress: {},
     updatedAt: now
   };
 }
@@ -138,7 +141,8 @@ export function normalizeState(raw, now = new Date().toISOString()) {
   const words = raw.words.map((word) => normalizeWordRecord(word, now)).filter(Boolean);
   if (words.length !== raw.words.length) return null;
   const sessions = Array.isArray(raw.sessions) ? raw.sessions.filter((session) => session && typeof session === "object").slice(-80) : [];
-  return { version: STORAGE_VERSION, words, sessions, activeStudy: raw.activeStudy || null, activeQuiz: raw.activeQuiz || null, updatedAt: raw.updatedAt || now };
+  return { version: STORAGE_VERSION, words, sessions, bookmarks: normalizeBookmarks(raw.bookmarks), studyProgress: normalizeStudyProgress(raw.studyProgress),
+    activeStudy: raw.activeStudy || null, activeQuiz: raw.activeQuiz || null, updatedAt: raw.updatedAt || now };
 }
 
 export function mergeWordCollections(existing, incoming, now = new Date().toISOString()) {
@@ -237,7 +241,10 @@ export function upgradeState(raw, now = new Date().toISOString()) {
     : session);
   const migrated = sourceVersion < STORAGE_VERSION || JSON.stringify(state.words) !== JSON.stringify(words);
   return {
-    state: { ...state, version: STORAGE_VERSION, words, sessions, activeStudy: sourceVersion < 4 ? null : state.activeStudy, activeQuiz: sourceVersion < 4 ? null : state.activeQuiz, updatedAt: migrated ? now : state.updatedAt },
+    state: { ...state, version: STORAGE_VERSION, words, sessions,
+      bookmarks: mergeBookmarks(state.bookmarks, {}, consolidated.idMap),
+      studyProgress: mergeStudyProgress({}, state.studyProgress, {}, consolidated.idMap),
+      activeStudy: sourceVersion < 4 ? null : state.activeStudy, activeQuiz: sourceVersion < 4 ? null : state.activeQuiz, updatedAt: migrated ? now : state.updatedAt },
     migrated,
     addedCount,
     removedCount,
