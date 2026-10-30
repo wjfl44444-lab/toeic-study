@@ -6,6 +6,7 @@
   var memoryPractice = window.POWER_VOCA_MEMORY_PRACTICE || null;
   var memoryVersion = "20261023-memory3";
   var prepSelectionVersion = "20261030-prepselect1";
+  var prepBundleVersion = "20261030-prepbundle1";
   var memoryReady = memoryPractice && memoryPractice.version === memoryVersion &&
     memoryPractice.stages && Array.isArray(memoryPractice.questions);
   // Never append to or annotate the original corpus: fingerprints for old
@@ -63,6 +64,7 @@
       classifications: window.POWER_SORTING_CLASSIFICATION_REVIEW }) : null;
   var sortingPractice = window.PowerVocaSorting && window.POWER_VOCA_SORTING ? window.PowerVocaSorting.create(sortingReview ? sortingReview.sortingData : verbFormsReview ? verbFormsReview.sortingData : window.POWER_VOCA_SORTING) : null;
   var sortingController = null;
+  var prepBundles = window.PowerVocaPrepBundles || null, prepBundleController = null;
   if (data && sortingPractice) { data = Object.assign({}, data, { questions: data.questions.concat(sortingPractice.questions) }); }
   var questionReview = null;
   var questionCuration = null;
@@ -116,7 +118,7 @@
   var requestedCategory = new URLSearchParams(window.location.search || "").get("category") === "grammar-structures";
   var letters = ["1", "2", "3", "4", "5", "6", "7", "8"];
   var keyboardComposing = false;
-  var views = ["loading", "error", "start", "quiz", "sorting", "results"];
+  var views = ["loading", "error", "start", "quiz", "sorting", "prep-bundles", "results"];
   // Taxonomy is external: do not alter any question object or saved fingerprint.
   // One existing settings.step string stores either a subgroup or group-<id>.
   var taxonomy = window.PowerVocaTaxonomy;
@@ -272,12 +274,15 @@
     if (session.studyRun) { saved.studyRun = Object.assign({}, session.studyRun); }
     if (session.resumeStudyRun) { saved.resumeStudyRun = Object.assign({}, session.resumeStudyRun); }
     if (session.sorting) { saved.sorting = JSON.parse(JSON.stringify(session.sorting)); }
+    if (session.prepBundles) { saved.prepBundles = JSON.parse(JSON.stringify(session.prepBundles)); }
     return saved;
   }
   function currentSettings() {
     var scope = el("step-filter").value, group = el("group-filter").value;
-    return { roundSize: el("round-size").value, step: scope !== "all" ? scope : group === "all" ? "all" : "group-" + group,
+    var settings = { roundSize: el("round-size").value, step: scope !== "all" ? scope : group === "all" ? "all" : "group-" + group,
       shuffleQuestions: el("shuffle-questions").checked, shuffleOptions: el("shuffle-options").checked };
+    if (el("bundle-by-verb").checked) { settings.bundleByVerb = true; }
+    return settings;
   }
   function currentPayload(compact) {
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
@@ -318,6 +323,7 @@
     if (!saved || !Array.isArray(saved.cards) || !saved.cards.length || saved.cards.length > data.questions.length ||
         !Number.isInteger(saved.index) || saved.index < 0 || saved.index >= saved.cards.length) { return null; }
     if (saved.practiceVersion && saved.practiceVersion !== legacyGatedVersion && !hasPracticeOptions(saved.practiceVersion)) { return null; }
+    if (saved.prepBundles && (!prepBundles || !prepBundles.validMetadata(saved.prepBundles, saved.cards.map(function (card) { return questionMap.get(card.id); })))) { return null; }
     // Only unanswered replacement choices may adopt the new edition. A chosen
     // meaning, any graded card, or an already advanced old wrong answer pins
     // the entire saved round to its original choice meanings.
@@ -354,7 +360,7 @@
         stored.stageIndex === 0 && firstValues.length > 0 && stored.stages.slice(1).every(function (s) { return s && s.selected === null; });
       var stages = [];
       for (var j = 0; j < q.stages.length; j += 1) {
-        var stage = stored.stages[j], order = stage && stage.order, stageData = practiceStage(q, j, version);
+        var stage = stored.stages[j], order = stage && stage.order, stageData = practiceStage(q, j, version, saved.prepBundles);
         if (!stage || !Array.isArray(order) || order.length !== stageData.options.length || new Set(order).size !== order.length ||
             !order.every(function (n) { return Number.isInteger(n) && n >= 0 && n < order.length; }) ||
             !validSelection(stage.selected, stageData) ||
@@ -381,6 +387,7 @@
     if (version) { restored.practiceVersion = version; }
     if (saved.studyRun) { restored.studyRun = Object.assign({}, saved.studyRun); }
     if (saved.resumeStudyRun) { restored.resumeStudyRun = Object.assign({}, saved.resumeStudyRun); }
+    if (saved.prepBundles) { restored.prepBundles = JSON.parse(JSON.stringify(saved.prepBundles)); }
     if (saved.sorting) {
       restored.sorting = JSON.parse(JSON.stringify(saved.sorting));
       if (!sortingPractice || !sortingPractice.validateSession(restored)) { return null; }
@@ -430,6 +437,7 @@
         applyScopeSetting(settings.step);
         if (typeof settings.shuffleQuestions === "boolean") { el("shuffle-questions").checked = settings.shuffleQuestions; }
         if (typeof settings.shuffleOptions === "boolean") { el("shuffle-options").checked = settings.shuffleOptions; }
+        el("bundle-by-verb").checked = settings.bundleByVerb === true;
       }
     } catch (error) {
       if (typeof raw === "string") { unreadableOriginal = raw; }
@@ -442,6 +450,7 @@
     applyScopeSetting(settings.step);
     el("shuffle-questions").checked = settings.shuffleQuestions;
     el("shuffle-options").checked = settings.shuffleOptions;
+    el("bundle-by-verb").checked = settings.bundleByVerb === true;
   }
   function applyStudyPayload(raw, options) {
     var saved = syncModel && syncModel.parse(raw);
@@ -964,6 +973,7 @@
     return scope === "all" ? starredReviewEntries().map(function (entry) { return entry.question; }) : poolForScope(scope).filter(isBookmarked);
   }
   function progressLabel(state) {
+    if (state.bundles) { return state.pass + "회독 · " + (state.bundles.length - state.remainingBundles.length) + " / " + state.bundles.length + "세트 완료 · 남은 " + state.remainingBundles.length + "세트"; }
     return state.pass + "회독 · " + state.completed + " / " + state.total + "문제 완료 · 남은 " + state.remaining + "문제";
   }
   function scopeLabel(setting) {
@@ -996,21 +1006,47 @@
     var length = String(session.cards.length), size = ["20", "50", "100"].indexOf(length) !== -1 ? length : currentSettings().roundSize;
     var inferred = { scope: setting, pass: 1, size: size };
     if (session.mode === "starred") { inferred.collection = "starred"; }
+    if (session.prepBundles) { inferred.bundleByVerb = true; }
     return inferred;
   }
   function progressForRun(run) {
     var starred = run.collection === "starred";
     var progress = starred ? ensureStarredStudyProgress() : ensureStudyProgress();
-    var state = progressManager && progressManager.snapshot(progress || window.PowerVocaStudyProgress.empty(), starred ? starredPool(run.scope) : poolForScope(run.scope), run.scope);
+    var pool = starred ? starredPool(run.scope) : poolForScope(run.scope);
+    var bundles = run.bundleByVerb && prepBundles ? prepBundles.groups(pool) : null;
+    if (bundles) { pool = bundles.flatMap(function (group) { return group.questions; }); }
+    var state = progressManager && progressManager.snapshot(progress || window.PowerVocaStudyProgress.empty(), pool, run.scope + (bundles ? "_bundles" : ""));
     if (!state) { return null; }
-    if (!run.pass) { return state; }
     var completed = (progress || window.PowerVocaStudyProgress.empty()).completed;
-    state.pass = run.pass;
-    state.remainingQuestions = state.questions.filter(function (q) { return (completed[q.id] || 0) < run.pass; });
-    state.remaining = state.remainingQuestions.length;
-    state.completed = state.total - state.remaining;
-    state.complete = state.total > 0 && state.remaining === 0;
+    if (run.pass) {
+      state.pass = run.pass;
+      state.remainingQuestions = state.questions.filter(function (q) { return (completed[q.id] || 0) < run.pass; });
+      state.remaining = state.remainingQuestions.length;
+      state.completed = state.total - state.remaining;
+      state.complete = state.total > 0 && state.remaining === 0;
+    }
+    if (bundles) {
+      state.bundles = bundles;
+      state.remainingBundles = bundles.filter(function (group) { return group.questions.some(function (q) { return (completed[q.id] || 0) < state.pass; }); });
+    }
     return state;
+  }
+  function bundledSelection() { return Boolean(prepBundles && currentSettings().step === "grammar-prepositions" && el("bundle-by-verb").checked); }
+  function beginBundleQuestions(groups, mode, run, forceShuffle) {
+    var metadata = prepBundles.metadata(groups, { shuffleOptions: forceShuffle || el("shuffle-options").checked, shuffleQuestions: forceShuffle || el("shuffle-questions").checked });
+    var byId = new Map(groups.flatMap(function (group) { return group.questions.map(function (q) { return [q.id, q]; }); }));
+    begin(metadata.groups.flatMap(function (group) { return group.ids.map(function (id) { return byId.get(id); }); }), mode, false, run, metadata);
+  }
+  function beginBundleRemaining(scope, size, pass, collection) {
+    var state = progressForRun({ scope: scope, pass: pass, collection: collection, bundleByVerb: true });
+    if (!state || !state.remainingBundles.length) { return false; }
+    var groups = el("shuffle-questions").checked ? shuffled(state.remainingBundles) : state.remainingBundles;
+    if (size !== "all") { groups = groups.slice(0, Number(size)); }
+    el("round-size").value = size;
+    var run = { scope: scope, pass: state.pass, size: size, bundleByVerb: true };
+    if (collection === "starred") { run.collection = collection; }
+    beginBundleQuestions(groups, collection === "starred" ? "starred" : "all", run, false);
+    return true;
   }
   function beginStarredRemaining(scope, size, pass) {
     var state = progressForRun({ scope: scope, pass: pass, collection: "starred" });
@@ -1031,15 +1067,17 @@
     begin(remaining, "all", false, progress ? { scope: scope, pass: progress.pass, size: size } : null);
     return true;
   }
-  function advanceStudyPass(scope, size, collection) {
+  function advanceStudyPass(scope, size, collection, bundleByVerb) {
     var starred = collection === "starred";
-    var pool = starred ? starredPool(scope) : poolForScope(scope), state = progressForRun({ scope: scope, collection: collection });
+    var state = progressForRun({ scope: scope, collection: collection, bundleByVerb: bundleByVerb }), pool = state && state.questions;
     if (!state || !state.complete || !unifiedImportReady) { return; }
     var before = starred ? starredStudyProgress : studyProgress;
-    if (starred) { starredStudyProgress = progressManager.nextPass(starredStudyProgress, pool, scope); }
-    else { studyProgress = progressManager.nextPass(studyProgress, pool, scope); }
+    var progressScope = scope + (bundleByVerb ? "_bundles" : "");
+    if (starred) { starredStudyProgress = progressManager.nextPass(starredStudyProgress, pool, progressScope); }
+    else { studyProgress = progressManager.nextPass(studyProgress, pool, progressScope); }
     if (!saveState()) { if (starred) { starredStudyProgress = before; } else { studyProgress = before; } return; }
-    if (starred) { beginStarredRemaining(scope, size); } else { beginRemaining(scope, size); }
+    if (bundleByVerb) { beginBundleRemaining(scope, size, null, collection); }
+    else if (starred) { beginStarredRemaining(scope, size); } else { beginRemaining(scope, size); }
   }
   function renderStudyContinuation() {
     var run = sessionStudyRun(), state = run && progressForRun(run);
@@ -1049,13 +1087,14 @@
     el("next-batch-button").hidden = !available || session.mode !== "wrong" && totals().ungraded > 0 || state.complete;
     el("next-pass-button").hidden = !available || totals().ungraded > 0 || !state.complete;
     if (available) {
-      text("next-batch-button", session.mode === "wrong" || run.collection === "starred" ? reviewNextBatchLabel(run, state) : "남은 문제 계속 풀기 (" + state.remaining + "개)");
+      text("next-batch-button", session.mode === "wrong" || run.collection === "starred" || run.bundleByVerb ? reviewNextBatchLabel(run, state) : "남은 문제 계속 풀기 (" + state.remaining + "개)");
       text("next-pass-button", (state.pass + 1) + "회독 시작");
     }
   }
   function reviewNextBatchLabel(run, state) {
-    var size = run.size || "20", count = size === "all" ? state.remaining : Math.min(Number(size), state.remaining);
-    return (size !== "all" && count === Number(size) ? "다음 " : "남은 ") + count + "문제 풀기 · " + (run.collection === "starred" ? "별표 연습" : "일반 연습");
+    var size = run.size || "20", remaining = state.remainingBundles ? state.remainingBundles.length : state.remaining;
+    var count = size === "all" ? remaining : Math.min(Number(size), remaining);
+    return (size !== "all" && count === Number(size) ? "다음 " : "남은 ") + count + (run.bundleByVerb ? "세트" : "문제") + " 풀기 · " + (run.collection === "starred" ? "별표 연습" : run.bundleByVerb ? "묶음 연습" : "일반 연습");
   }
   function mountReviewContinuation() {
     var parent = el("quiz-view") && el("quiz-view").parentNode;
@@ -1080,7 +1119,8 @@
   function continueStudyRun() {
     var run = sessionStudyRun();
     if (run && unifiedImportReady && (session.mode === "wrong" || !totals().ungraded)) {
-      if (run.collection === "starred") { beginStarredRemaining(run.scope, run.size || "20", run.pass); }
+      if (run.bundleByVerb) { beginBundleRemaining(run.scope, run.size || "20", run.pass, run.collection); }
+      else if (run.collection === "starred") { beginStarredRemaining(run.scope, run.size || "20", run.pass); }
       else { beginRemaining(run.scope, run.size || "20", run.pass); }
     }
   }
@@ -1091,9 +1131,13 @@
     text("question-shuffle-label", "문제 순서 섞기");
     el("step-filter-label").hidden = false;
     var starred = el("bookmarks-only").checked;
+    var bundled = bundledSelection();
+    el("bundle-by-verb-setting").hidden = !prepBundles || currentSettings().step !== "grammar-prepositions";
+    text("round-size-label", bundled ? "세트 수" : "문제 수");
+    Array.from(el("round-size").options).forEach(function (option) { option.textContent = option.value === "all" ? bundled ? "전체 세트" : "전체 문제" : option.value + (bundled ? "세트" : "문제"); });
     var pool = starred ? starredPool(currentSettings().step) : filteredQuestions(), size = el("round-size").value;
-    var state = starred ? progressForRun({ scope: currentSettings().step, collection: "starred" }) : progressFor(pool, currentSettings().step);
-    var available = state ? state.remaining : pool.length;
+    var state = bundled ? progressForRun({ scope: currentSettings().step, collection: starred ? "starred" : undefined, bundleByVerb: true }) : starred ? progressForRun({ scope: currentSettings().step, collection: "starred" }) : progressFor(pool, currentSettings().step);
+    var available = state ? bundled ? state.remainingBundles.length : state.remaining : pool.length;
     var count = size === "all" ? available : Math.min(Number(size), available);
     text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "남은 " + available + "문제 중 " + count + "문제" : "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요.");
     el("study-progress-summary").hidden = !state || !unifiedImportReady;
@@ -1104,7 +1148,8 @@
     }
     if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
     if (starred) { text("pool-summary", pool.length ? "별표한 " + pool.length + "문제 중 " + count + "문제" : "이 범위에는 별표한 문제가 없어요."); }
-    text("start-button", state && state.completed ? "남은 문제 풀기" : "연습 시작");
+    if (bundled) { text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "총 " + state.bundles.length + "세트 · 남은 " + available + "세트 중 " + count + "세트" : "묶음 연습을 준비하고 있어요."); }
+    text("start-button", bundled ? "묶음 연습 시작" : state && state.completed ? "남은 문제 풀기" : "연습 시작");
     el("start-button").hidden = Boolean(state && state.complete);
     el("start-button").disabled = !available || !unifiedImportReady;
     el("start-next-pass-button").hidden = !state || !state.complete;
@@ -1117,6 +1162,7 @@
   function startSelected() {
     if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
+    if (bundledSelection()) { beginBundleRemaining(currentSettings().step, el("round-size").value, null, el("bookmarks-only").checked ? "starred" : undefined); return; }
     if (el("bookmarks-only").checked) {
       beginStarredRemaining(currentSettings().step, el("round-size").value); return;
     }
@@ -1141,6 +1187,7 @@
       stage.optionReasons.every(function (value) { return typeof value === "string" && value.trim(); });
   }
   function hasPracticeOptions(version) {
+    if (version === prepBundleVersion) { return Boolean(prepBundles && hasPracticeOptions(memoryVersion)); }
     if (version === prepSelectionVersion) { return hasPracticeOptions(memoryVersion); }
     var previousReady = practice && practice.version === previousPracticeVersion && practice.stages && typeof practice.stages === "object";
     if (version === previousPracticeVersion) { return previousReady; }
@@ -1151,8 +1198,9 @@
   function latestPracticeVersion() {
     return hasPracticeOptions(memoryVersion) ? memoryVersion : hasPracticeOptions(practiceVersion) ? practiceVersion : hasPracticeOptions(previousPracticeVersion) ? previousPracticeVersion : legacyGatedVersion;
   }
-  function practiceStage(question, index, version) {
+  function practiceStage(question, index, version, bundleMetadata) {
     var original = question.stages[index];
+    if (version === prepBundleVersion) { return prepBundles.stage(question, index, bundleMetadata); }
     if (version === prepSelectionVersion) {
       if (question.grammarPool === "prepositions" && index === 0) {
         var selection = Object.assign({}, original, { multiple: true,
@@ -1173,11 +1221,11 @@
   }
   function isLinkedMeaningStage(card, index) {
     if (card.question.grammarOriginId) { return false; }
-    var meta = session && (session.practiceVersion === memoryVersion || session.practiceVersion === prepSelectionVersion) && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
+    var meta = session && (session.practiceVersion === memoryVersion || session.practiceVersion === prepSelectionVersion || session.practiceVersion === prepBundleVersion) && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
     return index > 0 && !blindSet(card) && !(meta && meta.independent) && card.question.stageMode !== "independent" && /_{2,}/.test(card.stages[0].data.prompt);
   }
   function questionDetail(card, key) {
-    var meta = session && (session.practiceVersion === memoryVersion || session.practiceVersion === prepSelectionVersion) && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
+    var meta = session && (session.practiceVersion === memoryVersion || session.practiceVersion === prepSelectionVersion || session.practiceVersion === prepBundleVersion) && memoryPractice.metadata && memoryPractice.metadata[card.question.id];
     return meta && meta[key] || card.question[key];
   }
   function stagePrompt(card, index) {
@@ -1259,21 +1307,22 @@
     updateSettings();
     window.scrollTo({ top: 0, behavior: "auto" });
   }
-  function begin(questions, mode, forceShuffle, studyRun) {
+  function begin(questions, mode, forceShuffle, studyRun, bundleMetadata) {
     unavailableSession = null;
     var mixQuestions = forceShuffle || el("shuffle-questions").checked;
     var mixOptions = forceShuffle || el("shuffle-options").checked;
     questions = questions.map(function (q) { return q.routeRoot && questionMap.get(q.routeRoot) || q; });
-    var ordered = mixQuestions ? shuffled(questions) : questions.slice();
+    var ordered = mixQuestions && !bundleMetadata ? shuffled(questions) : questions.slice();
     var version = latestPracticeVersion();
     if (hasPracticeOptions(prepSelectionVersion) && ordered.some(function (q) { return q.grammarPool === "prepositions"; })) { version = prepSelectionVersion; }
+    if (bundleMetadata) { version = prepBundleVersion; }
     session = { mode: mode, index: 0, startedAt: new Date().toISOString(), practiceVersion: version, cards: ordered.map(function (question) {
       var sharedChoices = Object.create(null);
       return { question: question, stageIndex: 0, graded: false, deferred: false,
         stages: question.stages.map(function (_, index) {
-          var stage = practiceStage(question, index, version);
+          var stage = practiceStage(question, index, version, bundleMetadata);
           var choices = stage.options.map(function (option, index) { return { text: option, originalIndex: index }; });
-          choices = mixOptions && !stage.fixedOrder ? shuffled(choices) : choices;
+          choices = mixOptions && !stage.fixedOrder && !bundleMetadata ? shuffled(choices) : choices;
           if (stage.choiceGroup) {
             if (sharedChoices[stage.choiceGroup]) { choices = sharedChoices[stage.choiceGroup].map(function (i) { return { text: stage.options[i], originalIndex: i }; }); }
             else { sharedChoices[stage.choiceGroup] = choices.map(function (choice) { return choice.originalIndex; }); }
@@ -1282,6 +1331,7 @@
         }) };
     }) };
     if (studyRun) { session[mode === "wrong" ? "resumeStudyRun" : "studyRun"] = Object.assign({}, studyRun); }
+    if (bundleMetadata) { session.prepBundles = JSON.parse(JSON.stringify(bundleMetadata)); }
     if (sortingController && session.cards.every(function (card) { return sortingPractice.has(card.question) && card.question.sortingTopic === session.cards[0].question.sortingTopic; })) {
       sortingController.start(session);
     }
@@ -1445,6 +1495,7 @@
     el("stage-feedback-list").replaceChildren();
   }
   function renderQuestion(focus) {
+    if (session && session.prepBundles && prepBundleController) { prepBundleController.render(focus); return; }
     if (session && session.sorting && sortingController) { sortingController.render(focus); return; }
     showView("quiz");
     var card = currentCard(), stage = currentStage(), count = totals();
@@ -1595,7 +1646,7 @@
       else if (isAllCorrect(card)) { status.textContent = "정답"; status.classList.add("correct"); }
       else { status.textContent = "오답"; status.classList.add("wrong"); }
       button.append(node("span", "review-index", String(index + 1).padStart(2, "0")), node("span", "review-text", stagePrompt(card, 0)), status);
-      button.addEventListener("click", function () { session.index = index; if (session.sorting && sortingController) { sortingController.openCard(index); } else { renderQuestion(true); } });
+      button.addEventListener("click", function () { session.index = index; if (session.prepBundles && prepBundleController) { prepBundleController.openCard(index); } else if (session.sorting && sortingController) { sortingController.openCard(index); } else { renderQuestion(true); } });
       item.className = "bookmark-review-row"; item.append(button, bookmarkButton(card.question)); list.append(item);
     });
     focusHeading("results-title");
@@ -1613,12 +1664,14 @@
   }
   if (error) { text("error-message", error); showView("error"); return; }
   mountReviewContinuation();
-  if (sortingPractice) {
-    sortingController = sortingPractice.createController({
+  if (sortingPractice || prepBundles) {
+    var practiceHost = {
       el: el, node: node, getSession: function () { return session; }, getView: function () { return view; },
       ready: function () { return unifiedImportReady; }, save: saveState, record: recordCard,
       showView: showView, showResults: showResults, announce: announce, bookmarkButton: bookmarkButton, toggleBookmark: toggleBookmark
-    });
+    };
+    if (sortingPractice) { sortingController = sortingPractice.createController(practiceHost); }
+    if (prepBundles) { prepBundleController = prepBundles.createController(practiceHost); }
   }
   data.questions.forEach(function (q) { questionMap.set(q.id, q); signatures.set(q.id, fingerprint(q)); });
   data.questions.forEach(function (q) {
@@ -1662,7 +1715,7 @@
   el("start-button").addEventListener("click", startSelected);
   el("start-next-pass-button").addEventListener("click", function () {
     if (session && totals().ungraded && !window.confirm("새 회독을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 기록은 남아요. 시작할까요?")) { return; }
-    advanceStudyPass(currentSettings().step, el("round-size").value, el("bookmarks-only").checked ? "starred" : undefined);
+    advanceStudyPass(currentSettings().step, el("round-size").value, el("bookmarks-only").checked ? "starred" : undefined, bundledSelection());
   });
   el("next-batch-button").addEventListener("click", function () {
     continueStudyRun();
@@ -1670,7 +1723,7 @@
   if (el("review-next-batch-button")) { el("review-next-batch-button").addEventListener("click", continueStudyRun); }
   el("next-pass-button").addEventListener("click", function () {
     var run = sessionStudyRun();
-    if (run && !totals().ungraded) { advanceStudyPass(run.scope, run.size || currentSettings().roundSize, run.collection); }
+    if (run && !totals().ungraded) { advanceStudyPass(run.scope, run.size || currentSettings().roundSize, run.collection, run.bundleByVerb); }
   });
   window.addEventListener("compositionstart", function () { keyboardComposing = true; });
   window.addEventListener("compositionend", function () { keyboardComposing = false; });
@@ -1702,6 +1755,7 @@
     el(id).addEventListener("change", function () { updateSettings(); saveState(); });
   });
   el("bookmarks-only").addEventListener("change", updateSettings);
+  el("bundle-by-verb").addEventListener("change", updateSettings);
   el("home-link").addEventListener("click", function (event) { event.preventDefault(); showStart(); });
   el("home-button").addEventListener("click", showStart);
   el("resume-button").addEventListener("click", function () { if (!unifiedImportReady || !session) { return; } if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });
@@ -1718,7 +1772,8 @@
   });
   el("restart-button").addEventListener("click", function () {
     if (!totals().ungraded || window.confirm("현재 이어 풀기 대신 이번 문제를 처음부터 다시 풀까요?")) {
-      begin(session.cards.map(function (card) { return card.question; }), session.mode, true, sessionStudyRun());
+      if (session.prepBundles) { beginBundleQuestions(shuffled(prepBundles.groups(session.cards.map(function (card) { return card.question; }))), session.mode, sessionStudyRun(), true); }
+      else { begin(session.cards.map(function (card) { return card.question; }), session.mode, true, sessionStudyRun()); }
     }
   });
   window.addEventListener("pageshow", function (event) { if (event.persisted) { showStart(); } });

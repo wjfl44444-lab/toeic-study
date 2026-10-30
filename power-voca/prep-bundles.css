@@ -1,0 +1,48 @@
+#prep-bundles-view{max-width:1080px;margin:0 auto;padding-bottom:110px}
+#prep-bundles-view .bundle-heading{display:flex;align-items:baseline;gap:22px;margin:18px 3px 24px}
+#prep-bundles-view .bundle-heading h1{font-size:36px;color:var(--mint-strong);font-weight:700;letter-spacing:-.025em}
+#prep-bundles-view .bundle-heading p{font-size:17px}
+#prep-bundles-questions{overflow:hidden}
+#prep-bundles-view .bundle-question{padding:22px 28px 24px;scroll-margin-top:16px;scroll-margin-bottom:var(--dock-offset,280px);border-left:3px solid transparent;cursor:pointer}
+#prep-bundles-view .bundle-question+.bundle-question{border-top:1px solid var(--border)}
+#prep-bundles-view .bundle-question.active{border-left-color:#a7c6b1;background:#ffffff03}
+#prep-bundles-view .bundle-question-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:7px}
+#prep-bundles-view .bundle-question-heading .eyebrow{font-size:11px;letter-spacing:.08em}
+#prep-bundles-view .question-mark{display:flex;align-items:center;gap:13px}
+#prep-bundles-view .question-result{font-size:13px;color:var(--mint)}
+#prep-bundles-view .question-result.incorrect{color:var(--red)}
+#prep-bundles-view .bundle-prompt{font-size:20px;font-weight:500;line-height:1.6;white-space:pre-line;overflow-wrap:anywhere;word-break:normal;outline:0}
+#prep-bundles-view .bundle-context{font-size:14px;color:var(--muted);margin-top:5px}
+#prep-bundles-answer-dock{position:sticky;bottom:14px;z-index:3;margin-top:20px;background:#1a302afa;box-shadow:0 10px 30px #07140e55}
+#prep-bundles-choice-bank{padding:16px 20px}
+#prep-bundles-active-label{font-size:14px;color:var(--mint);font-weight:650;margin-bottom:11px}
+#prep-bundles-view .bundle-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;padding:0;border:0;margin:0;min-width:0}
+#prep-bundles-view .bundle-options .option{margin:0;padding:10px 12px;min-height:48px;gap:10px;min-width:0}
+#prep-bundles-view .bundle-options .option-text{font-size:16px}
+#prep-bundles-view .bundle-options .option-letter{border-radius:7px;width:25px;height:25px;font-size:12px}
+#prep-bundles-view .chosen-values{font-size:16px;line-height:1.6;color:var(--mint-strong);margin-top:9px;min-height:26px;word-break:normal}
+#prep-bundles-view .chosen-values.empty{color:#768b7d}
+#prep-bundles-view .bundle-feedback{border-top:1px solid var(--border);margin-top:18px;padding-top:15px}
+#prep-bundles-view .bundle-answer{font-size:20px;font-weight:650;color:var(--mint-strong);line-height:1.65;white-space:pre-line;word-break:normal}
+#prep-bundles-view .bundle-note{font-size:15px;color:var(--muted);margin-top:7px;line-height:1.8;white-space:pre-line}
+#prep-bundles-view .bundle-actions{display:flex;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid var(--border)}
+#prep-bundles-summary{font-size:14px;color:var(--muted);margin-right:auto}
+#prep-bundles-view .bundle-actions .primary-button{min-width:158px}
+#prep-bundles-view .bookmark-button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex-shrink:0;border:0;border-radius:9px;background:transparent;color:var(--muted);padding:5px}
+#prep-bundles-view .bookmark-button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}
+#prep-bundles-view .bookmark-button[aria-pressed="true"]{color:var(--mint);background:#b6dec510}
+#prep-bundles-view .bookmark-button[aria-pressed="true"] svg{fill:#b6dec530}
+#prep-bundles-view .bookmark-button:hover{color:var(--mint-strong);background:#ffffff08}
+@media(max-width:760px){
+  #prep-bundles-view .bundle-heading{display:block}
+  #prep-bundles-view .bundle-heading p{margin-top:8px}
+  #prep-bundles-view .bundle-question{padding:18px 17px 21px}
+  #prep-bundles-answer-dock{bottom:8px}
+  #prep-bundles-choice-bank{padding:12px}
+  #prep-bundles-view .bundle-prompt{font-size:18px}
+  #prep-bundles-view .bundle-options{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #prep-bundles-view .bundle-actions{gap:9px;padding:12px;flex-wrap:wrap}
+  #prep-bundles-view .bundle-actions .secondary-button{padding:8px 12px}
+  #prep-bundles-view .bundle-actions .primary-button{min-width:132px;padding:8px 12px}
+  #prep-bundles-summary{font-size:13px}
+}

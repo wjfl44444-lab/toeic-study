@@ -15,11 +15,13 @@
   function studyScope(value) { return typeof value === "string" && /^[a-zA-Z0-9 _-]{1,40}$/.test(value) && !["__proto__", "constructor", "prototype"].includes(value); }
   function studyPass(value) { return count(value) && value > 0; }
   function studyRun(value) {
-    if (!object(value) || Object.keys(value).some(function (name) { return !["scope", "pass", "size", "collection"].includes(name); }) || !studyScope(value.scope) || !studyPass(value.pass) ||
-        value.size !== undefined && !["20", "50", "100", "all"].includes(value.size) || value.collection !== undefined && value.collection !== "starred") { throw new Error("Invalid study run"); }
+    if (!object(value) || Object.keys(value).some(function (name) { return !["scope", "pass", "size", "collection", "bundleByVerb"].includes(name); }) || !studyScope(value.scope) || !studyPass(value.pass) ||
+        value.size !== undefined && !["20", "50", "100", "all"].includes(value.size) || value.collection !== undefined && value.collection !== "starred" ||
+        value.bundleByVerb !== undefined && typeof value.bundleByVerb !== "boolean") { throw new Error("Invalid study run"); }
     var result = { scope: value.scope, pass: value.pass };
     if (value.size !== undefined) { result.size = value.size; }
     if (value.collection !== undefined) { result.collection = value.collection; }
+    if (value.bundleByVerb === true) { result.bundleByVerb = true; }
     return result;
   }
   function studyProgress(value) {
@@ -80,6 +82,33 @@
     if (value.classificationOnly !== undefined) { result.classificationOnly = value.classificationOnly; }
     return result;
   }
+  function prepBundleMetadata(value, cards) {
+    if (!object(value) || value.version !== 1 || Object.keys(value).some(function (name) { return !["version", "groups"].includes(name); }) ||
+        !Array.isArray(value.groups) || !value.groups.length || value.groups.length > cards.length) { throw new Error("Invalid prep bundles"); }
+    var byId = new Map(cards.map(function (card) { return [card.id, card]; })), words = new Set(), seen = new Set();
+    var groups = value.groups.map(function (group) {
+      if (!object(group) || Object.keys(group).some(function (name) { return !["word", "ids", "bank"].includes(name); }) ||
+          typeof group.word !== "string" || !group.word.trim() || group.word.length > 80 || words.has(group.word) ||
+          !Array.isArray(group.ids) || group.ids.length < 2 || group.ids.length > cards.length ||
+          !Array.isArray(group.bank) || group.bank.length < 4 || group.bank.length > 8 || new Set(group.bank).size !== group.bank.length ||
+          !group.bank.every(function (option) { return typeof option === "string" && option.trim() && option.length <= 500; })) { throw new Error("Invalid prep bundle group"); }
+      words.add(group.word);
+      var first;
+      group.ids.forEach(function (id) {
+        var card = byId.get(id);
+        if (!card || seen.has(id) || !nativeId(id) || card.stages.length !== 1 ||
+            card.stages[0].selected !== null && !Array.isArray(card.stages[0].selected) || card.stages[0].order.length !== group.bank.length ||
+            first && (card.graded !== first.graded || card.stages[0].order.some(function (n, index) { return n !== first.stages[0].order[index]; }))) {
+          throw new Error("Invalid prep bundle card");
+        }
+        first = first || card;
+        seen.add(id);
+      });
+      return { word: group.word, ids: group.ids.slice(), bank: group.bank.slice() };
+    });
+    if (seen.size !== cards.length) { throw new Error("Incomplete prep bundles"); }
+    return { version: 1, groups: groups };
+  }
   function item(value, id) {
     if (!object(value) || !signature(value.signature) || !counters.every(function (name) { return count(value[name]); }) ||
         value.correct > value.attempts || value.stagesCorrect > value.stagesGraded || value.stagesGraded < value.attempts ||
@@ -111,7 +140,7 @@
       // New gated rounds end after a wrong first choice. Only that precise
       // checkpoint shape may have an unanswered stage on a graded card.
       // The app additionally checks the actual first-stage answer on restore.
-      var endedAfterFirst = ["20261019-linked1", "20261019-hard2", "20261019-gated-legacy1", "20261023-memory3", "20261030-prepselect1"].includes(value.practiceVersion) && card.graded && card.stageIndex === 0 &&
+      var endedAfterFirst = ["20261019-linked1", "20261019-hard2", "20261019-gated-legacy1", "20261023-memory3", "20261030-prepselect1", "20261030-prepbundle1"].includes(value.practiceVersion) && card.graded && card.stageIndex === 0 &&
         card.stages.length === 2 && card.stages[0] && Number.isInteger(card.stages[0].selected) &&
         card.stages[1] && card.stages[1].selected === null;
       var grammarEnded = /^semantic1-grammar-/.test(card.id) && card.graded && card.stageIndex === 0 && card.stages.length > 1 &&
@@ -144,6 +173,11 @@
       result.resumeStudyRun = studyRun(value.resumeStudyRun);
     }
     if (value.sorting !== undefined) { result.sorting = sortingMetadata(value.sorting, result.cards); }
+    if ((value.prepBundles !== undefined) !== (value.practiceVersion === "20261030-prepbundle1")) { throw new Error("Invalid prep bundle version"); }
+    if (value.prepBundles !== undefined) {
+      if (!["all", "starred"].includes(value.mode) || value.sorting !== undefined) { throw new Error("Invalid prep bundle mode"); }
+      result.prepBundles = prepBundleMetadata(value.prepBundles, result.cards);
+    }
     return result;
   }
   function fromTuple(tuple) {
@@ -162,8 +196,10 @@
       if (value.settings !== undefined) {
         var settings = value.settings;
         if (!object(settings) || !["20", "50", "100", "all"].includes(settings.roundSize) || typeof settings.step !== "string" ||
-            !/^[a-zA-Z0-9 _-]{1,40}$/.test(settings.step) || typeof settings.shuffleQuestions !== "boolean" || typeof settings.shuffleOptions !== "boolean") { return null; }
+            !/^[a-zA-Z0-9 _-]{1,40}$/.test(settings.step) || typeof settings.shuffleQuestions !== "boolean" || typeof settings.shuffleOptions !== "boolean" ||
+            settings.bundleByVerb !== undefined && typeof settings.bundleByVerb !== "boolean") { return null; }
         result.settings = { roundSize: settings.roundSize, step: settings.step, shuffleQuestions: settings.shuffleQuestions, shuffleOptions: settings.shuffleOptions };
+        if (settings.bundleByVerb === true) { result.settings.bundleByVerb = true; }
       }
       var records;
       if (value.version !== 1) {
@@ -218,6 +254,12 @@
       value.session && value.session.cards.some(function (c) { return nativeId(c.id); });
     if (native) { compact = true; }
     var result = { version: native ? 3 : compact ? 2 : 1, session: value.session, history: value.history, settings: value.settings || defaults() };
+    if (result.settings.bundleByVerb === false) { result.settings = Object.assign({}, result.settings); delete result.settings.bundleByVerb; }
+    if (result.session && (result.session.studyRun && result.session.studyRun.bundleByVerb === false || result.session.resumeStudyRun && result.session.resumeStudyRun.bundleByVerb === false)) {
+      result.session = Object.assign({}, result.session);
+      if (result.session.studyRun) { result.session.studyRun = studyRun(result.session.studyRun); }
+      if (result.session.resumeStudyRun) { result.session.resumeStudyRun = studyRun(result.session.resumeStudyRun); }
+    }
     if (compact) {
       result.session = value.session && { mode: value.session.mode, index: value.session.index, startedAt: value.session.startedAt,
         cards: value.session.cards.map(function (card) { return [card.id, card.signature, card.stageIndex, (card.graded ? 1 : 0) + (card.deferred ? 2 : 0), card.stages.map(function (s) { return [s.selected, s.order.join("")]; })]; }) };
@@ -225,6 +267,7 @@
       if (result.session && value.session.studyRun !== undefined) { result.session.studyRun = studyRun(value.session.studyRun); }
       if (result.session && value.session.resumeStudyRun !== undefined) { result.session.resumeStudyRun = studyRun(value.session.resumeStudyRun); }
       if (result.session && value.session.sorting !== undefined) { result.session.sorting = sortingMetadata(value.session.sorting, value.session.cards); }
+      if (result.session && value.session.prepBundles !== undefined) { result.session.prepBundles = prepBundleMetadata(value.session.prepBundles, value.session.cards); }
       result.history = Object.keys(value.history).sort().map(function (id) { return tuple(id, value.history[id]); });
     }
     if (value.archivedHistory && value.archivedHistory.length) {

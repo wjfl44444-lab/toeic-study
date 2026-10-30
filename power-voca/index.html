@@ -22,7 +22,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261030-prepselect1" defer></script>
+  <script src="sync-model.js?v=20261030-prepbundles1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -46,7 +46,9 @@
   <script src="sorting-options-review.js?v=20261026-sorting2" defer></script>
   <script src="sorting-classification-review.js?v=20261026-sorting2" defer></script>
   <script src="sorting-review.js?v=20261027-forms3" defer></script>
-  <script src="app.js?v=20261030-prepselect1" defer></script>
+  <link rel="stylesheet" href="prep-bundles.css?v=20261030-prepbundles1">
+  <script src="prep-bundles.js?v=20261030-prepbundles1" defer></script>
+  <script src="app.js?v=20261030-prepbundles1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -80,14 +82,16 @@
       </section>
 
       <section id="sorting-view" hidden aria-label="표로 분류하기"></section>
+      <section id="prep-bundles-view" hidden aria-label="같은 동사 묶음 연습"></section>
       <section id="start-view" hidden aria-labelledby="start-title">
         <div class="panel intro-panel">
           <div class="home-heading"><h1 id="start-title">새 연습</h1><span id="record-state" class="save-state">기기 저장</span></div>
           <div class="round-settings">
             <label for="group-filter" class="main-scope-label">큰 분류<select id="group-filter"><option value="all">모든 분류 함께 풀기</option></select></label>
             <label for="step-filter" id="step-filter-label">세부 범위<select id="step-filter"><option value="all">모든 세부 범위</option></select></label>
-            <label for="round-size">문제 수<select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label>
+            <label for="round-size"><span id="round-size-label">문제 수</span><select id="round-size"><option value="20">20문제</option><option value="50">50문제</option><option value="100">100문제</option><option value="all">전체 문제</option></select></label>
           </div>
+          <label class="check-label" id="bundle-by-verb-setting" hidden><input type="checkbox" id="bundle-by-verb"><span>같은 동사끼리 묶어서 풀기</span></label>
           <div class="start-settings">
             <fieldset>
               <legend>문제 순서 설정</legend>
