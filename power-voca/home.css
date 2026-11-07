@@ -20,6 +20,7 @@
 .resume-panel>h2,.history-panel h2{font-size:18px}
 .saved-round{padding:17px 0}.saved-round h3{font-size:16px}.saved-round p{font-size:15px;line-height:1.6}
 .saved-round>.secondary-button{font-size:15px;min-height:45px}
+.saved-round-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.saved-round-actions>.secondary-button{font-size:15px;min-height:45px}.saved-round-actions>.text-button{white-space:nowrap;background:none;border:0;color:var(--muted);font:inherit;cursor:pointer;padding:10px}
 .history-panel{padding:23px 30px;margin-top:18px}.history-panel p{font-size:16px;line-height:1.8;margin-top:9px}
 .home-help{padding:0 30px;margin-top:18px}
 .home-help>summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;min-height:61px;font-size:16px;color:var(--muted)}

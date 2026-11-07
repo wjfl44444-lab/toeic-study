@@ -1079,6 +1079,55 @@
     if (bundleByVerb) { beginBundleRemaining(scope, size, null, collection); }
     else if (starred) { beginStarredRemaining(scope, size); } else { beginRemaining(scope, size); }
   }
+  function restartSavedScope() {
+    if (!unifiedImportReady || !session || !progressManager) { return; }
+    var run = sessionStudyRun(), wrong = session.mode === "wrong";
+    var scope = run ? run.scope : "all", starred = !wrong && run.collection === "starred";
+    var pool = wrong ? wrongReviewEntries().map(function (entry) { return entry.question; }) : starred ? starredPool(scope) : poolForScope(scope);
+    if (wrong && run) {
+      var allowed = new Set(poolForScope(scope).map(function (q) { return q.id; }));
+      pool = pool.filter(function (q) { return allowed.has(q.id); });
+    }
+    var bundled = Boolean(session.prepBundles && prepBundles), groups = bundled ? prepBundles.groups(pool) : null;
+    if (groups) { pool = groups.flatMap(function (group) { return group.questions; }); }
+    if (!pool.length) { announce("현재 범위에서 다시 시작할 문제가 없어요."); return; }
+    if (!window.confirm((wrong ? "이 오답 범위" : (starred ? "별표 · " : "") + scopeLabel(scope)) + "의 저장된 풀이를 취소하고 전체 범위에서 처음부터 시작할까요? 누적 정답·오답 기록과 별표는 유지돼요.")) { return; }
+    var before = { raw: currentPayload(Boolean(studySync)), session: session, unavailable: unavailableSession, progress: studyProgress, starred: starredStudyProgress,
+      settings: currentSettings(), bookmarksOnly: el("bookmarks-only").checked, bundleByVerb: el("bundle-by-verb").checked };
+    var oldApplying = applyingPayload, started = false;
+    applyingPayload = true;
+    try {
+      var size = run && run.size || currentSettings().roundSize;
+      if (wrong) {
+        if (groups) { beginBundleQuestions(groups, "wrong", run, false); }
+        else { begin(pool, "wrong", false, run); }
+        started = true;
+      } else {
+        var progressScope = scope + (bundled ? "_bundles" : "");
+        var previous = starred ? ensureStarredStudyProgress() : ensureStudyProgress();
+        var reset = progressManager.restart(previous, pool, progressScope, run.pass);
+        if (starred) { starredStudyProgress = reset; } else { studyProgress = reset; }
+        var target = reset.scopes[progressScope];
+        applyScopeSetting(scope);
+        el("bookmarks-only").checked = starred;
+        el("bundle-by-verb").checked = bundled;
+        if (bundled) { started = beginBundleRemaining(scope, size, target, starred ? "starred" : undefined); }
+        else if (starred) { started = beginStarredRemaining(scope, size, target); }
+        else { started = beginRemaining(scope, size, target); }
+      }
+    } catch (_) { started = false; }
+    finally { applyingPayload = oldApplying; }
+    if (started && saveState()) { return; }
+    session = before.session; unavailableSession = before.unavailable;
+    studyProgress = before.progress; starredStudyProgress = before.starred;
+    applyScopeSetting(before.settings.step); el("round-size").value = before.settings.roundSize;
+    el("shuffle-questions").checked = before.settings.shuffleQuestions; el("shuffle-options").checked = before.settings.shuffleOptions;
+    el("bookmarks-only").checked = before.bookmarksOnly; el("bundle-by-verb").checked = before.bundleByVerb;
+    // saveLocal keeps a failed write in memory. Restore its pending draft too.
+    if (studySync) { try { studySync.saveLocal(before.raw); } catch (_) {} }
+    showStart();
+    if (!storageWarning) { announce("다시 시작하지 못했어요. 기존 풀이를 유지했어요."); }
+  }
   function renderStudyContinuation() {
     var run = sessionStudyRun(), state = run && progressForRun(run);
     var available = Boolean(state && state.total && unifiedImportReady);
@@ -1297,6 +1346,7 @@
     el("resume-status").hidden = !pending;
     text("resume-status", pending ? "이전 풀이를 안전하게 준비하고 있어요." : "");
     el("resume-button").disabled = pending;
+    el("resume-restart-button").disabled = pending;
     el("resume-panel").hidden = !session && !pending;
   }
   function showStart() {
@@ -1769,6 +1819,7 @@
   el("home-link").addEventListener("click", function (event) { event.preventDefault(); showStart(); });
   el("home-button").addEventListener("click", showStart);
   el("resume-button").addEventListener("click", function () { if (!unifiedImportReady || !session) { return; } if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });
+  el("resume-restart-button").addEventListener("click", restartSavedScope);
   el("grade-button").addEventListener("click", submitStage);
   el("previous-stage-button").addEventListener("click", function () { if (currentCard().stageIndex > 0) { currentCard().stageIndex -= 1; renderQuestion(true); } });
   el("previous-button").addEventListener("click", function () { if (session.index > 0) { session.index -= 1; renderQuestion(true); } });

@@ -292,3 +292,8 @@ details.data-tools { display: block; }
 .review-word > span { flex: 1; min-width: 110px; }
 .review-word > .bookmark-button { margin-left: auto; }
 @media (pointer: coarse) { .bookmark-button { min-width: 44px; min-height: 44px; } }
+
+.saved-learning-panel { display: block; }
+.saved-learning-list { display: grid; gap: 12px; margin-top: 12px; }
+.saved-learning-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.saved-learning-row p { margin: 0; }

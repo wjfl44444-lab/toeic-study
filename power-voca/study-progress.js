@@ -80,11 +80,20 @@
       value.scopes[scopeKey] = state.pass + 1;
       return normalize(value);
     }
+    function restart(progress, pool, scopeKey, minimumPass) {
+      var value = normalize(progress), state = snapshot(value, pool, scopeKey);
+      var latest = state.questions.reduce(function (n, q) { return Math.max(n, value.completed[q.id] || 0); }, state.pass);
+      if (pass(minimumPass)) { latest = Math.max(latest, minimumPass); }
+      if (latest === LIMIT) { throw new Error("Study pass limit reached"); }
+      // A new watermark keeps late saves from an older round behind this reset.
+      value.scopes[scopeKey] = latest + 1;
+      return normalize(value);
+    }
     function context(progress, pool, scopeKey) {
       var state = snapshot(progress, pool, scopeKey);
       return { scope: state.scope, pass: state.pass };
     }
-    return Object.freeze({ initialize: initialize, snapshot: snapshot, mark: mark, nextPass: nextPass, context: context });
+    return Object.freeze({ initialize: initialize, snapshot: snapshot, mark: mark, nextPass: nextPass, restart: restart, context: context });
   }
   return Object.freeze({ create: create, empty: empty, normalize: normalize });
 }));
