@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f7f5ef">
   <meta name="description" content="토익 단어 암기와 랜덤 문법 문제를 한곳에서 공부하는 개인 학습 공간입니다.">
   <title>나의 토익 스터디</title>
-  <link rel="stylesheet" href="./shared/study-sync.css?v=20261002-nav1">
+  <link rel="stylesheet" href="./shared/study-sync.css?v=20261108-compact1">
   <style>
     :root { color-scheme: light; --ink: #20352f; --muted: #64716a; --paper: #f7f5ef; --green: #245c4b; --line: #e1e4dc; }
     * { box-sizing: border-box; }
@@ -60,9 +60,9 @@
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
     <a href="./" aria-current="page">첫 화면</a>
-    <a href="./vocabulary/">토익 단어장</a>
-    <a href="./quiz/">랜덤 문제집</a>
-    <a href="./power-voca/">표현·구조 훈련</a>
+    <a href="./vocabulary/"><span class="nav-extra">토익&nbsp;</span>단어장</a>
+    <a href="./quiz/"><span class="nav-extra">랜덤&nbsp;</span>문제집</a>
+    <a href="./power-voca/">표현·구조<span class="nav-extra">&nbsp;훈련</span></a>
   </nav>
   <div class="shell">
     <header>
@@ -115,7 +115,7 @@
     <footer>꾸준히, 나의 속도로.</footer>
   </div>
   <script type="module">
-    import { connectStudySync } from './shared/study-sync.js?v=20261002-sync3';
+    import { connectStudySync } from './shared/study-sync.js?v=20261108-compact1';
     connectStudySync();
   </script>
 </body>

@@ -202,7 +202,7 @@ details.data-tools { display: block; }
 .storage-alert { border-color: var(--red); background: var(--red-bg); color: var(--red); }
 .toast, .toast.success { background: var(--mint); color: #17372a; box-shadow: 0 10px 35px #07140e55; bottom: 22px; }
 .toast.error { background: var(--red-bg); color: var(--red); }
-.study-sync { padding: 12px 16px; font-size: 13px; }
+.study-sync { margin: 8px 0 16px; padding: 6px 16px; font-size: 13px; }
 .study-sync__identity { color: var(--ink); }
 .study-sync__status, .study-sync__tools, .study-sync__tools > summary, .study-sync__detail, .study-sync__privacy { color: var(--muted); }
 .study-sync button { border-color: var(--line); border-radius: 8px; background: var(--panel-light); color: var(--ink); font-weight: 500; }
@@ -232,7 +232,8 @@ details.data-tools { display: block; }
   .app-shell { padding-inline: 14px; }
   .site-header { min-height: 84px; }
   .study-page-nav { gap: 4px; }
-  .study-page-nav a { flex: 1 1 calc(50% - 4px); padding: 7px 8px; font-size: 12px; }
+  .study-page-nav { margin-bottom: 0; }
+  .study-page-nav a { flex: 1 1 0; min-width: 0; padding: 7px 4px; font-size: 12px; }
   .vocabulary-nav { gap: 3px; margin: 18px 0 20px; }
   .vocabulary-nav button { padding: 8px 9px; font-size: 13px; }
   .home-settings, .form-grid.two-columns, .form-grid.three-columns { grid-template-columns: minmax(0, 1fr); }

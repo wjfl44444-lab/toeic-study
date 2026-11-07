@@ -69,7 +69,10 @@ export function connectStudySync(options = {}) {
   let accountCacheBlocked = false;
   const memoryAccounts = new Map();
   let guestMemoryDirty = false;
-  let bar, identity, status, actions, detail, toolsActions;
+  let bar, panel, identity, status, actions, detail, toolsActions;
+  // Collapsed to one line normally; opened automatically when the user must act.
+  const attentionPhases = ["guest", "choice", "conflict", "error"];
+  let attentionShown = null;
 
   const valid = (raw) => {
     try { return typeof raw === "string" && Boolean(options.validatePayload?.(raw)); }
@@ -744,6 +747,8 @@ export function connectStudySync(options = {}) {
   function render() {
     if (!bar || disposed) return;
     bar.dataset.state = phase;
+    const attention = attentionPhases.includes(phase);
+    if (attention !== attentionShown) { panel.open = attention; attentionShown = attention; }
     identity.textContent = user ? `${user.displayName || "Google 계정"}${user.email ? ` · ${user.email}` : ""}` : "학습 기록 연결";
     status.textContent = message;
     actions.replaceChildren();
@@ -789,11 +794,13 @@ export function connectStudySync(options = {}) {
     bar = document.createElement("section");
     bar.className = "study-sync";
     bar.setAttribute("aria-label", "Google 계정과 학습 기록 연결");
-    const top = document.createElement("div"); top.className = "study-sync__top";
+    panel = document.createElement("details"); panel.className = "study-sync__panel";
+    const top = document.createElement("summary"); top.className = "study-sync__top";
+    const dot = document.createElement("span"); dot.className = "study-sync__dot"; dot.setAttribute("aria-hidden", "true");
     identity = document.createElement("span"); identity.className = "study-sync__identity";
     status = document.createElement("span"); status.className = "study-sync__status";
     status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
-    top.append(identity, status);
+    top.append(dot, status);
     actions = document.createElement("div"); actions.className = "study-sync__actions";
     detail = document.createElement("p"); detail.className = "study-sync__detail";
     const tools = document.createElement("details"); tools.className = "study-sync__tools";
@@ -807,8 +814,14 @@ export function connectStudySync(options = {}) {
     const explanation = document.createElement("p");
     explanation.textContent = "같은 Google 계정으로 로그인하면 학습 기록이 자동으로 연결됩니다. 새로 연 페이지는 최근 진행을 불러오지만, 이미 열어 둔 문제·선택·편집 화면은 다른 기기 때문에 바뀌지 않습니다. 정오답과 단어 학습 기록은 함께 보관합니다. 계정에 기록이 없으면 이 기기 기록을 자동 연결합니다. 로그인 전 기록은 별도로 보관하며 필요한 경우 기록 관리에서 백업할 수 있습니다. 오프라인 기록은 다른 기기에 즉시 반영되지 않으므로 이동 전 계정 저장 확인을 살펴보세요. 공용 기기에서는 사용 후 로그아웃하세요.";
     privacy.append(heading, explanation);
-    bar.append(top, actions, detail, tools, privacy);
-    (options.mount || document.body).prepend(bar);
+    const body = document.createElement("div"); body.className = "study-sync__body";
+    body.append(identity, actions, detail, tools, privacy);
+    panel.append(top, body);
+    bar.append(panel);
+    // Keep the same order on every page: page menu first, account line below it.
+    const target = options.mount || document.body;
+    const nav = target.querySelector(":scope > .study-page-nav");
+    if (nav) nav.after(bar); else target.prepend(bar);
     render();
   }
 

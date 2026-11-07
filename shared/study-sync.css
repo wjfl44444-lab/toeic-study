@@ -27,3 +27,27 @@
 .study-sync__privacy summary { cursor: pointer; width: fit-content; }
 .study-sync__privacy p { margin: 6px 0 0; }
 @media (max-width: 600px) { .study-sync { width: calc(100% - 24px); padding: 12px; margin: 12px auto; } .study-sync__status { flex-basis: 100%; } .study-sync__actions button { flex-grow: 1; } }
+/* One-line account bar: status only until opened (opens itself when action is needed). */
+.study-sync { padding: 6px 14px; margin-top: 8px; }
+.study-sync .study-sync__top { width: auto; padding: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; list-style: none; }
+.study-sync__top::-webkit-details-marker { display: none; }
+.study-sync__top::after { content: "▾"; flex: none; margin-left: auto; opacity: .55; }
+.study-sync__panel[open] > .study-sync__top::after { content: "▴"; }
+.study-sync__top .study-sync__status { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.study-sync__panel[open] > .study-sync__top .study-sync__status { white-space: normal; }
+.study-sync__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #9aa6b4; }
+.study-sync[data-state="linked"] .study-sync__dot { background: #2e9b6a; }
+.study-sync[data-state="saving"] .study-sync__dot, .study-sync[data-state="loading"] .study-sync__dot { background: #5b8fd6; }
+.study-sync[data-state="choice"] .study-sync__dot, .study-sync[data-state="conflict"] .study-sync__dot { background: #d9a75a; }
+.study-sync[data-state="error"] .study-sync__dot { background: #d05b5b; }
+.study-sync__panel { margin: 0; }
+.study-sync__body { padding: 4px 0 8px; }
+.study-sync__identity { display: block; margin-top: 4px; }
+.nav-extra { display: inline; }
+@media (max-width: 600px) {
+  .study-sync { padding: 4px 12px; margin: 8px auto; }
+  .study-sync__top .study-sync__status { flex-basis: auto; }
+  .study-page-nav { flex-wrap: nowrap; margin: 12px auto 0; }
+  .study-page-nav a { flex: 1 1 0; min-width: 0; min-height: 40px; padding: 8px 4px; }
+  .nav-extra { display: none; }
+}
