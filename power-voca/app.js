@@ -485,7 +485,7 @@
         if (view === "start") { updateSettings(); }
         if (view === "results") { renderStudyContinuation(); }
         if (view === "quiz" && session) {
-          text("question-wrong-count", "누적 오답 " + cumulativeWrongCount(currentCard().question) + "회");
+          text("question-wrong-count", questionWrongText(currentCard().question));
           if (currentCard().graded) { text("feedback-wrong-count", feedbackWrongText(currentCard().question)); }
         }
       } else {
@@ -724,6 +724,11 @@
     var next = { streak: correct ? previous.streak + 1 : 0, day: today };
     next.updatedAt = new Date(Math.max(Date.now(), stored ? Date.parse(stored.updatedAt) + 1 : 0)).toISOString();
     reviewStreaks[before.id] = next;
+  }
+  // Before answering, normal/starred practice shows every question the same way;
+  // only the wrong-answer review (where every question was missed) shows the count.
+  function questionWrongText(question) {
+    return session && session.mode === "wrong" ? "누적 오답 " + cumulativeWrongCount(question) + "회" : "";
   }
   function feedbackWrongText(question) {
     var wrong = cumulativeWrongCount(question), entry = wrong ? streakEntry(question) : null;
@@ -1620,7 +1625,7 @@
     el("progress-fill").style.width = (progress / session.cards.length * 100) + "%";
     text("question-number", "QUESTION " + String(session.index + 1).padStart(2, "0"));
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
-    text("question-wrong-count", "누적 오답 " + cumulativeWrongCount(card.question) + "회");
+    text("question-wrong-count", questionWrongText(card.question));
     var posFirst = Boolean(posFlowRoot(card) && card.stageIndex === 0 && !card.graded);
     text("stage-indicator", posFirst ? "품사 선택 · 선택한 품사의 뜻으로 이어져요" : (card.stageIndex + 1) + " / " + card.stages.length + "단계" + (!card.graded ? blindSet(card) ? " · 세트 마지막에 한 번에 채점" : card.stages.length > 1 ? " · 첫 답을 맞히면 다음 단계" : "" : ""));
     el("previous-stage-button").hidden = card.stageIndex === 0;
