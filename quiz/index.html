@@ -94,11 +94,15 @@
     .button-primary:hover:not(:disabled) { filter: brightness(1.08); }
     .start-button { width: 100%; }
     .quiet-note { color: var(--muted); font-size: 12px; margin: 14px 0 0; text-align: center; }
-    .resume-card { padding: 17px 20px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-    .resume-title { font-size: 14px; font-weight: 650; margin: 0 0 1px; }
-    .resume-detail { color: var(--muted); font-size: 12px; margin: 0; }
-    .resume-card .button { font-size: 13px; min-height: 40px; padding: 8px 15px; white-space: nowrap; }
-    .resume-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .resume-card { padding: 20px 22px; margin-top: 16px; display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+    .resume-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+    .resume-detail { color: var(--muted); font-size: 14px; margin: 0; }
+    .resume-bar { height: 6px; margin-top: 12px; border-radius: 3px; background: var(--line); overflow: hidden; }
+    .resume-bar span { display: block; width: 0; height: 100%; background: var(--accent); }
+    .resume-card .button { font-size: 15px; min-height: 48px; padding: 10px 18px; white-space: nowrap; }
+    .resume-card .button-primary { flex: 1; }
+    .resume-card .resume-reset { background: transparent; color: var(--muted); }
+    .resume-actions { display: flex; gap: 10px; }
     .session-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 11px; gap: 15px; }
     .session-position { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .session-position strong { color: var(--ink); font-size: 17px; font-weight: 700; }
@@ -191,7 +195,7 @@
       .settings { grid-template-columns: 1fr; gap: 17px; margin-bottom: 22px; }
       .check-setting { min-height: 30px; }
       .setting-detail { margin-top: 4px; }
-      .resume-card { padding: 15px; gap: 10px; }
+      .resume-card { padding: 18px; gap: 14px; }
       .question-main { padding: 22px 20px 23px; }
       .question-tools { margin-bottom: 19px; }
       .stem { font-size: 21px; line-height: 1.7; margin-bottom: 24px; }
@@ -263,8 +267,8 @@
           </div>
         </div>
         <div id="resume-card" class="card resume-card" hidden>
-          <div><p class="resume-title">지난 풀이가 남아 있어요.</p><p id="resume-detail" class="resume-detail"></p></div>
-          <div class="resume-actions"><button id="resume-button" class="button" type="button">이어서 풀기</button><button id="reset-saved-button" class="button" type="button">처음부터</button></div>
+          <div><p class="resume-title">지난 풀이가 남아 있어요</p><p id="resume-detail" class="resume-detail"></p><div class="resume-bar" aria-hidden="true"><span id="resume-bar-fill"></span></div></div>
+          <div class="resume-actions"><button id="resume-button" class="button button-primary" type="button">이어서 풀기</button><button id="reset-saved-button" class="button resume-reset" type="button">처음부터</button></div>
         </div>
         <p id="storage-note" class="quiet-note" hidden></p>
       </section>
@@ -653,7 +657,9 @@
         if (state) {
           if (!setupTouched) applyPool(sessionPool(state));
           const results = score(state);
-          elements.resumeDetail.textContent = state.status === 'complete' ? `${state.items.length}문제 회차 완료 · 결과 다시 보기` : `${state.items.length}문제 중 ${results.answered}문제 채점 완료`;
+          const total = state.items.length, left = Math.max(0, total - results.answered);
+          elements.resumeDetail.textContent = state.status === 'complete' ? `${total}문제 회차 완료 · 결과 다시 보기` : `${total}문제 중 ${results.answered}문제 풀었어요 · ${left}문제 남음`;
+          byId('resume-bar-fill').style.width = `${total ? Math.round(results.answered / total * 100) : 0}%`;
           byId('resume-button').textContent = state.status === 'complete' ? '결과 보기' : '이어서 풀기';
           const countExists = [...elements.count.options].some(o => o.value === state.baseCount);
           if (!setupTouched && countExists) elements.count.value = state.baseCount;
