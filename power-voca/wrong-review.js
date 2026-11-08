@@ -59,7 +59,10 @@
         // Duplicate snapshots are one revision, not extra attempts. Wrong
         // counters are cumulative, so a stale duplicate cannot erase mistakes.
         var previous = revisions.get(identity);
-        if (!previous || wrong > previous.wrong) { revisions.set(identity, { id: id, wrong: wrong }); }
+        if (!previous || wrong > previous.wrong) {
+          revisions.set(identity, { id: id, wrong: wrong, lastStudiedAt: typeof record.lastStudiedAt === "string" ? record.lastStudiedAt : "",
+            lastCorrect: record.lastCorrect === true });
+        }
       }
       if (history && typeof history === "object" && !Array.isArray(history)) {
         Object.keys(history).forEach(function (id) { add(id, history[id]); });
@@ -74,10 +77,12 @@
         var entry = totals.get(q.id);
         if (!entry) {
           var label = typeof options.label === "function" ? options.label(q) : q.displayExpression || q.answerSummary && q.answerSummary.expression;
-          entry = { id: q.id, question: q, expression: typeof label === "string" && label.trim() ? label : q.id, wrongCount: 0 };
+          entry = { id: q.id, question: q, expression: typeof label === "string" && label.trim() ? label : q.id, wrongCount: 0, lastStudiedAt: "", lastCorrect: false };
           totals.set(q.id, entry);
         }
         entry.wrongCount += revision.wrong;
+        // Most recent grade across all revisions of this question.
+        if (revision.lastStudiedAt > entry.lastStudiedAt) { entry.lastStudiedAt = revision.lastStudiedAt; entry.lastCorrect = revision.lastCorrect; }
       });
       var entries = Array.from(totals.values()).sort(function (a, b) {
         return b.wrongCount - a.wrongCount || a.expression.localeCompare(b.expression, "ko") || a.id.localeCompare(b.id);

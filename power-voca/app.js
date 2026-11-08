@@ -91,6 +91,8 @@
   var storageKey = "power-voca-full-v1";
   var history = Object.create(null);
   var bookmarks = Object.create(null), bookmarkIndex = Object.create(null);
+  // Consecutive correct days per reviewed question (key: active question id).
+  var reviewStreaks = Object.create(null), STREAK_GOAL = 3;
   var studyProgress = null, starredStudyProgress = null;
   var questionMap = new Map();
   var signatures = new Map();
@@ -287,6 +289,7 @@
   function currentPayload(compact) {
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
     if (Object.keys(bookmarks).length) { saved.bookmarks = bookmarks; }
+    if (Object.keys(reviewStreaks).length) { saved.reviewStreaks = reviewStreaks; }
     if (archivedHistory.length) { saved.archivedHistory = archivedHistory; }
     if (syncReceipts) { saved._studySync = syncReceipts; }
     if (grammarImported) { saved.grammarImported = true; }
@@ -408,6 +411,7 @@
         if (!saved) { throw new Error("invalid state"); }
         history = saved.history;
         bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex();
+        reviewStreaks = saved.reviewStreaks || Object.create(null);
         studyProgress = saved.studyProgress || null;
         starredStudyProgress = saved.starredStudyProgress || null;
         grammarImported = saved.grammarImported === true;
@@ -470,6 +474,7 @@
         var merged = syncModel.parse(syncModel.merge(null, currentPayload(true), raw));
         history = merged.history; archivedHistory = merged.archivedHistory;
         bookmarks = merged.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
+        reviewStreaks = merged.reviewStreaks || Object.create(null);
         studyProgress = merged.studyProgress || null;
         starredStudyProgress = merged.starredStudyProgress || null;
         grammarImported = merged.grammarImported === true;
@@ -481,11 +486,12 @@
         if (view === "results") { renderStudyContinuation(); }
         if (view === "quiz" && session) {
           text("question-wrong-count", "누적 오답 " + cumulativeWrongCount(currentCard().question) + "회");
-          if (currentCard().graded) { text("feedback-wrong-count", "이 문제 누적 오답 " + cumulativeWrongCount(currentCard().question) + "회"); }
+          if (currentCard().graded) { text("feedback-wrong-count", feedbackWrongText(currentCard().question)); }
         }
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
         bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
+        reviewStreaks = saved.reviewStreaks || Object.create(null);
         if (options.accountSwitch === true) { el("bookmarks-only").checked = false; }
         studyProgress = saved.studyProgress || null;
         starredStudyProgress = saved.starredStudyProgress || null;
@@ -694,8 +700,40 @@
       reportStorage(error && error.message === "invalid-backup" ? "파워토익 VOCA 백업 형식이 아니거나 일부 기록이 손상됐어요. 현재 기록은 바꾸지 않았어요." : "현재 기록의 안전한 백업을 저장하지 못해 가져오기를 멈췄어요. 저장 공간을 확인해 주세요.");
     }
   }
+  function localDay(iso) {
+    var d = iso ? new Date(iso) : new Date();
+    if (!Number.isFinite(d.getTime())) { return ""; }
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  // Stored streak, or one inferred from the latest grade for questions reviewed
+  // before streaks existed (last wrong → 0, last right → 1).
+  function streakState(entry) {
+    var stored = reviewStreaks[entry.id];
+    if (stored) { return stored; }
+    return { streak: entry.lastCorrect ? 1 : 0, day: localDay(entry.lastStudiedAt) };
+  }
+  function streakEntry(question) {
+    if (!wrongReview) { return null; }
+    var active = wrongReview.resolve(question.historyKey || question.id);
+    return active ? wrongReview.aggregate(history, archivedHistory).byId.get(active.id) || { id: active.id, fresh: true } : null;
+  }
+  // Counts at most one correct answer per calendar day; a wrong answer resets.
+  function updateReviewStreak(before, question, correct) {
+    if (!before || before.fresh && correct) { return; }
+    var today = localDay(), previous = before.fresh ? { streak: 0, day: "" } : streakState(before), stored = reviewStreaks[before.id];
+    var next = !correct ? { streak: 0, day: today } : previous.day === today ? { streak: previous.streak, day: previous.day } : { streak: previous.streak + 1, day: today };
+    next.updatedAt = new Date(Math.max(Date.now(), stored ? Date.parse(stored.updatedAt) + 1 : 0)).toISOString();
+    reviewStreaks[before.id] = next;
+  }
+  function feedbackWrongText(question) {
+    var wrong = cumulativeWrongCount(question), entry = wrong ? streakEntry(question) : null;
+    if (!entry || entry.fresh) { return "이 문제 누적 오답 " + wrong + "회"; }
+    var streak = Math.min(streakState(entry).streak, STREAK_GOAL);
+    return "이 문제 누적 오답 " + wrong + "회 · 연속 정답 " + streak + "/" + STREAK_GOAL + (streak >= STREAK_GOAL ? " (외운 문제)" : "");
+  }
   function recordCard(card) {
     var id = card.question.historyKey || card.question.id;
+    var streakBefore = streakEntry(card.question);
     var item = history[id];
     if (!item || item.signature !== signatures.get(id)) {
       if (item && syncModel) { archivedHistory.push(Object.assign({ id: id }, item)); }
@@ -708,6 +746,7 @@
     item.stagesCorrect += card.stages.filter(stageCorrect).length;
     item.lastCorrect = isAllCorrect(card); item.lastStudiedAt = new Date().toISOString();
     history[id] = item;
+    updateReviewStreak(streakBefore, card.question, item.lastCorrect);
     if (progressManager && session && session.mode === "all") {
       ensureStudyProgress();
       studyProgress = progressManager.mark(studyProgress, id, session.studyRun ? session.studyRun.pass : 1);
@@ -774,8 +813,10 @@
   }
   function wrongReviewEntries() {
     if (!wrongReview) { return []; }
-    var minimum = window.PowerVocaWrongReview.threshold(el("wrong-review-min").value);
-    return wrongReview.aggregate(history, archivedHistory).entries.filter(function (entry) { return entry.wrongCount >= minimum; });
+    var minimum = window.PowerVocaWrongReview.threshold(el("wrong-review-min").value), unmastered = el("wrong-review-unmastered").checked;
+    return wrongReview.aggregate(history, archivedHistory).entries.filter(function (entry) {
+      return entry.wrongCount >= minimum && (!unmastered || streakState(entry).streak < STREAK_GOAL);
+    });
   }
   function cumulativeWrongCount(question) {
     if (!wrongReview) { return 0; }
@@ -789,11 +830,12 @@
     var pages = Math.max(1, Math.ceil(entries.length / wrongReviewPageSize));
     wrongReviewPage = Math.min(wrongReviewPage, pages - 1);
     var total = entries.reduce(function (sum, entry) { return sum + entry.wrongCount; }, 0);
-    text("wrong-review-summary", entries.length ? "누적 " + minimum + "회 이상 틀린 문제 " + entries.length + "개 · 오답 " + total + "회" : "누적 " + minimum + "회 이상 틀린 문제가 아직 없어요.");
+    var unmastered = el("wrong-review-unmastered").checked, scopeText = unmastered ? "아직 외우지 못한 문제" : "틀린 문제";
+    text("wrong-review-summary", entries.length ? "누적 " + minimum + "회 이상 " + scopeText + " " + entries.length + "개 · 오답 " + total + "회" : "누적 " + minimum + "회 이상 " + scopeText + "가 없어요.");
     var list = el("wrong-review-list"); list.replaceChildren();
     entries.slice(wrongReviewPage * wrongReviewPageSize, (wrongReviewPage + 1) * wrongReviewPageSize).forEach(function (entry) {
-      var row = node("li", "wrong-review-row");
-      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회"));
+      var row = node("li", "wrong-review-row"), streak = Math.min(streakState(entry).streak, STREAK_GOAL);
+      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회 · 연속 " + streak + "/" + STREAK_GOAL));
       list.append(row);
     });
     list.hidden = !entries.length;
@@ -1485,7 +1527,7 @@
     el("feedback-panel").classList.toggle("keyword-feedback-panel", keywords);
     ["feedback-answer-details", "feedback-explanation-details", "feedback-source-details"].forEach(function (id) { el(id).open = !keywords; });
     text("feedback-title", keywords ? allCorrect ? "✓ 정답" : "↺ 다시 확인" : allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
-    text("feedback-wrong-count", "이 문제 누적 오답 " + cumulativeWrongCount(card.question) + "회");
+    text("feedback-wrong-count", feedbackWrongText(card.question));
     text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
       card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
     text("answer-summary-expression", card.question.displayExpression || summary.expression);
@@ -1791,6 +1833,12 @@
   el("wrong-review-start").addEventListener("click", startWrongReview);
   el("wrong-review-min").addEventListener("change", function () {
     el("wrong-review-min").value = String(window.PowerVocaWrongReview ? window.PowerVocaWrongReview.threshold(el("wrong-review-min").value) : 1);
+    wrongReviewPage = 0; renderWrongReview();
+  });
+  // Per-device preference only; the default (unchecked) keeps the original list.
+  try { el("wrong-review-unmastered").checked = window.localStorage.getItem("power-voca-wrong-unmastered") === "1"; } catch (_) { /* Storage unavailable. */ }
+  el("wrong-review-unmastered").addEventListener("change", function () {
+    try { window.localStorage.setItem("power-voca-wrong-unmastered", el("wrong-review-unmastered").checked ? "1" : "0"); } catch (_) { /* Storage unavailable. */ }
     wrongReviewPage = 0; renderWrongReview();
   });
   el("wrong-review-previous").addEventListener("click", function () { wrongReviewPage = Math.max(0, wrongReviewPage - 1); renderWrongReview(); });

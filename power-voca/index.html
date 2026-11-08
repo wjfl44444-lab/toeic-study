@@ -22,7 +22,7 @@
   <script src="semantic-review.js?v=20261024-semantic1" defer></script>
   <script src="time-review.js?v=20261024-time1" defer></script>
   <script src="experience-review.js?v=20261025-experience1" defer></script>
-  <script src="sync-model.js?v=20261030-prepbundles1" defer></script>
+  <script src="sync-model.js?v=20261109-streak1" defer></script>
   <script src="taxonomy.js?v=20261023-quickstart2" defer></script>
   <script src="grammar-route.js?v=20261024-menu1" defer></script>
   <script src="grammar/data.js?v=20261024-grammar1" defer></script>
@@ -37,7 +37,7 @@
   <script src="question-review.js?v=20261026-quality1" defer></script>
   <script src="question-view.js?v=20261030-review1" defer></script>
   <script src="question-curation.js?v=20261026-refinement1" defer></script>
-  <script src="wrong-review.js?v=20261026-quality1" defer></script>
+  <script src="wrong-review.js?v=20261109-streak1" defer></script>
   <script src="study-progress.js?v=20261108-restart1" defer></script>
   <script src="sorting-data.js?v=20261026-sorting1" defer></script>
   <script src="sorting-practice.js?v=20261030-bookmarkkey1" defer></script>
@@ -48,7 +48,7 @@
   <script src="sorting-review.js?v=20261027-forms3" defer></script>
   <link rel="stylesheet" href="prep-bundles.css?v=20261030-prepbundles1">
   <script src="prep-bundles.js?v=20261030-prepbundles2" defer></script>
-  <script src="app.js?v=20261108-restart1" defer></script>
+  <script src="app.js?v=20261109-streak1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -131,6 +131,7 @@
         <section class="review-collection-content" id="wrong-review-panel" aria-labelledby="wrong-review-title">
           <div class="wrong-review-heading"><h2 id="wrong-review-title">오답 모아 풀기</h2><label for="wrong-review-min">누적 오답 <input id="wrong-review-min" type="number" min="1" max="999999999" step="1" value="1" inputmode="numeric">회 이상</label></div>
           <p class="wrong-review-note">모든 분류의 오답을 함께 모아요. 나중에 맞혀도 이전에 틀린 횟수는 남아요.</p>
+          <label class="check-label wrong-review-unmastered"><input type="checkbox" id="wrong-review-unmastered"><span>아직 외우지 못한 문제만 · 서로 다른 날 3번 연속 맞히면 빠져요</span></label>
           <p id="wrong-review-summary" aria-live="polite"></p>
           <ul id="wrong-review-list" class="wrong-review-list" aria-label="누적 오답 문제"></ul>
           <div class="wrong-review-pagination" id="wrong-review-pagination" hidden><button class="text-button" id="wrong-review-previous" aria-label="오답 목록 이전 페이지">이전</button><span id="wrong-review-page"></span><button class="text-button" id="wrong-review-next" aria-label="오답 목록 다음 페이지">다음</button></div>

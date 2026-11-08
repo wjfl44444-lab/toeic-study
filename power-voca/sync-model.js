@@ -49,6 +49,21 @@
     if (JSON.stringify(result).length > MAX_BYTES) { throw new Error("Bookmarks exceed size limit"); }
     return result;
   }
+  // Review streaks: consecutive correct days per reviewed question, kept apart
+  // from history so older pages (which ignore unknown fields) still read records.
+  function reviewStreaks(value) {
+    if (!object(value) || Object.keys(value).length > MAX_RECORDS) { throw new Error("Invalid review streaks"); }
+    var result = Object.create(null);
+    Object.keys(value).sort().forEach(function (id) {
+      var entry = value[id];
+      if (!key(id) || !object(entry) || Object.keys(entry).some(function (name) { return !["streak", "day", "updatedAt"].includes(name); }) ||
+          !Number.isSafeInteger(entry.streak) || entry.streak < 0 || entry.streak > 999 ||
+          typeof entry.day !== "string" || !/^\d{4}-\d\d-\d\d$/.test(entry.day) || !date(entry.updatedAt)) { throw new Error("Invalid review streak entry"); }
+      result[id] = { streak: entry.streak, day: entry.day, updatedAt: new Date(entry.updatedAt).toISOString() };
+    });
+    if (JSON.stringify(result).length > MAX_BYTES) { throw new Error("Review streaks exceed size limit"); }
+    return result;
+  }
   function defaults() { return { roundSize: "20", step: "all", shuffleQuestions: true, shuffleOptions: true }; }
   function empty() { return { version: 1, session: null, history: Object.create(null), archivedHistory: [], settings: defaults() }; }
   function nativeId(id) { return typeof id === "string" && /^semantic1-[a-zA-Z0-9_.:-]+$/.test(id); }
@@ -242,6 +257,7 @@
       if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
       if (value.starredStudyProgress !== undefined) { result.starredStudyProgress = studyProgress(value.starredStudyProgress); }
       if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
+      if (value.reviewStreaks !== undefined) { result.reviewStreaks = reviewStreaks(value.reviewStreaks); }
       return result;
     } catch (_) { return null; }
   }
@@ -279,6 +295,7 @@
     if (value.studyProgress !== undefined) { result.studyProgress = studyProgress(value.studyProgress); }
     if (value.starredStudyProgress !== undefined) { result.starredStudyProgress = studyProgress(value.starredStudyProgress); }
     if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
+    if (value.reviewStreaks !== undefined && Object.keys(value.reviewStreaks).length) { result.reviewStreaks = reviewStreaks(value.reviewStreaks); }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
     return raw;
@@ -348,6 +365,20 @@
           // Keep unstar events as tombstones; a tied removal wins on every device.
           if (!previous || time > priorTime || time === priorTime && !next.starred) {
             result.bookmarks[id] = { starred: next.starred, updatedAt: next.updatedAt };
+          }
+        });
+      });
+    }
+    var streaked = [base, local, remote].filter(function (value) { return value && value.reviewStreaks !== undefined; });
+    if (streaked.length) {
+      result.reviewStreaks = Object.create(null);
+      streaked.forEach(function (value) {
+        Object.keys(value.reviewStreaks).forEach(function (id) {
+          var next = value.reviewStreaks[id], previous = result.reviewStreaks[id];
+          var time = Date.parse(next.updatedAt), priorTime = previous && Date.parse(previous.updatedAt);
+          // The most recent grade wins; on a tie keep the more cautious (lower) streak.
+          if (!previous || time > priorTime || time === priorTime && next.streak < previous.streak) {
+            result.reviewStreaks[id] = { streak: next.streak, day: next.day, updatedAt: next.updatedAt };
           }
         });
       });
