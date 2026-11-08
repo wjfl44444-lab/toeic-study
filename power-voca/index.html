@@ -30,8 +30,8 @@
   <script src="grammar/sync-model.js?v=20261024-site1" defer></script>
   <script src="grammar/site-state.js?v=20261024-site1" defer></script>
   <script src="feedback-core.js?v=20261025-feedback1" defer></script>
-  <script src="feedback-view.js?v=20261025-feedback1" defer></script>
-  <script src="grammar-embedded.js?v=20261025-integration1" defer></script>
+  <script src="feedback-view.js?v=20261109-cleanup1" defer></script>
+  <script src="grammar-embedded.js?v=20261109-cleanup1" defer></script>
   <script src="grammar-adapter.js?v=20261025-unified1" defer></script>
   <script src="unified-migration.js?v=20261025-unified1" defer></script>
   <script src="question-review.js?v=20261026-quality1" defer></script>
@@ -48,7 +48,7 @@
   <script src="sorting-review.js?v=20261027-forms3" defer></script>
   <link rel="stylesheet" href="prep-bundles.css?v=20261030-prepbundles1">
   <script src="prep-bundles.js?v=20261030-prepbundles2" defer></script>
-  <script src="app.js?v=20261109-wrongbatch2" defer></script>
+  <script src="app.js?v=20261109-cleanup1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -69,7 +69,6 @@
 
     <main id="main-content">
       <section id="loading-view" class="panel loading-panel" aria-live="polite">
-        <p class="eyebrow">YOUR VOCABULARY</p>
         <h1>문제를 준비하고 있어요.</h1>
         <p>학습 자료와 기존 기록을 준비하고 있어요.</p>
       </section>
@@ -160,7 +159,7 @@
         <div class="progress-caption"><p id="question-counter"></p><p id="score-counter"></p></div>
         <div class="progress-track" role="progressbar" id="progress-bar" aria-label="채점 완료" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0"><span id="progress-fill"></span></div>
         <article class="panel question-panel">
-          <div class="question-heading-line"><p class="eyebrow" id="question-number">QUESTION 01</p><span class="question-heading-actions"><span class="question-state" id="question-state"></span><span id="question-bookmark"></span></span></div>
+          <div class="question-heading-line"><p class="eyebrow" id="question-number">문제 1</p><span class="question-heading-actions"><span class="question-state" id="question-state"></span><span id="question-bookmark"></span></span></div>
           <div class="stage-topline"><p class="stage-indicator" id="stage-indicator"></p><p class="cumulative-wrong-count" id="question-wrong-count"></p></div>
           <h1 class="instruction" id="question-instruction" tabindex="-1"></h1>
           <div class="semantic-words" id="semantic-words" aria-label="이번 세트의 단어" hidden></div>
@@ -176,7 +175,7 @@
           <p class="choice-hint" id="choice-hint">선택만으로 정답이 공개되지 않아요.</p>
         </article>
         <section class="panel feedback-panel" id="feedback-panel" hidden aria-labelledby="feedback-title">
-          <p class="eyebrow" id="feedback-eyebrow">ANSWER &amp; EXPLANATION</p>
+          <p class="eyebrow" id="feedback-eyebrow">정답과 해설</p>
           <h2 id="feedback-title" tabindex="-1"></h2>
           <p class="cumulative-wrong-count" id="feedback-wrong-count"></p>
           <div id="feedback-keywords"></div>
@@ -204,7 +203,7 @@
 
 <section id="results-view" hidden aria-labelledby="results-title">
         <div class="panel results-panel">
-          <p class="eyebrow">YOUR PRACTICE</p>
+          <p class="eyebrow">풀이 결과</p>
           <h1 id="results-title" tabindex="-1">이번 풀이를 돌아봐요.</h1>
           <p id="results-description" class="results-description"></p>
           <div class="score-grid" aria-label="풀이 결과">

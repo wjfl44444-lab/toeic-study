@@ -216,7 +216,13 @@
   }
 
   function el(id) { return document.getElementById(id); }
+  // Display only (question data and fingerprints stay untouched): show prep/conj in Korean.
+  function posLabels(value) {
+    return typeof value !== "string" ? value : value.replace(/(전치사|접속사)\s*\((?:prep|conj)\.?\)/g, "$1")
+      .replace(/\(prep\.?\)/g, "(전치사)").replace(/\(conj\.?\)/g, "(접속사)");
+  }
   function text(id, value) {
+    value = posLabels(value);
     if (id === "pool-summary") {
       var pool = String(value).match(/^선택 범위 ([\d,]+)문제 중 이번에는 ([\d,]+)문제/);
       if (pool) { value = pool[1] === pool[2] ? "총 " + pool[1] + "문제" : "총 " + pool[1] + "문제 중 " + pool[2] + "문제"; }
@@ -231,7 +237,7 @@
   function node(tag, className, value) {
     var result = document.createElement(tag);
     if (className) { result.className = className; }
-    if (value != null) { result.textContent = value; }
+    if (value != null) { result.textContent = posLabels(value); }
     return result;
   }
   function showView(name) {
@@ -1623,7 +1629,7 @@
     el("progress-bar").setAttribute("aria-valuemax", String(session.cards.length));
     el("progress-bar").setAttribute("aria-valuenow", String(progress));
     el("progress-fill").style.width = (progress / session.cards.length * 100) + "%";
-    text("question-number", "QUESTION " + String(session.index + 1).padStart(2, "0"));
+    text("question-number", "문제 " + (session.index + 1));
     text("question-state", card.graded ? "채점 완료" : card.deferred ? "나중에 풀기로 남긴 문제" : stage.selected != null ? "선택 완료 · 아직 미채점" : "미채점");
     text("question-wrong-count", questionWrongText(card.question));
     var posFirst = Boolean(posFlowRoot(card) && card.stageIndex === 0 && !card.graded);

@@ -200,7 +200,7 @@
     })) : '';
     const summary = (card.summary || []).map(item => `<div class="grammar-summary-item"><h3 class="answer-summary-expression">${esc(display(item.structure))}</h3><p class="answer-summary-meaning">${esc(display(item.meaning))}</p></div>`).join('');
     return `<section class="panel feedback-panel${passed ? '' : ' wrong'}${keywords ? ' keyword-feedback-panel' : ''}" id="grammar-feedback-panel" aria-labelledby="grammar-feedback-title">
-      <p class="eyebrow">ANSWER &amp; EXPLANATION</p><h2 id="grammar-feedback-title" tabindex="-1">${keywords ? passed ? '✓ 정답' : '↺ 다시 확인' : passed ? '모두 정확하게 풀었어요.' : '이 쓰임을 다시 확인해요.'}</h2>
+      <p class="eyebrow">정답과 해설</p><h2 id="grammar-feedback-title" tabindex="-1">${keywords ? passed ? '✓ 정답' : '↺ 다시 확인' : passed ? '모두 정확하게 풀었어요.' : '이 쓰임을 다시 확인해요.'}</h2>
       ${core}<details class="feedback-details"${keywords ? '' : ' open'}><summary>내 답 · 전체 보기</summary>
       <p class="correct-answer">${answers.length < card.stages.length ? '1단계 오답으로 이 문제를 종료했어요. 이후 단계는 채점에 포함하지 않아요.' : card.stages.length + '단계 중 ' + answers.filter(answer => answer.correct).length + '단계 정답 · 아래에서 각 선택지를 확인해 보세요.'}</p>
       ${keywords ? '' : `<section class="answer-summary" aria-label="표현과 뜻"><p class="answer-summary-label">${esc(display(card.target))} · 표현과 뜻</p>${summary}</section>`}
@@ -234,7 +234,7 @@
     return `<div class="quiz-topline"><span class="pill">${esc(names[session.scope])}</span>${button('result', '풀이 현황 보기', 'text-button')}</div>
       <div class="progress-caption"><p>문제 ${session.cursor + 1} / ${stats.total}</p><p>채점 ${stats.done} · 모두 맞힌 문제 ${stats.cardsCorrect}</p></div>
       <div class="progress-track" role="progressbar" aria-label="채점 완료" aria-valuemin="0" aria-valuemax="${stats.total}" aria-valuenow="${stats.done}"><span style="width:${stats.done / stats.total * 100}%"></span></div>
-      <article class="panel question-panel" id="grammar-question-panel"><div class="question-heading-line"><p class="eyebrow">QUESTION ${String(session.cursor + 1).padStart(2, '0')}</p><span class="question-state">${q.complete ? '채점 완료' : q.locked ? '제출한 단계' : q.selected.length ? '선택 완료 · 아직 미채점' : '미채점'}</span></div>
+      <article class="panel question-panel" id="grammar-question-panel"><div class="question-heading-line"><p class="eyebrow">문제 ${session.cursor + 1}</p><span class="question-state">${q.complete ? '채점 완료' : q.locked ? '제출한 단계' : q.selected.length ? '선택 완료 · 아직 미채점' : '미채점'}</span></div>
       <div class="stage-topline"><p class="stage-indicator">${q.stageIndex + 1} / ${q.card.stages.length}단계${!q.complete && q.card.stages.length > 1 ? q.stageIndex ? ' · 세트 마지막에 한 번에 채점' : ' · 첫 답을 맞히면 다음 단계' : ''}</p></div>
       <h1 class="instruction" id="grammar-question-instruction" tabindex="-1">${esc(content.instruction)}</h1>${content.example ? `<p class="question-example">${esc(content.example)}</p>` : ''}${content.context ? `<p class="question-context">${esc(content.context)}</p>` : ''}
       <fieldset class="options-fieldset" ${q.locked ? 'disabled' : ''}><legend class="sr-only">${q.stage.mode === 'multi' ? '해당하는 답을 모두 선택하세요.' : '정답을 하나 선택하세요.'}</legend>
@@ -247,7 +247,7 @@
   }
   function result(session, cards, E) {
     const stats = E.stats(session, cards), remaining = stats.total - stats.done;
-    return `<section class="panel results-panel" aria-labelledby="grammar-results-title"><p class="eyebrow">YOUR PRACTICE</p><h1 id="grammar-results-title" tabindex="-1">이번 풀이를 돌아봐요.</h1>
+    return `<section class="panel results-panel" aria-labelledby="grammar-results-title"><p class="eyebrow">풀이 결과</p><h1 id="grammar-results-title" tabindex="-1">이번 풀이를 돌아봐요.</h1>
       <p class="results-description">${remaining ? stats.total + '문제 중 아직 ' + remaining + '문제를 채점하지 않았어요.' : '이번 ' + stats.total + '문제를 모두 확인했어요.'} 한 단계라도 틀린 문제는 오답 연습에 포함돼요.</p>
       <div class="score-grid" aria-label="풀이 결과"><div><span>정답</span><strong>${stats.cardsCorrect}</strong></div><div><span>오답</span><strong>${stats.cardsWrong}</strong></div><div><span>미채점</span><strong>${remaining}</strong></div></div>
       <p class="stage-score">완료 문항의 단계 정답 ${stats.stagesCorrect} / ${stats.stagesAttempted} · 미진행 단계는 집계에서 제외해요.</p>

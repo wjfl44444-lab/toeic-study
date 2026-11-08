@@ -5,7 +5,10 @@
   else root.PowerFeedbackView = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
-  const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  // Display only: show prep/conj labels in Korean (data and fingerprints unchanged).
+  const esc = value => String(value == null ? '' : value)
+    .replace(/(전치사|접속사)\s*\((?:prep|conj)\.?\)/g, '$1').replace(/\(prep\.?\)/g, '(전치사)').replace(/\(conj\.?\)/g, '(접속사)')
+    .replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   function renderCore(model) {
     const hero = model.pairs && model.pairs.length ? `<div class="kf-pairs">${model.pairs.map(p => `<div><h3 class="kf-word">${esc(p.word)}</h3><p class="kf-meaning">${esc(p.meaning)}</p></div>`).join('')}</div>` :
       `<h3 class="kf-word">${esc(model.word)}</h3>${model.meaning ? `<p class="kf-meaning">${esc(model.meaning)}</p>` : ''}`;
