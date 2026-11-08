@@ -3,30 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f4f1e9">
-  <title>TOEIC 랜덤 문제 카드</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#11231f">
+  <title>랜덤 문제집 · 나의 토익 스터디</title>
   <link rel="stylesheet" href="../shared/study-sync.css?v=20261108-compact1">
   <meta name="description" content="167개의 영어 객관식 문제를 무작위로 풀고, 해설과 오답 복습으로 학습하세요.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='6' fill='%23245c4b'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
+    /* Same dark green as the vocabulary and expression pages, regardless of device theme. */
     :root {
-      --paper: #f4f1e9;
-      --card: #fffdf8;
-      --ink: #262c2a;
-      --muted: #68736d;
-      --line: #dedfd4;
-      --accent: #245c4b;
-      --accent-quiet: #e8f0e9;
-      --good: #245c4b;
-      --good-bg: #edf4ed;
-      --bad: #984d3f;
-      --bad-bg: #faf0ec;
-      --alternate: #846321;
-      --alternate-bg: #f8f2df;
-      --shadow: 0 12px 45px rgba(32, 46, 36, .055);
+      color-scheme: dark;
+      --paper: #11231f;
+      --card: #1a302a;
+      --ink: #f1f4e9;
+      --muted: #adbdaf;
+      --line: #3b5146;
+      --accent: #b6dec5;
+      --accent-quiet: #203a32;
+      --good: #b6dec5;
+      --good-bg: #2b4535;
+      --bad: #f1b4a6;
+      --bad-bg: #432d29;
+      --alternate: #e2c98a;
+      --alternate-bg: #47412e;
+      --shadow: 0 12px 40px rgba(0, 0, 0, .13);
       --radius: 22px;
     }
+    .study-page-nav, .study-sync { border-color: var(--line); background: var(--card); color: var(--ink); box-shadow: none; }
+    .study-page-nav a { color: var(--muted); font-weight: 500; }
+    .study-page-nav a:hover, .study-page-nav a[aria-current="page"] { background: var(--accent-quiet); color: #d0f0d4; }
+    .study-sync__identity { color: var(--ink); }
+    .study-sync__status, .study-sync__tools, .study-sync__tools > summary, .study-sync__detail, .study-sync__privacy { color: var(--muted); }
+    .study-sync summary { color: var(--accent); }
+    .study-sync button { border-color: var(--line); background: var(--accent-quiet); color: var(--ink); }
+    .study-sync button.study-sync__primary { border-color: var(--accent); background: var(--accent); color: #17372a; }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     body {
@@ -198,13 +208,7 @@
       .finish-secondary { grid-template-columns: 1fr; }
       :root { --radius: 17px; }
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --paper: #202722; --card: #29312b; --ink: #eeeee5; --muted: #adb8ae;
-        --line: #444e43; --accent: #a1cfb7; --accent-quiet: #34453a;
-        --good: #a1cfb7; --good-bg: #304639; --bad: #e3aa95; --bad-bg: #48342e;
-        --alternate: #e2c98a; --alternate-bg: #47412e; --shadow: 0 12px 40px rgba(0, 0, 0, .13);
-      }
+    @media all {
       .button-primary { color: #21372b; }
       .choice.correct .choice-letter, .choice.selected .choice-letter { color: #21372b; }
       .choice.incorrect .choice-letter { color: #4b281e; }
@@ -226,8 +230,7 @@
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
         <div class="brand-copy">
-          <div class="brand-title">TOEIC 랜덤 문제 카드</div>
-          <div class="brand-subtitle">ONE QUESTION AT A TIME</div>
+          <div class="brand-title">랜덤 문제집</div>
         </div>
       </div>
       <button id="home-button" class="header-control" type="button" hidden>출제 설정</button>
