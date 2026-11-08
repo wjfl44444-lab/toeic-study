@@ -30,11 +30,22 @@ export function progressScopeKey({ mode = "multiple", direction = "word-to-meani
   return JSON.stringify([mode, direction, tag, group, group === "wrong" ? Math.max(1, Math.floor(Number(minWrong) || 1)) : 0]);
 }
 
-export function eligibleStudyWords(words, { tag = "all", collection, onlyWrong = false, minWrong = 1 } = {}, bookmarks = {}) {
+export const STREAK_GOAL = 3;
+
+// Consecutive correct answers for a word that was missed before. Words reviewed
+// before streaks existed start from their latest result (last wrong → 0, else 1).
+export function reviewStreakOf(word) {
+  if (Number.isSafeInteger(word?.reviewStreak) && word.reviewStreak >= 0) return word.reviewStreak;
+  if (!word?.wrongCount) return 0;
+  return word.lastWrongAt && word.lastWrongAt === word.lastStudiedAt ? 0 : 1;
+}
+
+export function eligibleStudyWords(words, { tag = "all", collection, onlyWrong = false, minWrong = 1, unmastered = false } = {}, bookmarks = {}) {
   const wrongOnly = collection === "wrong" || onlyWrong;
   const minimum = Math.max(1, Math.floor(Number(minWrong) || 1));
   return words.filter(word => (tag === "all" || word.tags.includes(tag))
     && (!wrongOnly || word.wrongCount >= minimum)
+    && (!wrongOnly || !unmastered || reviewStreakOf(word) < STREAK_GOAL)
     && (collection !== "starred" || bookmarks[word.id]?.starred === true));
 }
 

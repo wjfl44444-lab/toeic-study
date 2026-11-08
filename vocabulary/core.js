@@ -1,7 +1,7 @@
 import { handwrittenWordTemplates } from "./handwritten-words.js";
 import { lessonWordTemplates } from "./lesson-words.js";
 import { octoberWordTemplates } from "./lesson-words-1001.js";
-import { normalizeBookmarks, normalizeStudyProgress, mergeBookmarks, mergeStudyProgress } from "./progress.js?v=20261031-features1";
+import { normalizeBookmarks, normalizeStudyProgress, mergeBookmarks, mergeStudyProgress } from "./progress.js?v=20261109-streak1";
 
 export const STORAGE_KEY = "toeic-pocket-state-v1";
 export const STORAGE_VERSION = 6;
@@ -81,6 +81,10 @@ export function normalizeWordRecord(raw, now = new Date().toISOString()) {
   const meanings = listFrom(raw.meanings ?? raw.meaning);
   if (!word || meanings.length === 0) return null;
   const status = WORD_STATUSES.includes(raw.status) ? raw.status : "new";
+  // Optional review streak: kept only when complete and valid, so older records stay byte-identical.
+  const streak = Number.isSafeInteger(raw.reviewStreak) && raw.reviewStreak >= 0 && raw.reviewStreak <= 999
+    && typeof raw.reviewStreakAt === "string" && Number.isFinite(Date.parse(raw.reviewStreakAt))
+    ? { reviewStreak: raw.reviewStreak, reviewStreakAt: raw.reviewStreakAt } : {};
   return {
     id: String(raw.id || createId("word")),
     word,
@@ -96,7 +100,8 @@ export function normalizeWordRecord(raw, now = new Date().toISOString()) {
     wrongCount: finiteCount(raw.wrongCount ?? raw.wrong_count),
     lastStudiedAt: raw.lastStudiedAt ?? raw.last_studied_at ?? null,
     lastWrongAt: raw.lastWrongAt ?? raw.last_wrong_at ?? null,
-    createdAt: raw.createdAt ?? raw.created_at ?? now
+    createdAt: raw.createdAt ?? raw.created_at ?? now,
+    ...streak
   };
 }
 

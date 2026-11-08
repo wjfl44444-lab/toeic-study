@@ -24,10 +24,10 @@ import {
   uniqueStrings,
   wordsToCsv,
   wordIdentity
-} from "./core.js?v=20261031-features1";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261031-features1";
+} from "./core.js?v=20261109-streak1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261109-streak1";
 
-import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress } from "./progress.js?v=20261031-features1";
+import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress, reviewStreakOf, STREAK_GOAL } from "./progress.js?v=20261109-streak1";
 
 const VIEW_NAMES = {
   home: "홈",
@@ -68,6 +68,8 @@ let reviewKind = "wrong";
 let reviewMinWrong = 1;
 let reviewCount = 20;
 let reviewMode = "multiple";
+// Per-device preference: show only wrong words not yet answered right 3 times in a row.
+let reviewUnmastered = (() => { try { return window.localStorage.getItem("vocab-review-unmastered") === "1"; } catch { return false; } })();
 const payloadChecks = new Map();
 let studySync = null;
 let payloadRevision = 0;
@@ -114,6 +116,7 @@ function decodeStudyPayload(raw) {
       || !stringList(word.tags) || (word.aliases !== undefined && !stringList(word.aliases))
       || ["partOfSpeech", "example", "translation", "memo"].some((key) => word[key] !== undefined && typeof word[key] !== "string")
       || ["lastStudiedAt", "lastWrongAt"].some((key) => word[key] !== null && word[key] !== undefined && !isTimestamp(word[key]))
+      || (word.reviewStreak !== undefined && (!isCount(word.reviewStreak) || !isTimestamp(word.reviewStreakAt)))
       || !isTimestamp(word.createdAt)) {
       throw new Error("단어장 동기화 데이터에 읽을 수 없는 단어가 있습니다.");
     }
@@ -332,6 +335,16 @@ function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
     }
     merged.lastStudiedAt = latest(ours.lastStudiedAt, theirs.lastStudiedAt);
     merged.lastWrongAt = merged.wrongCount ? latest(ours.lastWrongAt, theirs.lastWrongAt) : null;
+    // Review streak: the most recently graded side wins (a side saved by an older page has none).
+    const streakSource = [ours, theirs].filter((word) => isTimestamp(word.reviewStreakAt))
+      .sort((a, b) => Date.parse(b.reviewStreakAt) - Date.parse(a.reviewStreakAt) || a.reviewStreak - b.reviewStreak)[0];
+    delete merged.reviewStreak; delete merged.reviewStreakAt;
+    if (streakSource) {
+      // A miss recorded after the streak (e.g. by an older page) resets it.
+      const missedLater = isTimestamp(merged.lastWrongAt) && Date.parse(merged.lastWrongAt) > Date.parse(streakSource.reviewStreakAt);
+      merged.reviewStreak = missedLater ? 0 : streakSource.reviewStreak;
+      merged.reviewStreakAt = missedLater ? merged.lastWrongAt : streakSource.reviewStreakAt;
+    }
     merged.createdAt = [ours.createdAt, theirs.createdAt].sort((a, b) => Date.parse(a) - Date.parse(b) || a.localeCompare(b))[0];
     mergedWords.push(merged);
   }
@@ -555,7 +568,7 @@ function renderPageHeader(eyebrow, title, description, actions = "") {
 function batchSettings(session, mode = session?.mode || "multiple") {
   return { mode, direction: session?.direction || "word-to-meaning", tag: session?.tag || "all",
     count: session?.requestedCount || 10, collection: session?.collection || (session?.onlyWrong ? "wrong" : "regular"),
-    minWrong: session?.minWrong || 1 };
+    minWrong: session?.minWrong || 1, unmastered: session?.unmastered === true };
 }
 
 function adoptBatch(session, mode) {
@@ -869,7 +882,11 @@ function renderTypingAnswer() {
 function renderFeedback(word) {
   const feedback = quizSession.feedback;
   const question = quizSession.queue[quizSession.index];
-  return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
+  // Streak from the live record (the session snapshot keeps the original wording only).
+  const live = state.words.find((item) => item.id === word.id);
+  const streak = live?.wrongCount ? Math.min(reviewStreakOf(live), STREAK_GOAL) : null;
+  const streakNote = streak === null ? "" : `<small class="feedback-streak">연속 정답 ${streak}/${STREAK_GOAL}${streak >= STREAK_GOAL ? " (외운 단어)" : ""}</small>`;
+  return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${streakNote}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
 }
 
 function renderQuizResult() {
@@ -880,7 +897,7 @@ function renderQuizResult() {
 }
 
 function getMistakeWords() {
-  return eligibleStudyWords(state.words, { tag: quizDefaults.tag, collection: reviewKind, minWrong: reviewMinWrong }, state.bookmarks)
+  return eligibleStudyWords(state.words, { tag: quizDefaults.tag, collection: reviewKind, minWrong: reviewMinWrong, unmastered: reviewUnmastered }, state.bookmarks)
     .sort((a,b) => reviewKind === "wrong" ? b.wrongCount - a.wrongCount || a.word.localeCompare(b.word,"en") : a.word.localeCompare(b.word,"en"));
 }
 
@@ -891,12 +908,13 @@ function renderMistakes() {
     <form id="review-config" class="setup-card"><div class="review-settings">
       <label><span>학습 범위</span><select name="tag">${configTagOptions(quizDefaults.tag)}</select></label>
       ${reviewKind === "wrong" ? `<label><span>누적 오답</span><input type="number" name="minWrong" min="1" max="999999" value="${reviewMinWrong}" aria-label="누적 오답 횟수"/><span>회 이상</span></label>` : ""}
+      ${reviewKind === "wrong" ? `<label class="check-row review-unmastered"><input type="checkbox" name="unmastered" ${reviewUnmastered ? "checked" : ""}/><span>아직 외우지 못한 단어만 · ${STREAK_GOAL}번 연속 맞히면 빠져요</span></label>` : ""}
       <label><span>학습 방식</span><select name="mode"><option value="multiple" ${reviewMode === "multiple" ? "selected" : ""}>객관식</option><option value="typing" ${reviewMode === "typing" ? "selected" : ""}>직접 입력</option><option value="flashcard" ${reviewMode === "flashcard" ? "selected" : ""}>암기 카드</option></select></label>
       <label><span>문제 수</span><select name="count">${configCountOptions(reviewCount)}</select></label>
       <button type="submit" class="primary-button" ${words.length ? "" : "disabled"}>${reviewKind === "wrong" ? "오답" : "별표"} 풀기</button>
-    </div>${batchSummary({ mode: reviewMode, tag: quizDefaults.tag, direction: quizDefaults.direction, collection: reviewKind, minWrong: reviewMinWrong }, reviewMode)}</form>
+    </div>${batchSummary({ mode: reviewMode, tag: quizDefaults.tag, direction: quizDefaults.direction, collection: reviewKind, minWrong: reviewMinWrong, unmastered: reviewKind === "wrong" && reviewUnmastered }, reviewMode)}</form>
     <p class="result-count">${words.length}개 단어</p>
-    ${words.length ? `<div class="word-list">${words.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span>오답 ${word.wrongCount}회</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}`;
+    ${words.length ? `<div class="word-list">${words.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span>오답 ${word.wrongCount}회 · 연속 ${Math.min(reviewStreakOf(word), STREAK_GOAL)}/${STREAK_GOAL}</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}`;
 }
 
 function renderNoWords() {
@@ -934,7 +952,7 @@ function startStudy(form, settings = null) {
   if (!batch.words.length) { showToast("선택한 범위에 학습할 단어가 없습니다.", "error"); return false; }
   state.studyProgress[batch.scopeKey] = batch.entry;
   studySession = { wordIds: batch.words.map(word => word.id), index: 0, direction: options.direction, tag: options.tag, requestedCount: options.count,
-    collection: options.collection || "regular", minWrong: options.minWrong || 1, scopeKey: batch.scopeKey, pass: batch.pass,
+    collection: options.collection || "regular", minWrong: options.minWrong || 1, ...(options.unmastered === true ? { unmastered: true } : {}), scopeKey: batch.scopeKey, pass: batch.pass,
     ratings: {}, furthestIndex: 0, revealed: false, results: { known: 0, confused: 0, unknown: 0 }, completed: false, recorded: false };
   const saved = render();
   window.scrollTo({ top: 0, behavior: "instant" });
@@ -978,10 +996,10 @@ function startQuiz(form) {
   if (!result.ok) showToast(result.error, "error");
 }
 
-function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection = onlyWrong ? "wrong" : "regular", minWrong = 1, count = 10, returnBatchSettings = null }) {
+function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection = onlyWrong ? "wrong" : "regular", minWrong = 1, count = 10, returnBatchSettings = null, unmastered = false }) {
   if (!["multiple", "typing"].includes(mode)) return { ok: false, error: "지원하지 않는 퀴즈 유형입니다." };
   if (!["word-to-meaning", "meaning-to-word"].includes(direction)) return { ok: false, error: "지원하지 않는 문제 방향입니다." };
-  const settings = { mode, direction, tag, onlyWrong: collection === "wrong", collection, minWrong, count };
+  const settings = { mode, direction, tag, onlyWrong: collection === "wrong", collection, minWrong, count, unmastered: collection === "wrong" && unmastered === true };
   const wordsByPart = new Map();
   let pool = state.words;
   const scoped = eligibleStudyWords(state.words, settings, state.bookmarks);
@@ -1013,11 +1031,13 @@ function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection
     options: mode === "multiple" ? buildQuizOptions(word, wordsByPart.get(quizPartKey(word)), direction) : null }));
   if (mode === "multiple" && preparedQueue.some(question => question.options.length !== 4)) return { ok:false, error:"객관식 보기를 만들 수 없는 단어가 있어요. 직접 입력을 선택해 주세요." };
   state.studyProgress[batch.scopeKey] = batch.entry;
-  quizDefaults = settings;
+  // The review-only filter must not carry over into ordinary quizzes.
+  quizDefaults = { ...settings };
+  delete quizDefaults.unmastered;
   rememberStudyTag(tag);
   const availableIds = new Set(pool.map(word => word.id));
   quizSession = { unavailableIds: mode === "multiple" ? scoped.filter(word => !availableIds.has(word.id)).map(word => word.id) : [], mode, direction, tag, onlyWrong: collection === "wrong", collection, minWrong, requestedCount: count,
-    scopeKey: batch.scopeKey, pass: batch.pass, returnBatchSettings, queue: preparedQueue, index: 0, originalTotal: selected.length,
+    ...(settings.unmastered ? { unmastered: true } : {}), scopeKey: batch.scopeKey, pass: batch.pass, returnBatchSettings, queue: preparedQueue, index: 0, originalTotal: selected.length,
     originalAnswered: 0, originalCorrect: 0, originalWrong: 0, retriesCompleted: 0, scheduledWordIds: [], wrongWordIds: [],
     feedback: null, completed: false, recorded: false };
   const saved = render();
@@ -1159,6 +1179,11 @@ function updateWordStats(wordId, correct) {
     else if (nextCorrect >= 3 && nextCorrect >= nextWrong + 2) status = "mastered";
     else if (status === "new") status = "learning";
     updatedWord = { ...word, correctCount: nextCorrect, wrongCount: nextWrong, status, lastStudiedAt: now, lastWrongAt: correct ? word.lastWrongAt : now };
+    // Words that have ever been missed keep a run of consecutive correct answers.
+    if (!correct || word.wrongCount > 0) {
+      updatedWord.reviewStreak = correct ? reviewStreakOf(word) + 1 : 0;
+      updatedWord.reviewStreakAt = now;
+    }
     return updatedWord;
   });
   return updatedWord;
@@ -1392,7 +1417,11 @@ document.addEventListener("click", (event) => {
   else if (action === "reset-wrong") {
     const word = state.words.find((item) => item.id === button.dataset.wordId);
     if (word && confirm(`‘${word.word}’의 오답 횟수를 0으로 초기화할까요?`)) {
-      state.words = state.words.map((item) => item.id === word.id ? { ...item, wrongCount: 0, lastWrongAt: null } : item);
+      state.words = state.words.map((item) => {
+        if (item.id !== word.id) return item;
+        const { reviewStreak, reviewStreakAt, ...rest } = item;
+        return { ...rest, wrongCount: 0, lastWrongAt: null };
+      });
       saveState();
       render(false);
       showToast("오답 횟수를 초기화했습니다.", "success");
@@ -1416,7 +1445,8 @@ document.addEventListener("submit", (event) => {
     reviewMinWrong = Math.max(1, Math.floor(Number(data.get("minWrong")) || 1));
     reviewCount = data.get("count") === "all" ? "all" : Number(data.get("count"));
     reviewMode = String(data.get("mode"));
-    const settings = { mode: reviewMode, direction: quizDefaults.direction, tag: String(data.get("tag")), count: reviewCount, minWrong: reviewMinWrong, collection: reviewKind };
+    const settings = { mode: reviewMode, direction: quizDefaults.direction, tag: String(data.get("tag")), count: reviewCount, minWrong: reviewMinWrong, collection: reviewKind,
+      unmastered: reviewKind === "wrong" && reviewUnmastered };
     const previousView = currentView; currentView = reviewMode === "flashcard" ? "study" : "quiz";
     const ok = reviewMode === "flashcard" ? startStudy(null, settings) : beginQuiz(settings).ok;
     if (!ok) { currentView = previousView; render(false); }
@@ -1457,6 +1487,10 @@ document.addEventListener("change", (event) => {
     reviewMinWrong = Math.max(1, Math.floor(Number(data.get("minWrong")) || 1));
     reviewCount = data.get("count") === "all" ? "all" : Number(data.get("count"));
     reviewMode = String(data.get("mode"));
+    if (event.target.name === "unmastered") {
+      reviewUnmastered = event.target.checked;
+      try { window.localStorage.setItem("vocab-review-unmastered", reviewUnmastered ? "1" : "0"); } catch { /* Storage unavailable. */ }
+    }
     rememberStudyTag(String(data.get("tag")));
     render(false);
   } else if (event.target.closest?.("#home-config")) {
