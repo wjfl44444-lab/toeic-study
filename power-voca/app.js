@@ -717,11 +717,11 @@
     var active = wrongReview.resolve(question.historyKey || question.id);
     return active ? wrongReview.aggregate(history, archivedHistory).byId.get(active.id) || { id: active.id, fresh: true } : null;
   }
-  // Counts at most one correct answer per calendar day; a wrong answer resets.
+  // Every correct answer counts; a wrong answer resets. `day` records the last grade date.
   function updateReviewStreak(before, question, correct) {
     if (!before || before.fresh && correct) { return; }
     var today = localDay(), previous = before.fresh ? { streak: 0, day: "" } : streakState(before), stored = reviewStreaks[before.id];
-    var next = !correct ? { streak: 0, day: today } : previous.day === today ? { streak: previous.streak, day: previous.day } : { streak: previous.streak + 1, day: today };
+    var next = { streak: correct ? previous.streak + 1 : 0, day: today };
     next.updatedAt = new Date(Math.max(Date.now(), stored ? Date.parse(stored.updatedAt) + 1 : 0)).toISOString();
     reviewStreaks[before.id] = next;
   }
