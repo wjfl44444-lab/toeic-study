@@ -70,4 +70,6 @@
 .review-collection-switch button[aria-pressed="true"]{background:var(--mint);color:#173428}.review-collection-switch button:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
 .cumulative-wrong-count{font-size:13px;color:var(--muted);line-height:1.6;margin:0}.stage-topline{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 12px}
 #feedback-wrong-count{margin:5px 0 16px}
+.wrong-review-size{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--muted);margin:0 0 12px}
+.wrong-review-size select{min-height:42px;padding:8px;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--border);border-radius:8px}
 @media(max-width:640px){.wrong-review-panel{padding:23px 22px}.wrong-review-heading{gap:12px}.wrong-review-heading label{font-size:14px}.wrong-review-panel>.primary-button,.review-collection-content>.primary-button{width:100%}.wrong-review-row{font-size:14px}}

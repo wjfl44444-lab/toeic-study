@@ -843,15 +843,24 @@
     text("wrong-review-page", (wrongReviewPage + 1) + " / " + pages);
     el("wrong-review-previous").disabled = wrongReviewPage === 0;
     el("wrong-review-next").disabled = wrongReviewPage >= pages - 1;
-    text("wrong-review-start", entries.length ? "오답 " + entries.length + "문제 풀기" : "오답 풀기");
+    var batch = wrongReviewBatch(entries).length;
+    text("wrong-review-start", entries.length ? "오답 " + batch + "문제 풀기" + (batch < entries.length ? " (" + entries.length + "개 중)" : "") : "오답 풀기");
     el("wrong-review-start").disabled = !entries.length || !unifiedImportReady;
   }
   function startWrongReview() {
     if (!unifiedImportReady) { announce("이전 풀이를 안전하게 준비하고 있어요."); return; }
-    var entries = wrongReviewEntries();
+    var entries = wrongReviewBatch(wrongReviewEntries());
     if (!entries.length) { return; }
     if (session && totals().ungraded && !window.confirm("새 연습을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 채점 기록은 남아요. 시작할까요?")) { return; }
     begin(entries.map(function (entry) { return entry.question; }), "wrong", false);
+  }
+  // One batch of the wrong list: lowest streak first, then most often wrong.
+  // Answering moves questions down the order, so the next batch differs without extra storage.
+  function wrongReviewBatch(entries) {
+    var size = el("wrong-review-size").value;
+    var ordered = entries.map(function (entry, index) { return { entry: entry, index: index, streak: streakState(entry).streak }; })
+      .sort(function (a, b) { return a.streak - b.streak || a.index - b.index; }).map(function (item) { return item.entry; });
+    return size === "all" ? ordered : ordered.slice(0, Number(size) || 20);
   }
   function starredReviewEntries() {
     var entries = new Map();
@@ -1125,7 +1134,7 @@
     if (!unifiedImportReady || !session || !progressManager) { return; }
     var run = sessionStudyRun(), wrong = session.mode === "wrong";
     var scope = run ? run.scope : "all", starred = !wrong && run.collection === "starred";
-    var pool = wrong ? wrongReviewEntries().map(function (entry) { return entry.question; }) : starred ? starredPool(scope) : poolForScope(scope);
+    var pool = wrong ? (run ? wrongReviewEntries() : wrongReviewBatch(wrongReviewEntries())).map(function (entry) { return entry.question; }) : starred ? starredPool(scope) : poolForScope(scope);
     if (wrong && run) {
       var allowed = new Set(poolForScope(scope).map(function (q) { return q.id; }));
       pool = pool.filter(function (q) { return allowed.has(q.id); });
@@ -1172,6 +1181,15 @@
   }
   function renderStudyContinuation() {
     var run = sessionStudyRun(), state = run && progressForRun(run);
+    if (session && session.mode === "wrong" && !run) {
+      // Wrong-list batch started from the home screen: offer the next batch of the list.
+      var nextWrong = unifiedImportReady && !totals().ungraded ? wrongReviewBatch(wrongReviewEntries()).length : 0;
+      el("results-study-progress").hidden = true;
+      el("next-pass-button").hidden = true;
+      el("next-batch-button").hidden = !nextWrong;
+      if (nextWrong) { text("next-batch-button", "다음 오답 " + nextWrong + "문제 풀기"); }
+      return;
+    }
     var available = Boolean(state && state.total && unifiedImportReady);
     el("results-study-progress").hidden = !available;
     text("results-study-progress", available ? (run.collection === "starred" ? "별표 · " : "") + scopeLabel(run.scope) + " · " + progressLabel(state) : "");
@@ -1209,6 +1227,7 @@
   }
   function continueStudyRun() {
     var run = sessionStudyRun();
+    if (session && session.mode === "wrong" && !run) { startWrongReview(); return; }
     if (run && unifiedImportReady && (session.mode === "wrong" || !totals().ungraded)) {
       if (run.bundleByVerb) { beginBundleRemaining(run.scope, run.size || "20", run.pass, run.collection); }
       else if (run.collection === "starred") { beginStarredRemaining(run.scope, run.size || "20", run.pass); }
@@ -1840,6 +1859,11 @@
   el("wrong-review-unmastered").addEventListener("change", function () {
     try { window.localStorage.setItem("power-voca-wrong-unmastered", el("wrong-review-unmastered").checked ? "1" : "0"); } catch (_) { /* Storage unavailable. */ }
     wrongReviewPage = 0; renderWrongReview();
+  });
+  try { var savedWrongSize = window.localStorage.getItem("power-voca-wrong-size"); if (["20", "50", "100", "all"].includes(savedWrongSize)) { el("wrong-review-size").value = savedWrongSize; } } catch (_) { /* Storage unavailable. */ }
+  el("wrong-review-size").addEventListener("change", function () {
+    try { window.localStorage.setItem("power-voca-wrong-size", el("wrong-review-size").value); } catch (_) { /* Storage unavailable. */ }
+    renderWrongReview();
   });
   el("wrong-review-previous").addEventListener("click", function () { wrongReviewPage = Math.max(0, wrongReviewPage - 1); renderWrongReview(); });
   el("wrong-review-next").addEventListener("click", function () { wrongReviewPage += 1; renderWrongReview(); });
