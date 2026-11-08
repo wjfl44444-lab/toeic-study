@@ -3,32 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f5ef">
+  <meta name="theme-color" content="#11231f">
   <meta name="description" content="토익 단어 암기와 랜덤 문법 문제를 한곳에서 공부하는 개인 학습 공간입니다.">
   <title>나의 토익 스터디</title>
   <link rel="stylesheet" href="./shared/study-sync.css?v=20261108-compact1">
   <style>
-    :root { color-scheme: light; --ink: #20352f; --muted: #64716a; --paper: #f7f5ef; --green: #245c4b; --line: #e1e4dc; }
+    /* Same dark green as the study pages. */
+    :root { color-scheme: dark; --ink: #f1f4e9; --muted: #adbdaf; --paper: #11231f; --green: #b6dec5; --line: #3b5146; --card: #1a302a; --card-light: #203a32; }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--paper); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif; line-height: 1.65; word-break: keep-all; }
     a { color: inherit; text-decoration: none; }
-    a:focus-visible, summary:focus-visible { outline: 3px solid #b27625; outline-offset: 6px; }
+    a:focus-visible, summary:focus-visible { outline: 3px solid #f0d38f; outline-offset: 6px; }
     .shell { max-width: 1060px; margin: auto; padding: 0 32px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 30px 0; border-bottom: 1px solid var(--line); }
     .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 750; letter-spacing: -.025em; }
-    .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--green); color: white; font: 750 16px Georgia, serif; }
+    .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--green); color: #17372a; font: 750 16px Georgia, serif; }
     .small-label { font-size: 12px; color: var(--muted); }
     main { padding: 58px 0 36px; }
     .eyebrow { margin: 0 0 14px; color: var(--green); font-size: 11px; font-weight: 750; letter-spacing: .14em; }
     h1 { margin: 0; font-size: clamp(30px, 5vw, 47px); line-height: 1.3; letter-spacing: -.05em; }
     .intro { margin: 18px 0 36px; color: var(--muted); font-size: 15px; }
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-    .card { display: flex; flex-direction: column; min-height: 300px; padding: 29px; border: 1px solid var(--line); border-radius: 24px; background: #fffefa; transition: transform .18s ease, box-shadow .18s ease; }
-    .card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px #20352f0b; }
+    .card { display: flex; flex-direction: column; min-height: 300px; padding: 29px; border: 1px solid var(--line); border-radius: 24px; background: var(--card); transition: transform .18s ease, box-shadow .18s ease; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0, 0, 0, .25); }
     .card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; }
-    .icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: #e9efe5; color: var(--green); }
+    .icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: var(--card-light); color: var(--green); }
     .icon svg { width: 25px; height: 25px; }
-    .quiz .icon { background: #edf0f5; color: #344c72; }
+    .quiz .icon { background: #1f3340; color: #b5cfe6; }
+    .study-page-nav, .study-sync { border-color: var(--line); background: var(--card); color: var(--ink); box-shadow: none; }
+    .study-page-nav a { color: var(--muted); font-weight: 500; }
+    .study-page-nav a:hover, .study-page-nav a[aria-current="page"] { background: var(--card-light); color: #d0f0d4; }
+    .study-sync__identity { color: var(--ink); }
+    .study-sync__status, .study-sync__tools, .study-sync__tools > summary, .study-sync__detail, .study-sync__privacy { color: var(--muted); }
+    .study-sync button { border-color: var(--line); background: var(--card-light); color: var(--ink); }
+    .study-sync button.study-sync__primary { border-color: var(--green); background: var(--green); color: #17372a; }
     .category { color: var(--muted); font-size: 11px; letter-spacing: .08em; }
     h2 { margin: 0 0 10px; font-size: 25px; letter-spacing: -.035em; }
     .description { margin: 0; color: var(--muted); font-size: 14px; }
