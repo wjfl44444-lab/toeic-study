@@ -42,8 +42,8 @@ h2 { font-size: 19px; font-weight: 600; }
 .site-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 94px; border-bottom: 1px solid var(--line); }
 .site-brand { display: flex; align-items: center; gap: 14px; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; }
 .site-brand strong { font-size: 19px; font-weight: 650; letter-spacing: -.5px; }
-.site-brand-mark { display: grid; place-items: center; position: relative; width: 37px; height: 43px; border: 1px solid var(--muted); border-radius: 9px; color: var(--mint); font: 22px/1 Georgia, serif; transform: rotate(-6deg); }
-.site-brand-mark span { position: absolute; right: 7px; bottom: 5px; font-size: 14px; }
+.site-brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; background: var(--panel-light); color: var(--mint); }
+.site-brand-mark svg { width: 21px; height: 21px; }
 .vocabulary-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 22px; }
 .vocabulary-nav button { min-height: 42px; padding: 8px 13px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 14px; }
 .vocabulary-nav button:hover { color: var(--mint-strong); }

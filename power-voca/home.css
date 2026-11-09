@@ -73,3 +73,8 @@
 .wrong-review-size{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--muted);margin:0 0 12px}
 .wrong-review-size select{min-height:42px;padding:8px;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--border);border-radius:8px}
 @media(max-width:640px){.wrong-review-panel{padding:23px 22px}.wrong-review-heading{gap:12px}.wrong-review-heading label{font-size:14px}.wrong-review-panel>.primary-button,.review-collection-content>.primary-button{width:100%}.wrong-review-row{font-size:14px}}
+
+/* Header icon matches the home card (link icon in the same rounded box). */
+.brand .brand-icon{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:11px;background:var(--panel-light);color:var(--mint);transform:none;letter-spacing:0}
+.brand .brand-icon svg{width:21px;height:21px}
+@media(max-width:640px){.brand .brand-icon{width:34px;height:34px;padding:0}}
