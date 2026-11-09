@@ -302,3 +302,8 @@ details.data-tools { display: block; }
 .saved-learning-list { display: grid; gap: 12px; margin-top: 12px; }
 .saved-learning-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .saved-learning-row p { margin: 0; }
+
+/* Review streak: three equal circles. */
+.streak-dots { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.streak-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; opacity: .75; }
+.streak-dot.on { background: var(--mint); border-color: var(--mint); opacity: 1; }

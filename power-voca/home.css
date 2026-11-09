@@ -78,3 +78,8 @@
 .brand .brand-icon{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;border-radius:11px;background:var(--panel-light);color:var(--mint);transform:none;letter-spacing:0}
 .brand .brand-icon svg{width:21px;height:21px}
 @media(max-width:640px){.brand .brand-icon{width:34px;height:34px;padding:0}}
+
+/* Review streak: three equal circles. */
+.streak-dots { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.streak-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; opacity: .75; }
+.streak-dot.on { background: var(--mint); border-color: var(--mint); opacity: 1; }

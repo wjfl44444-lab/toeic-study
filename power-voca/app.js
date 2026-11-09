@@ -492,7 +492,7 @@
         if (view === "results") { renderStudyContinuation(); }
         if (view === "quiz" && session) {
           text("question-wrong-count", questionWrongText(currentCard().question));
-          if (currentCard().graded) { text("feedback-wrong-count", feedbackWrongText(currentCard().question)); }
+          if (currentCard().graded) { renderFeedbackWrong(currentCard().question); }
         }
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
@@ -736,13 +736,20 @@
   function questionWrongText(question) {
     return session && session.mode === "wrong" ? "누적 오답 " + cumulativeWrongCount(question) + "회" : "";
   }
-  // Signature mark: consecutive correct answers as three dots, e.g. ●●○.
-  function streakDots(streak) { var n = Math.min(Math.max(streak, 0), STREAK_GOAL); return "●".repeat(n) + "○".repeat(STREAK_GOAL - n); }
-  function feedbackWrongText(question) {
-    var wrong = cumulativeWrongCount(question), entry = wrong ? streakEntry(question) : null;
-    if (!entry || entry.fresh) { return "이 문제 누적 오답 " + wrong + "회"; }
+  // Signature mark: consecutive correct answers as three equal circles (drawn, not glyphs,
+  // because ● and ○ render at different sizes in Korean system fonts).
+  function streakDots(streak) {
+    var n = Math.min(Math.max(streak, 0), STREAK_GOAL), wrap = node("span", "streak-dots");
+    wrap.setAttribute("role", "img"); wrap.setAttribute("aria-label", "연속 정답 " + n + "/" + STREAK_GOAL); wrap.title = "연속 정답 " + n + "/" + STREAK_GOAL;
+    for (var i = 0; i < STREAK_GOAL; i += 1) { wrap.append(node("span", "streak-dot" + (i < n ? " on" : ""))); }
+    return wrap;
+  }
+  function renderFeedbackWrong(question) {
+    var target = el("feedback-wrong-count"), wrong = cumulativeWrongCount(question), entry = wrong ? streakEntry(question) : null;
+    target.textContent = "이 문제 누적 오답 " + wrong + "회";
+    if (!entry || entry.fresh) { return; }
     var streak = Math.min(streakState(entry).streak, STREAK_GOAL);
-    return "이 문제 누적 오답 " + wrong + "회 · 연속 정답 " + streakDots(streak) + (streak >= STREAK_GOAL ? " 외운 문제" : "");
+    target.append(" · 연속 정답 ", streakDots(streak), streak >= STREAK_GOAL ? " 외운 문제" : "");
   }
   function recordCard(card) {
     var id = card.question.historyKey || card.question.id;
@@ -848,8 +855,8 @@
     var list = el("wrong-review-list"); list.replaceChildren();
     entries.slice(wrongReviewPage * wrongReviewPageSize, (wrongReviewPage + 1) * wrongReviewPageSize).forEach(function (entry) {
       var row = node("li", "wrong-review-row"), streak = Math.min(streakState(entry).streak, STREAK_GOAL);
-      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회 · " + streakDots(streak)));
-      row.lastChild.title = "연속 정답 " + streak + "/" + STREAK_GOAL;
+      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회 · "));
+      row.lastChild.append(streakDots(streak));
       list.append(row);
     });
     list.hidden = !entries.length;
@@ -1560,7 +1567,7 @@
     el("feedback-panel").classList.toggle("keyword-feedback-panel", keywords);
     ["feedback-answer-details", "feedback-explanation-details", "feedback-source-details"].forEach(function (id) { el(id).open = !keywords; });
     text("feedback-title", keywords ? allCorrect ? "✓ 정답" : "↺ 다시 확인" : allCorrect ? "모두 정확하게 풀었어요." : "이 쓰임을 다시 확인해요.");
-    text("feedback-wrong-count", feedbackWrongText(card.question));
+    renderFeedbackWrong(card.question);
     text("correct-answer", attempted < card.stages.length ? "1단계 오답으로 이 문제를 종료했어요. 2단계는 진행하지 않았어요." :
       card.stages.length + "단계 중 " + correctCount + "단계 정답 · 아래에서 각 선택지를 확인해 보세요.");
     text("answer-summary-expression", card.question.displayExpression || summary.expression);

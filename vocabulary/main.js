@@ -879,8 +879,12 @@ function renderTypingAnswer() {
   return `<form id="typing-form" class="typing-form"><label for="typing-answer">정답 입력</label><div class="typing-row"><input id="typing-answer" name="answer" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="정답을 입력하세요" value="${h(quizSession.queue[quizSession.index].draftAnswer || "")}" required /><button class="primary-button" type="submit">정답 확인</button></div></form>`;
 }
 
-// Signature mark: consecutive correct answers as three dots, e.g. ●●○.
-function streakDots(streak) { const n = Math.min(Math.max(streak, 0), STREAK_GOAL); return "●".repeat(n) + "○".repeat(STREAK_GOAL - n); }
+// Signature mark: consecutive correct answers as three equal circles.
+function streakDots(streak) {
+  // Drawn circles: ● and ○ glyphs render at different sizes in Korean system fonts.
+  const n = Math.min(Math.max(streak, 0), STREAK_GOAL);
+  return `<span class="streak-dots" role="img" aria-label="연속 정답 ${n}/${STREAK_GOAL}">${Array.from({ length: STREAK_GOAL }, (_, i) => `<span class="streak-dot${i < n ? " on" : ""}"></span>`).join("")}</span>`;
+}
 
 function renderFeedback(word) {
   const feedback = quizSession.feedback;
