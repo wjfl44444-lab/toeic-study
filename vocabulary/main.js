@@ -65,6 +65,8 @@ let homeMode = studySession && !studySession.completed && !(quizSession && !quiz
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
 let mistakeFilter = "all";
 let reviewKind = "wrong";
+let reviewPage = 0;
+const REVIEW_PAGE_SIZE = 10;
 let reviewMinWrong = 1;
 let reviewCount = 20;
 let reviewMode = "multiple";
@@ -681,7 +683,7 @@ function renderHome() {
       ${batchSummary({ ...settings, mode: homeMode, collection: "regular" }, homeMode)}
     </form>
     ${saved.length ? `<section class="home-continuation saved-learning-panel"><h2>지난 풀이가 남아 있어요</h2><div class="saved-learning-list">${saved.map((item) => { const unit = item.view === "quiz" ? "문제" : "개"; const left = Math.max(0, item.total - item.completed); return `<div class="saved-learning-row"><p class="saved-learning-label">${item.label}</p><p class="saved-learning-detail">${item.total}${unit} 중 ${item.completed}${unit} 풀었어요 · ${left}${unit} 남음</p><div class="resume-bar" aria-hidden="true"><span style="width:${item.total ? Math.round(item.completed / item.total * 100) : 0}%"></span></div><div class="saved-learning-actions"><button class="primary-button" type="button" data-view="${item.view}" aria-label="${item.label} 이어서 풀기">이어서 풀기</button><button class="secondary-button" type="button" data-action="restart-saved" data-kind="${item.view}" aria-label="${item.label} 처음부터">처음부터</button></div></div>`; }).join("")}</div></section>` : ""}
-    <section class="home-continuation"><div><h2>오답·별표 복습</h2><p>${stats.mistakes ? `${stats.mistakes}개의 헷갈린 단어를 다시 확인해요.` : "헷갈린 단어를 모아서 다시 풀어요."}</p></div><button class="secondary-button" type="button" data-view="mistakes">복습하기</button></section>`;
+    <h2 class="home-review-title">오답·별표 모아 풀기</h2>${renderReviewBox()}`;
 }
 
 function getFilteredWordbookWords() {
@@ -910,8 +912,15 @@ function getMistakeWords() {
 }
 
 function renderMistakes() {
+  return `${renderPageHeader("", "복습", "")}${renderReviewBox()}`;
+}
+
+function renderReviewBox() {
   const words = getMistakeWords();
-  return `${renderPageHeader("", "복습", "")}
+  const pages = Math.max(1, Math.ceil(words.length / REVIEW_PAGE_SIZE));
+  reviewPage = Math.min(Math.max(0, reviewPage), pages - 1);
+  const shown = words.slice(reviewPage * REVIEW_PAGE_SIZE, (reviewPage + 1) * REVIEW_PAGE_SIZE);
+  return `<section class="review-box">
     <div class="review-tabs" role="tablist" aria-label="복습 종류"><button role="tab" type="button" data-action="review-kind" data-kind="wrong" aria-selected="${reviewKind === "wrong"}">오답</button><button role="tab" type="button" data-action="review-kind" data-kind="starred" aria-selected="${reviewKind === "starred"}">별표</button></div>
     <form id="review-config" class="setup-card"><div class="review-settings">
       <label><span>학습 범위</span><select name="tag">${configTagOptions(quizDefaults.tag)}</select></label>
@@ -922,7 +931,8 @@ function renderMistakes() {
       <button type="submit" class="primary-button" ${words.length ? "" : "disabled"}>${reviewKind === "wrong" ? "오답" : "별표"} 풀기</button>
     </div>${batchSummary({ mode: reviewMode, tag: quizDefaults.tag, direction: quizDefaults.direction, collection: reviewKind, minWrong: reviewMinWrong, unmastered: reviewKind === "wrong" && reviewUnmastered }, reviewMode)}</form>
     <p class="result-count">${words.length}개 단어</p>
-    ${words.length ? `<div class="word-list">${words.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span title="연속 정답 ${Math.min(reviewStreakOf(word), STREAK_GOAL)}/${STREAK_GOAL}">오답 ${word.wrongCount}회 · ${streakDots(reviewStreakOf(word))}</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}`;
+    ${words.length ? `<div class="word-list">${shown.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span title="연속 정답 ${Math.min(reviewStreakOf(word), STREAK_GOAL)}/${STREAK_GOAL}">오답 ${word.wrongCount}회 · ${streakDots(reviewStreakOf(word))}</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>${pages > 1 ? `<div class="review-pager"><button class="secondary-button" type="button" data-action="review-page" data-dir="-1" ${reviewPage ? "" : "disabled"}>이전</button><span>${reviewPage + 1} / ${pages}</span><button class="secondary-button" type="button" data-action="review-page" data-dir="1" ${reviewPage < pages - 1 ? "" : "disabled"}>다음</button></div>` : ""}` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}
+  </section>`;
 }
 
 function renderNoWords() {
@@ -1399,7 +1409,8 @@ document.addEventListener("click", (event) => {
   else if (action === "previous-study") previousStudy();
   else if (action === "next-study") nextStudy();
   else if (action === "next-batch") nextBatch();
-  else if (action === "review-kind") { reviewKind = button.dataset.kind === "starred" ? "starred" : "wrong"; render(false); }
+  else if (action === "review-kind") { reviewKind = button.dataset.kind === "starred" ? "starred" : "wrong"; reviewPage = 0; render(false); }
+  else if (action === "review-page") { reviewPage = Math.max(0, reviewPage + Number(button.dataset.dir || 0)); render(false); }
   else if (action === "start-wrong-quiz") {
     const previous = currentView === "study" ? studySession : quizSession;
     const parent = previous && batchSettings(previous, currentView === "study" ? "flashcard" : previous.mode);
@@ -1500,6 +1511,7 @@ document.addEventListener("change", (event) => {
       try { window.localStorage.setItem("vocab-review-unmastered", reviewUnmastered ? "1" : "0"); } catch { /* Storage unavailable. */ }
     }
     rememberStudyTag(String(data.get("tag")));
+    reviewPage = 0;
     render(false);
   } else if (event.target.closest?.("#home-config")) {
     const data = new FormData(event.target.closest("#home-config"));

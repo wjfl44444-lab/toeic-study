@@ -219,6 +219,26 @@
       .choice.incorrect .choice-letter { color: #4b281e; }
       .choice.alternate .choice-letter { color: #493b1b; }
     }
+    /* Wrong-answer list on the start screen (same box as the other menus). */
+    .wrong-box-title { font-size: 18px; font-weight: 700; margin: 32px 0 12px; letter-spacing: -.4px; }
+    .wrong-box { padding: 20px 22px; }
+    .wrong-box .check-setting { min-height: 30px; }
+    .wrong-box-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+    .wrong-box-settings > div { flex: 1 1 160px; }
+    .wrong-count-note { color: var(--muted); font-size: 14px; margin: 16px 0 4px; }
+    .wrong-list { list-style: none; margin: 0; padding: 0; }
+    .wrong-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+    .wrong-stem { flex: 1 1 260px; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wrong-meta { color: var(--muted); font-size: 13px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+    .wrong-empty { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+    .wrong-pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; color: var(--muted); font-size: 14px; }
+    .wrong-pager[hidden] { display: none; }
+    .wrong-pager .button { min-height: 40px; padding: 6px 16px; }
+    .wrong-box .start-button { margin-top: 18px; }
+    .streak-dots { display: inline-flex; align-items: center; gap: 3px; }
+    .streak-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; opacity: .75; }
+    .streak-dot.on { background: var(--accent); border-color: var(--accent); opacity: 1; }
+    @media (max-width: 600px) { .wrong-box { padding: 18px; } }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
@@ -243,8 +263,8 @@
     <main id="main">
       <section id="start-screen" aria-labelledby="start-heading">
         <div class="card start-card">
-          <h1 id="start-heading">순서를 섞으면,<br>문제가 새롭게 보여요.</h1>
-          <p class="lead">주제별로 모인 문제를 섞어 한 장씩 풀어보세요.<br>정답과 해설은 직접 선택하고 채점한 뒤에 공개돼요.</p>
+          <h1 id="start-heading">문제 풀기</h1>
+          <p class="lead">문제를 섞어 한 장씩 풀고, 채점한 뒤 해설을 확인해요.</p>
           <div class="start-divider">
             <div id="source-settings" class="settings">
               <div><label for="source-filter" class="field-label">문제 출처</label><select id="source-filter"></select></div>
@@ -269,6 +289,18 @@
         <div id="resume-card" class="card resume-card" hidden>
           <div><p class="resume-title">지난 풀이가 남아 있어요</p><p id="resume-detail" class="resume-detail"></p><div class="resume-bar" aria-hidden="true"><span id="resume-bar-fill"></span></div></div>
           <div class="resume-actions"><button id="resume-button" class="button button-primary" type="button">이어서 풀기</button><button id="reset-saved-button" class="button resume-reset" type="button">처음부터</button></div>
+        </div>
+        <h2 class="wrong-box-title">틀린 문제 모아 풀기</h2>
+        <div id="wrong-box" class="card wrong-box">
+          <div class="wrong-box-settings">
+            <label class="check-setting"><input id="wrong-unmastered" type="checkbox" checked><span>아직 외우지 못한 것만 · 3번 연속 맞히면 빠져요</span></label>
+            <div><label for="wrong-size" class="field-label">문제 수</label><select id="wrong-size"></select></div>
+          </div>
+          <p id="wrong-count-note" class="wrong-count-note"></p>
+          <ul id="wrong-list" class="wrong-list"></ul>
+          <p id="wrong-empty" class="wrong-empty" hidden>현재 조건에 해당하는 문제가 없어요.</p>
+          <div id="wrong-pager" class="wrong-pager" hidden><button id="wrong-prev" class="button" type="button">이전</button><span id="wrong-page-label"></span><button id="wrong-next" class="button" type="button">다음</button></div>
+          <button id="wrong-start" type="button" class="button button-primary start-button">틀린 문제 풀기</button>
         </div>
         <p id="storage-note" class="quiet-note" hidden></p>
       </section>
@@ -562,6 +594,7 @@
           roundId(state) === roundId(saved.state);
         if (options.reason === 'background' || alreadyOpenedRound) {
           history = combineHistories(history, saved.history, historyForState(state));
+          if (view === 'start') renderWrongBox();
           return true;
         }
         pendingStart = null;
@@ -649,8 +682,59 @@
         byId('unit-filter').value = pool.startsWith('qs-unit-') ? pool.slice(8) : 'all';
         refreshPoolSettings();
       }
+      const STREAK_GOAL = 3, WRONG_PAGE_SIZE = 10;
+      let wrongPage = 0, wrongUnmastered = true;
+      try { wrongUnmastered = localStorage.getItem('quiz-review-unmastered') !== '0'; } catch (_) { /* Storage unavailable. */ }
+      // Wrong counts and streaks come from the graded attempts that are already saved; nothing new is stored.
+      function wrongEntries() {
+        const attempts = combineHistories(history, historyForState(state)).attempts.slice()
+          .sort((a, b) => a.at - b.at || a.attemptId.localeCompare(b.attemptId));
+        const stats = new Map();
+        for (const attempt of attempts) {
+          const question = questionMap.get(attempt.id);
+          if (!question) continue;
+          const entry = stats.get(attempt.id) || { id: attempt.id, wrong: 0, streak: 0, last: 0 };
+          if (classify(question, attempt.selected) === 'incorrect') { entry.wrong++; entry.streak = 0; } else entry.streak++;
+          entry.last = attempt.at;
+          stats.set(attempt.id, entry);
+        }
+        return [...stats.values()].filter(entry => entry.wrong > 0 && (!wrongUnmastered || entry.streak < STREAK_GOAL))
+          .sort((a, b) => Math.min(a.streak, STREAK_GOAL) - Math.min(b.streak, STREAK_GOAL) || b.wrong - a.wrong || b.last - a.last);
+      }
+      function streakDots(streak) {
+        const wrap = document.createElement('span');
+        wrap.className = 'streak-dots'; wrap.title = `연속 정답 ${Math.min(streak, STREAK_GOAL)}/${STREAK_GOAL}`;
+        for (let i = 0; i < STREAK_GOAL; i++) { const dot = document.createElement('span'); dot.className = i < streak ? 'streak-dot on' : 'streak-dot'; wrap.append(dot); }
+        return wrap;
+      }
+      function renderWrongBox() {
+        const entries = wrongEntries();
+        const pages = Math.max(1, Math.ceil(entries.length / WRONG_PAGE_SIZE));
+        wrongPage = Math.min(Math.max(0, wrongPage), pages - 1);
+        byId('wrong-unmastered').checked = wrongUnmastered;
+        byId('wrong-count-note').textContent = `${entries.length}문제`;
+        byId('wrong-list').replaceChildren(...entries.slice(wrongPage * WRONG_PAGE_SIZE, (wrongPage + 1) * WRONG_PAGE_SIZE).map(entry => {
+          const row = document.createElement('li'); row.className = 'wrong-row';
+          const stem = document.createElement('span'); stem.className = 'wrong-stem'; stem.lang = 'en'; stem.textContent = questionMap.get(entry.id).stem;
+          const meta = document.createElement('span'); meta.className = 'wrong-meta'; meta.append(`오답 ${entry.wrong}회 ·`, streakDots(entry.streak));
+          row.append(stem, meta); return row;
+        }));
+        byId('wrong-empty').hidden = entries.length > 0;
+        byId('wrong-pager').hidden = pages < 2;
+        byId('wrong-page-label').textContent = `${wrongPage + 1} / ${pages}`;
+        byId('wrong-prev').disabled = wrongPage === 0;
+        byId('wrong-next').disabled = wrongPage >= pages - 1;
+        const size = byId('wrong-size'), previous = size.value || '20';
+        size.replaceChildren();
+        for (const count of [10, 20, 30]) if (count < entries.length) { const option = document.createElement('option'); option.value = String(count); option.textContent = `${count}문제`; size.append(option); }
+        const all = document.createElement('option'); all.value = 'all'; all.textContent = `모두 (${entries.length}문제)`; size.append(all);
+        size.value = [...size.options].some(option => option.value === previous) ? previous : 'all';
+        size.disabled = !entries.length;
+        byId('wrong-start').disabled = !entries.length;
+      }
       function showStart() {
         showView('start');
+        renderWrongBox();
         const allResults = historyScore();
         byId('total-note').textContent = `전체 ${data.length}문제 · 누적 ${allResults.answered}문제 채점 · 맞힌 ${allResults.correct + allResults.alternate} · 틀린 ${allResults.incorrect}`;
         elements.resume.hidden = !state;
@@ -838,7 +922,7 @@
       });
       function closeRestart() { if (typeof elements.dialog.close === 'function') elements.dialog.close(); else elements.dialog.removeAttribute('open'); }
       byId('cancel-restart-button').addEventListener('click', () => { pendingStart = null; closeRestart(); });
-      byId('confirm-restart-button').addEventListener('click', () => { const options = pendingStart; pendingStart = null; closeRestart(); if (options) beginSession(undefined, options); });
+      byId('confirm-restart-button').addEventListener('click', () => { const options = pendingStart; pendingStart = null; closeRestart(); if (options) beginSession(options.ids, options); });
       elements.dialog.addEventListener('cancel', () => { pendingStart = null; });
       byId('resume-button').addEventListener('click', () => {
         if (!state) return;
@@ -868,6 +952,24 @@
         beginReview(ids);
       });
       byId('marked-review-button').addEventListener('click', () => beginReview(state.marked.slice()));
+      byId('wrong-unmastered').addEventListener('change', event => {
+        wrongUnmastered = event.target.checked; wrongPage = 0;
+        try { localStorage.setItem('quiz-review-unmastered', wrongUnmastered ? '1' : '0'); } catch (_) { /* Storage unavailable. */ }
+        renderWrongBox();
+      });
+      byId('wrong-prev').addEventListener('click', () => { wrongPage--; renderWrongBox(); });
+      byId('wrong-next').addEventListener('click', () => { wrongPage++; renderWrongBox(); });
+      byId('wrong-start').addEventListener('click', () => {
+        const entries = wrongEntries(), size = byId('wrong-size').value;
+        const ids = (size === 'all' ? entries : entries.slice(0, Number(size))).map(entry => entry.id);
+        if (!ids.length) return;
+        const options = { ids, review: true, baseCount: elements.count.value, shuffleChoices: elements.shuffle.checked, pool: 'all' };
+        if (state && state.status === 'in-progress') {
+          pendingStart = options;
+          if (typeof elements.dialog.showModal === 'function') elements.dialog.showModal();
+          else { elements.dialog.setAttribute('open', ''); byId('cancel-restart-button').focus(); }
+        } else beginSession(ids, options);
+      });
       byId('new-round-button').addEventListener('click', () => beginSession(undefined, { baseCount: state.baseCount, shuffleChoices: state.shuffleChoices, pool: sessionPool(state) }));
       byId('source-filter').addEventListener('change', () => { setupTouched = true; byId('unit-filter').value = 'all'; refreshPoolSettings(); });
       byId('unit-filter').addEventListener('change', () => { setupTouched = true; refreshPoolSettings(); });

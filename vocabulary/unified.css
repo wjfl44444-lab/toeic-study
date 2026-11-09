@@ -327,3 +327,12 @@ label > span { font-size: 14px; font-weight: 600; }
 h1 { font-size: 28px; }
 .panel, .setup-card, .quiz-card, .result-card, .home-study-panel, .study-card { border-radius: 20px; }
 .site-brand strong { font-size: 17px; font-weight: 600; }
+
+/* Wrong/star review list on the start screen (same box as the review tab). */
+.home-review-title { margin: 32px 0 12px; font-size: 18px; }
+.home-review-title + .review-box { padding: 20px 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); }
+.review-pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; color: var(--muted); font-size: 14px; }
+.review-pager .secondary-button { min-height: 40px; padding: 6px 16px; }
+@media (max-width: 600px) { .home-review-title + .review-box { padding: 16px; } }
+.home-review-title + .review-box .setup-card, .home-review-title + .review-box .word-list { padding: 0; border: 0; background: none; box-shadow: none; }
+.home-review-title + .review-box .setup-card { margin-bottom: 4px; }
