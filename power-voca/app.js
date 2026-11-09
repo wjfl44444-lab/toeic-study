@@ -229,7 +229,7 @@
     }
     if (id === "resume-summary") {
       var progress = String(value).match(/^(\d+)문제 중 (\d+)문제 채점/);
-      if (progress) { value = progress[2] + " / " + progress[1] + "문제 완료"; }
+      if (progress) { value = progress[1] + "문제 중 " + progress[2] + "문제 풀었어요 · " + Math.max(0, progress[1] - progress[2]) + "문제 남음"; }
     }
     el(id).textContent = value;
   }
@@ -1418,7 +1418,9 @@
       var count = totals();
       text("resume-scope", nativeResumeLabel());
       text("resume-summary", session.cards.length + "문제 중 " + (count.correct + count.wrong) + "문제 채점 · 모두 맞힌 문제 " + count.correct + " · 다시 볼 문제 " + count.wrong);
-      if (session.practiceVersion !== latestPracticeVersion()) {
+      el("resume-bar-fill").style.width = (session.cards.length ? Math.round((count.correct + count.wrong) / session.cards.length * 100) : 0) + "%";
+      // New rounds may use the preposition or bundle editions on purpose; only older editions get the note.
+      if ([latestPracticeVersion(), prepSelectionVersion, prepBundleVersion].indexOf(session.practiceVersion) === -1) {
         el("resume-summary").append(document.createTextNode(" · 이미 고른 답을 보존한 이전 보기 풀이예요. 개선된 보기로 풀려면 새 연습을 시작해 주세요."));
       }
       text("resume-button", count.ungraded ? "이어서 풀기" : "풀이 결과 보기");

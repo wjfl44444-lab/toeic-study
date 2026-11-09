@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
   <link rel="stylesheet" href="practice-shell.css?v=20261026-refinement1">
   <link rel="stylesheet" href="sorting-practice.css?v=20261028-tablepolish2">
-  <link rel="stylesheet" href="home.css?v=20261109-dots2">
+  <link rel="stylesheet" href="home.css?v=20261109-resume1">
   <script src="questions.js" defer></script>
   <script src="quickstart.js?v=20261023-quickstart2" defer></script>
   <script src="practice-options.js?v=20261019-linked1" defer></script>
@@ -48,7 +48,7 @@
   <script src="sorting-review.js?v=20261027-forms3" defer></script>
   <link rel="stylesheet" href="prep-bundles.css?v=20261030-prepbundles1">
   <script src="prep-bundles.js?v=20261030-prepbundles2" defer></script>
-  <script src="app.js?v=20261109-dots2" defer></script>
+  <script src="app.js?v=20261109-resume1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -105,10 +105,10 @@
 
         </div>
         <div class="panel resume-panel" id="resume-panel" hidden>
-          <h2>저장된 풀이</h2>
+          <h2>지난 풀이가 남아 있어요</h2>
           <div class="saved-round" id="resume-row" hidden>
-            <div><h3 id="resume-scope"></h3><p id="resume-summary"></p></div>
-            <div class="saved-round-actions"><button class="secondary-button" id="resume-button">이어서 풀기</button><button class="text-button" id="resume-restart-button" type="button">처음부터</button></div>
+            <div><h3 id="resume-scope"></h3><p id="resume-summary"></p><div class="resume-bar" aria-hidden="true"><span id="resume-bar-fill"></span></div></div>
+            <div class="saved-round-actions"><button class="primary-button" id="resume-button">이어서 풀기</button><button class="secondary-button" id="resume-restart-button" type="button">처음부터</button></div>
           </div>
 
           <p class="settings-note" id="resume-status" hidden></p>
