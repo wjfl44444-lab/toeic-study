@@ -27,7 +27,7 @@
       --alternate: #e2c98a;
       --alternate-bg: #47412e;
       --shadow: 0 12px 40px rgba(0, 0, 0, .13);
-      --radius: 22px;
+      --radius: 20px;
     }
     .study-page-nav, .study-sync { border-color: var(--line); background: var(--card); color: var(--ink); box-shadow: none; }
     .study-page-nav a { color: var(--muted); font-weight: 500; }
@@ -61,13 +61,13 @@
     }
     .skip-link:focus { top: 14px; }
     .shell { width: min(840px, calc(100% - 40px)); margin: 0 auto; }
-    .site-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 30px 0 26px; }
+    .site-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 30px 0 26px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
     .brand { display: flex; align-items: center; gap: 11px; }
     .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; background: var(--accent-quiet); color: var(--accent); }
     .brand-mark svg { width: 21px; height: 21px; }
     
     .brand-copy { position: relative; margin-left: 4px; }
-    .brand-title { font-size: 16px; font-weight: 730; letter-spacing: -.5px; }
+    .brand-title { font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
     .brand-subtitle { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; line-height: 1.3; }
     .header-control { padding: 7px 11px; color: var(--muted); border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 13px; }
     .header-control:hover { color: var(--ink); border-color: var(--line); }
@@ -76,11 +76,11 @@
     .start-card { padding: 42px 44px 36px; }
     .eyebrow { margin: 0 0 12px; color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: 2px; }
     h1, h2, p { margin-top: 0; }
-    h1 { font-size: clamp(28px, 4.7vw, 37px); line-height: 1.35; letter-spacing: -1.6px; font-weight: 740; margin-bottom: 14px; }
+    h1 { font-size: 28px; line-height: 1.35; letter-spacing: -1.6px; font-weight: 740; margin-bottom: 14px; }
     .lead { color: var(--muted); font-size: 15px; margin-bottom: 27px; word-break: keep-all; }
     .start-divider { border-top: 1px solid var(--line); padding-top: 27px; }
     .settings { display: grid; grid-template-columns: 1fr 1.2fr; gap: 23px; margin-bottom: 27px; }
-    .field-label { display: block; font-size: 13px; font-weight: 650; margin-bottom: 8px; }
+    .field-label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
     select {
       width: 100%; height: 47px; border: 1px solid var(--line); border-radius: 10px;
       background: var(--card); color: var(--ink); padding: 0 12px;
@@ -189,7 +189,7 @@
     @media (max-width: 600px) {
       .shell { width: calc(100% - 26px); }
       .site-header { padding: 22px 3px 21px; }
-      .brand-title { font-size: 14px; }
+      .brand-title { font-size: 17px; }
       .brand-subtitle { font-size: 10px; }
       .brand-mark { width: 34px; height: 34px; }
       .start-card { padding: 29px 23px 25px; }
@@ -211,7 +211,7 @@
       .result-stat { padding: 18px 5px; }
       .result-value { font-size: 28px; }
       .finish-secondary { grid-template-columns: 1fr; }
-      :root { --radius: 17px; }
+      :root { --radius: 20px; }
     }
     @media all {
       .button-primary { color: #21372b; }

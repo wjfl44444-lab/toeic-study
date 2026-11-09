@@ -545,7 +545,8 @@ function render(persist = true) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  document.title = `${VIEW_NAMES[currentView]} · 토익 단어장`;
+  // Same pattern as the other menus: "menu · 나의 토익 스터디" (the view name leads on inner screens).
+  document.title = currentView === "home" ? "토익 단어장 · 나의 토익 스터디" : `${VIEW_NAMES[currentView]} · 토익 단어장 · 나의 토익 스터디`;
   const renderers = { home: renderHome, wordbook: renderWordbook, study: renderStudy, quiz: renderQuiz, mistakes: renderMistakes };
   document.body.classList.toggle("is-studying", (currentView === "study" && studySession && !studySession.completed) || (currentView === "quiz" && quizSession && !quizSession.completed));
   viewRoot.innerHTML = `${loaded.error ? `<div class="storage-alert" role="alert">${h(storageNotice)}</div>` : ""}<div class="screen-enter">${renderers[currentView]()}</div>`;
