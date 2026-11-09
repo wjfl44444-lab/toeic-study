@@ -736,11 +736,13 @@
   function questionWrongText(question) {
     return session && session.mode === "wrong" ? "누적 오답 " + cumulativeWrongCount(question) + "회" : "";
   }
+  // Signature mark: consecutive correct answers as three dots, e.g. ●●○.
+  function streakDots(streak) { var n = Math.min(Math.max(streak, 0), STREAK_GOAL); return "●".repeat(n) + "○".repeat(STREAK_GOAL - n); }
   function feedbackWrongText(question) {
     var wrong = cumulativeWrongCount(question), entry = wrong ? streakEntry(question) : null;
     if (!entry || entry.fresh) { return "이 문제 누적 오답 " + wrong + "회"; }
     var streak = Math.min(streakState(entry).streak, STREAK_GOAL);
-    return "이 문제 누적 오답 " + wrong + "회 · 연속 정답 " + streak + "/" + STREAK_GOAL + (streak >= STREAK_GOAL ? " (외운 문제)" : "");
+    return "이 문제 누적 오답 " + wrong + "회 · 연속 정답 " + streakDots(streak) + (streak >= STREAK_GOAL ? " 외운 문제" : "");
   }
   function recordCard(card) {
     var id = card.question.historyKey || card.question.id;
@@ -846,7 +848,8 @@
     var list = el("wrong-review-list"); list.replaceChildren();
     entries.slice(wrongReviewPage * wrongReviewPageSize, (wrongReviewPage + 1) * wrongReviewPageSize).forEach(function (entry) {
       var row = node("li", "wrong-review-row"), streak = Math.min(streakState(entry).streak, STREAK_GOAL);
-      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회 · 연속 " + streak + "/" + STREAK_GOAL));
+      row.append(node("span", "wrong-review-expression", entry.expression), node("span", "wrong-review-count", "누적 오답 " + entry.wrongCount + "회 · " + streakDots(streak)));
+      row.lastChild.title = "연속 정답 " + streak + "/" + STREAK_GOAL;
       list.append(row);
     });
     list.hidden = !entries.length;

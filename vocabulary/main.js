@@ -879,13 +879,16 @@ function renderTypingAnswer() {
   return `<form id="typing-form" class="typing-form"><label for="typing-answer">정답 입력</label><div class="typing-row"><input id="typing-answer" name="answer" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="정답을 입력하세요" value="${h(quizSession.queue[quizSession.index].draftAnswer || "")}" required /><button class="primary-button" type="submit">정답 확인</button></div></form>`;
 }
 
+// Signature mark: consecutive correct answers as three dots, e.g. ●●○.
+function streakDots(streak) { const n = Math.min(Math.max(streak, 0), STREAK_GOAL); return "●".repeat(n) + "○".repeat(STREAK_GOAL - n); }
+
 function renderFeedback(word) {
   const feedback = quizSession.feedback;
   const question = quizSession.queue[quizSession.index];
   // Streak from the live record (the session snapshot keeps the original wording only).
   const live = state.words.find((item) => item.id === word.id);
   const streak = live?.wrongCount ? Math.min(reviewStreakOf(live), STREAK_GOAL) : null;
-  const streakNote = streak === null ? "" : `<small class="feedback-streak">연속 정답 ${streak}/${STREAK_GOAL}${streak >= STREAK_GOAL ? " (외운 단어)" : ""}</small>`;
+  const streakNote = streak === null ? "" : `<small class="feedback-streak" title="연속 정답 ${streak}/${STREAK_GOAL}">연속 정답 ${streakDots(streak)}${streak >= STREAK_GOAL ? " 외운 단어" : ""}</small>`;
   return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${streakNote}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
 }
 
@@ -893,7 +896,7 @@ function renderQuizResult() {
   const total = quizSession.originalTotal;
   const accuracy = total ? Math.round((quizSession.originalCorrect / total) * 100) : 0;
   const wrongWords = uniqueStrings(quizSession.wrongWordIds.map((id) => state.words.find((word) => word.id === id)?.word).filter(Boolean));
-  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">${accuracy >= 80 ? "✓" : "A"}</span><p class="eyebrow">퀴즈 완료</p><h1>${accuracy >= 80 ? "아주 잘했어요!" : accuracy >= 60 ? "조금만 더 복습해요" : "오답부터 차근차근 볼까요?"}</h1><p>점수는 복습 재출제를 제외한 첫 시도 ${total}문제를 기준으로 계산했습니다.</p><div class="score-ring" style="--score:${accuracy}%" aria-label="정답률 ${accuracy}퍼센트"><strong>${accuracy}%</strong></div><div class="result-stats"><div><strong>${total}</strong><span>출제 문제</span></div><div><strong>${quizSession.originalCorrect}</strong><span>정답</span></div><div><strong>${quizSession.originalWrong}</strong><span>오답</span></div></div>${wrongWords.length ? `<div class="wrong-summary"><h2>이번에 틀린 단어</h2><div class="wrong-chips">${wrongWords.map((word) => `<span class="wrong-chip">${h(word)}</span>`).join("")}</div></div>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>전부 맞혔어요</strong><br />현재 범위의 단어를 잘 기억하고 있습니다.</p></div>`}${batchSummary(quizSession, quizSession.mode)}<div class="result-actions"><button class="text-button" type="button" data-action="previous-quiz">← 이전 문제</button>${nextBatchButton(quizSession)}<button class="secondary-button" type="button" data-action="restart-quiz">학습 설정</button>${state.words.some((word) => word.wrongCount > 0) ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습하기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
+  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">${accuracy >= 80 ? "✓" : "A"}</span><p class="eyebrow">퀴즈 완료</p><h1>${accuracy >= 80 ? "아주 잘했어요" : accuracy >= 60 ? "조금만 더 복습해요" : "오답부터 차근차근 볼까요?"}</h1><p>점수는 복습 재출제를 제외한 첫 시도 ${total}문제를 기준으로 계산했습니다.</p><div class="score-ring" style="--score:${accuracy}%" aria-label="정답률 ${accuracy}퍼센트"><strong>${accuracy}%</strong></div><div class="result-stats"><div><strong>${total}</strong><span>출제 문제</span></div><div><strong>${quizSession.originalCorrect}</strong><span>정답</span></div><div><strong>${quizSession.originalWrong}</strong><span>오답</span></div></div>${wrongWords.length ? `<div class="wrong-summary"><h2>이번에 틀린 단어</h2><div class="wrong-chips">${wrongWords.map((word) => `<span class="wrong-chip">${h(word)}</span>`).join("")}</div></div>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>전부 맞혔어요</strong><br />현재 범위의 단어를 잘 기억하고 있습니다.</p></div>`}${batchSummary(quizSession, quizSession.mode)}<div class="result-actions"><button class="text-button" type="button" data-action="previous-quiz">← 이전 문제</button>${nextBatchButton(quizSession)}<button class="secondary-button" type="button" data-action="restart-quiz">학습 설정</button>${state.words.some((word) => word.wrongCount > 0) ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습하기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
 }
 
 function getMistakeWords() {
@@ -914,7 +917,7 @@ function renderMistakes() {
       <button type="submit" class="primary-button" ${words.length ? "" : "disabled"}>${reviewKind === "wrong" ? "오답" : "별표"} 풀기</button>
     </div>${batchSummary({ mode: reviewMode, tag: quizDefaults.tag, direction: quizDefaults.direction, collection: reviewKind, minWrong: reviewMinWrong, unmastered: reviewKind === "wrong" && reviewUnmastered }, reviewMode)}</form>
     <p class="result-count">${words.length}개 단어</p>
-    ${words.length ? `<div class="word-list">${words.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span>오답 ${word.wrongCount}회 · 연속 ${Math.min(reviewStreakOf(word), STREAK_GOAL)}/${STREAK_GOAL}</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}`;
+    ${words.length ? `<div class="word-list">${words.map(word => `<div class="review-word"><strong>${h(word.word)}</strong><span>${h(word.meanings.join(", "))}</span>${reviewKind === "wrong" ? `<span title="연속 정답 ${Math.min(reviewStreakOf(word), STREAK_GOAL)}/${STREAK_GOAL}">오답 ${word.wrongCount}회 · ${streakDots(reviewStreakOf(word))}</span>` : ""}${bookmarkButton(word.id)}</div>`).join("")}</div>` : `<div class="empty-note">현재 조건에 해당하는 단어가 없어요.</div>`}`;
 }
 
 function renderNoWords() {
