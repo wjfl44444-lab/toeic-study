@@ -85,7 +85,8 @@
         });
       });
     } else if (structureStage) {
-      model.word = model.word.split(/\s+\+\s+/)[0];
+      // "considering that + 절" → "considering": the options already say whether that follows.
+      model.word = model.word.split(/\s+\+\s+/)[0].replace(/\s+that$/i, '');
       correct(structureStage).forEach(i => {
         const value = clean(structureStage.options[i]);
         const label = value === '단독 부사' ? model.word + ' · 단독 부사' : value === '대등 연결' ? 'A ' + model.word + ' B' : model.word + ' + ' + value;
@@ -99,7 +100,11 @@
         if (isSynonym(s)) return;
         correct(s).forEach(i => {
           const value = clean(s.options[i]);
-          if (/[a-z]/i.test(value) && !/[가-힣]/.test(value) && !model.word.toLowerCase().includes(value.toLowerCase())) addRow({ label: value });
+          // English forms, plus forms of this same expression like "given + 명사구" whose Korean part only names the slot.
+          const head = value.split(/\s+\+\s+/)[0].toLowerCase();
+          const form = /[a-z]/i.test(value) && (!/[가-힣]/.test(value) ||
+            /^[a-z][a-z' -]*(?:\s+\+\s+[^+]+)+$/i.test(value) && model.word.toLowerCase().split(/\s+\+\s+/)[0].includes(head.replace(/\s+that$/, '')));
+          if (form && !model.word.toLowerCase().includes(value.toLowerCase())) addRow({ label: value });
         });
       });
     }

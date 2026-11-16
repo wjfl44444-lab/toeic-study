@@ -68,6 +68,7 @@
   if (data && sortingPractice) { data = Object.assign({}, data, { questions: data.questions.concat(sortingPractice.questions) }); }
   var questionReview = null;
   var questionCuration = null;
+  var linkMeaning = null;
   function activeQuestion(q) {
     if (sortingReview && sortingReview.retired.has(q.id)) { return false; }
     if (verbFormsReview && verbFormsReview.retired.has(q.id)) { return false; }
@@ -79,7 +80,8 @@
       (!semanticReady || !Object.prototype.hasOwnProperty.call(semanticReview.replacements, q.id)) &&
       (!timeReady || !Object.prototype.hasOwnProperty.call(timeReview.replacements, q.id)) &&
       (!experienceReady || !Object.prototype.hasOwnProperty.call(experienceReview.replacements, q.id)) &&
-      (!questionReview || !Object.prototype.hasOwnProperty.call(questionReview.replacements, q.id));
+      (!questionReview || !Object.prototype.hasOwnProperty.call(questionReview.replacements, q.id)) &&
+      (!linkMeaning || !Object.prototype.hasOwnProperty.call(linkMeaning.replacements, q.id));
   }
   var activeCount = 0;
   var practice = window.POWER_VOCA_PRACTICE;
@@ -139,14 +141,19 @@
     data = Object.assign({}, data, { questions: data.questions.concat(questionReview.questions) });
   }
   if (data && window.PowerVocaQuestionCuration) { questionCuration = window.PowerVocaQuestionCuration.create(data.questions, classifyQuestion); }
+  // Meaning-first editions of structure-only sentence-link cards (new rounds only; old cards stay intact).
+  if (data && window.PowerVocaLinkMeaningReview) {
+    linkMeaning = window.PowerVocaLinkMeaningReview.create(data.questions, classifyQuestion, questionCuration && questionCuration.retired);
+    data = Object.assign({}, data, { questions: data.questions.concat(linkMeaning.questions) });
+  }
   activeCount = data ? data.questions.filter(activeQuestion).length : 0;
   var wrongReview = window.PowerVocaWrongReview && data ? window.PowerVocaWrongReview.create({
     questions: data.questions, isActive: activeQuestion, grammar: unifiedGrammar, label: wrongReviewLabel,
     replacements: [lexicalReady && lexicalReview.replacements, usageReady && usageReview.replacements,
       semanticReady && semanticReview.replacements, timeReady && timeReview.replacements,
       experienceReady && experienceReview.replacements, questionReview && questionReview.replacements,
-      questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements,
-      sortingReview && sortingReview.replacements]
+      questionCuration && questionCuration.replacements, linkMeaning && linkMeaning.replacements,
+      verbFormsReview && verbFormsReview.replacements, sortingReview && sortingReview.replacements]
   }) : null;
   var wrongReviewPage = 0;
   var starredReviewPage = 0;
@@ -212,7 +219,7 @@
     return content.prompt || content.instruction;
   }
   function classifyQuestion(q) {
-    return verbFormsReview && verbFormsReview.assignments[q.id] || sortingPractice && sortingPractice.assignments[q.id] || questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
+    return linkMeaning && linkMeaning.assignments[q.id] || verbFormsReview && verbFormsReview.assignments[q.id] || sortingPractice && sortingPractice.assignments[q.id] || questionReview && questionReview.assignments[q.id] || unifiedGrammar && unifiedGrammar.assignments[q.id] || experienceReady && experienceReview.assignments[q.id] || timeReady && timeReview.assignments[q.id] || semanticReady && semanticReview.assignments[q.id] || taxonomy.classify(q);
   }
 
   function el(id) { return document.getElementById(id); }
@@ -1010,9 +1017,9 @@
         });
       }
     }
-    if (questionCuration || verbFormsReview || sortingReview) {
+    if (questionCuration || linkMeaning || verbFormsReview || sortingReview) {
       var projected = null;
-      [questionCuration && questionCuration.replacements, verbFormsReview && verbFormsReview.replacements, sortingReview && sortingReview.replacements].filter(Boolean).forEach(function (aliases) {
+      [questionCuration && questionCuration.replacements, linkMeaning && linkMeaning.replacements, verbFormsReview && verbFormsReview.replacements, sortingReview && sortingReview.replacements].filter(Boolean).forEach(function (aliases) {
         Object.keys(aliases).forEach(function (oldId) {
           var canonical = aliases[oldId], pass = (projected || studyProgress).completed[oldId] || 0;
           if (pass > ((projected || studyProgress).completed[canonical] || 0)) {
