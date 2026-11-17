@@ -1658,6 +1658,30 @@
     if (!new RegExp("(^|[^a-z])" + escapeRegExp(word.toLowerCase()) + "([^a-z]|$)").test(expression.toLowerCase())) { return ""; }
     return expression + " · " + s.meaning;
   }
+  // Preposition-pair cards show the target meaning as a hint. It is only needed when another
+  // choice would also make a real pair with the same verb (look at / for / into); otherwise
+  // it is hidden until grading. Display only: the question data is untouched.
+  var knownPairs = null;
+  function pairKey(text) {
+    return String(text).toLowerCase().replace(/\s*\+.*$/, "").replace(/\b(?:a|b|sb|sth|one's|oneself)\b/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function meaningCueNeeded(card, stageIndex, content) {
+    var origin = String(card.question.grammarOriginId || "");
+    if (!content.context || !/^(?:prep-|forms-link-)/.test(origin)) { return true; }
+    if (!knownPairs) {
+      knownPairs = new Set();
+      var cards = window.GRAMMAR_PREVIEW && window.GRAMMAR_PREVIEW.cards || [];
+      cards.forEach(function (item) { (item.summary || []).forEach(function (row) { if (row && row.structure) { knownPairs.add(pairKey(row.structure)); } }); });
+      data.questions.forEach(function (q) { if (q.answerSummary && q.answerSummary.expression) { knownPairs.add(pairKey(q.answerSummary.expression)); } });
+    }
+    var stage = card.stages[stageIndex], answers = answerIndices(stage.data);
+    var verb = String(content.prompt || "").split("\n")[0].replace(/_{2,}.*$/, "").trim().split(/\s+/)[0] || "";
+    return stage.choices.some(function (choice) {
+      if (answers.indexOf(choice.originalIndex) !== -1) { return false; }
+      var option = cleanOption(choice.text).trim(), pair = /\s/.test(option) ? option : verb + " " + option;
+      return knownPairs.has(pairKey(pair));
+    });
+  }
   function compactStageFeedback(card, stage, stageIndex) {
     var stageData = stage.data, answers = answerIndices(stageData), skipped = stage.selected === null, ok = stageCorrect(stage);
     var box = node("section", "stage-review" + (skipped ? " is-skipped" : ok ? " is-correct" : " is-wrong"));
@@ -1845,6 +1869,7 @@
     var content = questionPresentation(card, card.stageIndex);
     text("question-instruction", content.instruction);
     text("question-heading", content.prompt);
+    if (!card.graded && !meaningCueNeeded(card, card.stageIndex, content)) { content.context = ""; }
     text("question-context", content.context);
     el("question-context").hidden = !content.context;
     var wordList = el("semantic-words"); wordList.replaceChildren();

@@ -102,3 +102,10 @@ body{font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic",
 .round-settings label{font-size:14px;font-weight:600}
 .intro-panel .home-heading h1{font-size:28px}
 .brand{font-size:17px;font-weight:600}
+
+/* The English the question is about reads first; the Korean instruction is the smaller cue. */
+.question-panel .instruction{font-size:16px;font-weight:600;color:var(--muted);margin:0 0 8px}
+.question-panel .question-example{font-size:23px;font-weight:500;line-height:1.6;color:var(--ink)}
+@media(max-width:640px){.question-panel .instruction{font-size:15px;margin-bottom:6px}.question-panel .question-example{font-size:20px}}
+.question-panel .option-text{font-size:18px}
+@media(max-width:640px){.question-panel .option-text{font-size:16px}}
