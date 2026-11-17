@@ -124,7 +124,7 @@
           meaning: /[가-힣]/.test(gloss) && !/정답|교재|구별|이 문제|써요|아니/.test(gloss) ? clean(gloss) : '' });
       });
       if (answers.length > 1) answers.filter(i => !selected.includes(i) && !represented.has(stageIndex + ':' + i)).forEach(i => {
-        model.mistakes.push({ label: stage.kind === 'semantic-pos' ? '빠뜨린 품사' : stage.kind === 'structure' || stage === structureStage ? '빠뜨린 연결' : '빠뜨린 뜻', value: clean(stage.options[i]) });
+        model.mistakes.push({ label: stage.kind === 'semantic-pos' ? '빠뜨린 품사' : stage.kind === 'structure' || stage === structureStage ? '빠뜨린 연결' : (stage.options || []).every(v => /[가-힣]/.test(v) && !/\+/.test(v)) ? '빠뜨린 뜻' : '빠뜨린 답', value: clean(stage.options[i]) });
       });
     });
     model.mistakes = model.mistakes.filter((item, index, list) => list.findIndex(other => other.label === item.label && other.value === item.value) === index);

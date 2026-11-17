@@ -33,3 +33,34 @@
 .keyword-feedback-panel .feedback-details .question-source{font-size:14px}
 .keyword-feedback-panel .feedback-details .stage-feedback-prompt{font-size:17px}
 @media(max-width:600px){.keyword-feedback .kf-word{font-size:30px}.keyword-feedback .kf-meaning{font-size:21px}.keyword-feedback .kf-pairs .kf-word{font-size:27px}.keyword-feedback .kf-row-head strong,.keyword-feedback .kf-row-meaning,.keyword-feedback .kf-mistake-value{font-size:20px}}
+/* Answer review: one block per step, options in the order they were shown. */
+.feedback-sentence{margin:22px 0 0;padding:14px 16px;border:1px solid var(--border);border-radius:14px;background:rgba(182,222,197,.07)}
+.feedback-sentence[hidden]{display:none}
+.feedback-sentence-label{margin:0;font-size:13px;font-weight:650;color:var(--muted)}
+.feedback-sentence-english{margin:4px 0 0;font-size:17px;line-height:1.6;color:var(--ink)}
+.feedback-sentence-english strong{color:var(--mint-strong)}
+.feedback-sentence-meaning{margin:4px 0 0;font-size:15px;line-height:1.6;color:var(--muted)}
+.keyword-feedback-panel .stage-review{margin-top:18px}
+.keyword-feedback-panel .stage-review-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0;font-size:16px;line-height:1.6}
+.keyword-feedback-panel .stage-review-title strong{color:var(--ink)}
+.keyword-feedback-panel .stage-review-status{font-weight:650;color:var(--muted)}
+.keyword-feedback-panel .is-correct .stage-review-status{color:var(--mint-strong)}
+.keyword-feedback-panel .is-wrong .stage-review-status{color:var(--red)}
+.keyword-feedback-panel .stage-review-answer{color:var(--ink)}
+.keyword-feedback-panel .feedback-details .stage-review-prompt{margin:2px 0 0;font-size:15px;line-height:1.6;color:var(--muted)}
+.keyword-feedback-panel .stage-review-options{display:grid;gap:8px;margin-top:10px}
+.keyword-feedback-panel .stage-review-option{padding:10px 14px;border:1px solid var(--border);border-radius:12px}
+.keyword-feedback-panel .stage-review-option.is-answer{border-color:var(--mint);background:rgba(182,222,197,.10)}
+.keyword-feedback-panel .stage-review-option.is-picked{border-color:var(--red);background:rgba(241,180,166,.10)}
+.keyword-feedback-panel .feedback-details .stage-review-option-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0;font-size:16px;line-height:1.5}
+.keyword-feedback-panel .stage-review-option-head strong{color:var(--ink)}
+.keyword-feedback-panel .stage-review-tag{flex:0 0 auto;font-size:12px;font-weight:650;color:var(--mint-strong)}
+.keyword-feedback-panel .is-picked .stage-review-tag{color:var(--red)}
+.keyword-feedback-panel .feedback-details .stage-review-body{margin:2px 0 0;font-size:14px;line-height:1.55;color:var(--muted)}
+.keyword-feedback-panel .is-answer .stage-review-body,.keyword-feedback-panel .is-picked .stage-review-body{color:var(--ink)}
+/* Step results after grading: tap a step to see its options again. */
+.stage-indicator .stage-result-chip{margin:0 6px 0 0;padding:3px 10px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:650;cursor:pointer}
+.stage-indicator .stage-result-chip.correct{color:var(--mint-strong);border-color:var(--mint)}
+.stage-indicator .stage-result-chip.wrong{color:var(--red);border-color:var(--red)}
+.stage-indicator .stage-result-chip.current{background:rgba(182,222,197,.14)}
+.stage-indicator .stage-result-chip.wrong.current{background:rgba(241,180,166,.16)}

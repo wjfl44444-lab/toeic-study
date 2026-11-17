@@ -7,7 +7,7 @@
   <title>표현·구조 훈련 · 나의 토익 스터디</title>
   <link rel="stylesheet" href="styles.css?v=20261027-bookmarks2">
   <link rel="stylesheet" href="grammar-embedded.css?v=20261025-integration1">
-  <link rel="stylesheet" href="feedback-view.css?v=20261025-feedback1">
+  <link rel="stylesheet" href="feedback-view.css?v=20261117-review1">
   <link rel="stylesheet" href="practice-shell.css?v=20261026-refinement1">
   <link rel="stylesheet" href="sorting-practice.css?v=20261028-tablepolish2">
   <link rel="stylesheet" href="home.css?v=20261109-shape1">
@@ -29,7 +29,7 @@
   <script src="grammar/engine.js?v=20261024-grammar1" defer></script>
   <script src="grammar/sync-model.js?v=20261024-site1" defer></script>
   <script src="grammar/site-state.js?v=20261024-site1" defer></script>
-  <script src="feedback-core.js?v=20261116-structure1" defer></script>
+  <script src="feedback-core.js?v=20261117-review1" defer></script>
   <script src="feedback-view.js?v=20261109-cleanup1" defer></script>
   <script src="grammar-embedded.js?v=20261109-cleanup1" defer></script>
   <script src="grammar-adapter.js?v=20261025-unified1" defer></script>
@@ -49,7 +49,7 @@
   <script src="sorting-review.js?v=20261027-forms3" defer></script>
   <link rel="stylesheet" href="prep-bundles.css?v=20261030-prepbundles1">
   <script src="prep-bundles.js?v=20261030-prepbundles2" defer></script>
-  <script src="app.js?v=20261116-linkmeaning1" defer></script>
+  <script src="app.js?v=20261117-review1" defer></script>
 </head>
 <body>
   <nav class="study-page-nav" aria-label="학습 페이지 이동">
@@ -180,6 +180,7 @@
           <h2 id="feedback-title" tabindex="-1"></h2>
           <p class="cumulative-wrong-count" id="feedback-wrong-count"></p>
           <div id="feedback-keywords"></div>
+          <div class="feedback-sentence" id="feedback-sentence" hidden></div>
           <details class="feedback-details" id="feedback-answer-details">
           <summary>내 답 · 전체 보기</summary>
           <p class="correct-answer" id="correct-answer"></p>
