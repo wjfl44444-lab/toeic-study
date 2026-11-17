@@ -994,7 +994,7 @@
     el("starred-review-previous").disabled = starredReviewPage === 0;
     el("starred-review-next").disabled = starredReviewPage >= pages - 1;
     var size = currentSettings().roundSize, count = progress ? size === "all" ? progress.remaining : Math.min(Number(size), progress.remaining) : entries.length;
-    text("starred-review-start", progress && progress.complete ? "별표 " + (progress.pass + 1) + "회독 시작" : entries.length ? "별표 " + count + "문제 풀기" : "별표 문제 풀기");
+    text("starred-review-start", progress && progress.complete ? "별표 " + (shownPass(progress) + 1) + "회독 시작" : entries.length ? "별표 " + count + "문제 풀기" : "별표 문제 풀기");
     el("starred-review-start").disabled = !entries.length || !unifiedImportReady;
   }
   function startStarredReview() {
@@ -1104,8 +1104,22 @@
     }
     return studyProgress;
   }
+  // Starting a scope over mid-pass moves the internal pass watermark (so other devices cannot
+  // bring old marks back), and counts that restart so the shown 회독 number stays the same.
+  function restartKey(scopeKey) { return ("r-" + scopeKey).slice(0, 40); }
+  function withShownPass(state, progress) {
+    if (!state) { return state; }
+    var restarts = progress && progress.scopes && progress.scopes[restartKey(state.scope)] || 0;
+    state.shownPass = Math.max(1, state.pass - restarts);
+    return state;
+  }
+  function shownPass(state) { return state.shownPass || state.pass; }
+  function countRestart(progress, scopeKey) {
+    progress.scopes[restartKey(scopeKey)] = (progress.scopes[restartKey(scopeKey)] || 0) + 1;
+    return progress;
+  }
   function progressFor(pool, scope) {
-    return progressManager ? progressManager.snapshot(ensureStudyProgress() || window.PowerVocaStudyProgress.empty(), pool, scope) : null;
+    return progressManager ? withShownPass(progressManager.snapshot(ensureStudyProgress() || window.PowerVocaStudyProgress.empty(), pool, scope), ensureStudyProgress()) : null;
   }
   function ensureStarredStudyProgress() {
     if (!progressManager || !unifiedImportReady) { return null; }
@@ -1124,8 +1138,8 @@
     return scope === "all" ? starredReviewEntries().map(function (entry) { return entry.question; }) : poolForScope(scope).filter(isBookmarked);
   }
   function progressLabel(state) {
-    if (state.bundles) { return state.pass + "회독 · " + (state.bundles.length - state.remainingBundles.length) + " / " + state.bundles.length + "세트 완료 · 남은 " + state.remainingBundles.length + "세트"; }
-    return state.pass + "회독 · " + state.completed + " / " + state.total + "문제 완료 · 남은 " + state.remaining + "문제";
+    if (state.bundles) { return shownPass(state) + "회독 · " + (state.bundles.length - state.remainingBundles.length) + " / " + state.bundles.length + "세트 완료 · 남은 " + state.remainingBundles.length + "세트"; }
+    return shownPass(state) + "회독 · " + state.completed + " / " + state.total + "문제 완료 · 남은 " + state.remaining + "문제";
   }
   function scopeLabel(setting) {
     var info = normalizeScopeSetting(setting), scope = taxonomy.subscopes.find(function (s) { return s.id === info.scope; });
@@ -1180,7 +1194,7 @@
       state.bundles = bundles;
       state.remainingBundles = bundles.filter(function (group) { return group.questions.some(function (q) { return (completed[q.id] || 0) < state.pass; }); });
     }
-    return state;
+    return withShownPass(state, progress);
   }
   function bundledSelection() { return Boolean(prepBundles && currentSettings().step === "grammar-prepositions" && el("bundle-by-verb").checked); }
   function beginBundleQuestions(groups, mode, run, forceShuffle) {
@@ -1230,6 +1244,22 @@
     if (bundleByVerb) { beginBundleRemaining(scope, size, null, collection); }
     else if (starred) { beginStarredRemaining(scope, size); } else { beginRemaining(scope, size); }
   }
+  // Start the selected scope over from the full pool (next pass) while a pass is half done.
+  // Progress for the old pass is folded; cumulative right/wrong records stay.
+  function restartSelectedScope() {
+    if (!unifiedImportReady || !progressManager || bundledSelection()) { return; }
+    var scope = currentSettings().step, starred = el("bookmarks-only").checked;
+    var state = progressForRun({ scope: scope, collection: starred ? "starred" : undefined });
+    if (!state || !state.completed || state.complete) { return; }
+    var message = "이 범위를 처음부터 다시 풀까요?\n지금까지 푼 " + state.completed + "문제 진도는 접고, " + state.total + "문제 전체에서 다시 시작해요 (" + shownPass(state) + "회독 그대로).\n누적 정답·오답 기록은 그대로 남아요." +
+      (session && totals().ungraded ? "\n저장된 이어 풀기는 새 풀이로 바뀌어요." : "");
+    if (!window.confirm(message)) { return; }
+    var before = starred ? starredStudyProgress : studyProgress;
+    var reset = countRestart(progressManager.restart(starred ? ensureStarredStudyProgress() : ensureStudyProgress(), state.questions, scope), scope);
+    if (starred) { starredStudyProgress = reset; } else { studyProgress = reset; }
+    if (!saveState()) { if (starred) { starredStudyProgress = before; } else { studyProgress = before; } updateSettings(); return; }
+    if (starred) { beginStarredRemaining(scope, el("round-size").value); } else { beginRemaining(scope, el("round-size").value); }
+  }
   function restartSavedScope() {
     if (!unifiedImportReady || !session || !progressManager) { return; }
     var run = sessionStudyRun(), wrong = session.mode === "wrong";
@@ -1256,7 +1286,9 @@
       } else {
         var progressScope = scope + (bundled ? "_bundles" : "");
         var previous = starred ? ensureStarredStudyProgress() : ensureStudyProgress();
+        var wasComplete = progressManager.snapshot(previous, pool, progressScope).complete;
         var reset = progressManager.restart(previous, pool, progressScope, run.pass);
+        if (!wasComplete) { reset = countRestart(reset, progressScope); }
         if (starred) { starredStudyProgress = reset; } else { studyProgress = reset; }
         var target = reset.scopes[progressScope];
         applyScopeSetting(scope);
@@ -1297,7 +1329,7 @@
     el("next-pass-button").hidden = !available || totals().ungraded > 0 || !state.complete;
     if (available) {
       text("next-batch-button", session.mode === "wrong" || run.collection === "starred" || run.bundleByVerb ? reviewNextBatchLabel(run, state) : "남은 문제 계속 풀기 (" + state.remaining + "개)");
-      text("next-pass-button", (state.pass + 1) + "회독 시작");
+      text("next-pass-button", (shownPass(state) + 1) + "회독 시작");
     }
   }
   function reviewNextBatchLabel(run, state) {
@@ -1349,7 +1381,7 @@
     var state = bundled ? progressForRun({ scope: currentSettings().step, collection: starred ? "starred" : undefined, bundleByVerb: true }) : starred ? progressForRun({ scope: currentSettings().step, collection: "starred" }) : progressFor(pool, currentSettings().step);
     var available = state ? bundled ? state.remainingBundles.length : state.remaining : pool.length;
     var count = size === "all" ? available : Math.min(Number(size), available);
-    text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "남은 " + available + "문제 중 " + count + "문제" : "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요.");
+    text("pool-summary", state ? state.complete ? shownPass(state) + "회독을 모두 마쳤어요." : "남은 " + available + "문제 중 " + count + "문제" : "선택 범위 " + pool.length + "문제 중 이번에는 " + count + "문제를 풀어요.");
     el("study-progress-summary").hidden = !state || !unifiedImportReady;
     text("study-progress-summary", state ? progressLabel(state) : "");
     text("scope-description", groupDescriptions[el("group-filter").value] || "교재 구분 없이 학습 목표로 모았어요. 큰 분류와 세부 범위를 골라 연습하세요.");
@@ -1358,13 +1390,15 @@
     }
     if (!pool.length) { text("pool-summary", "이 범위에 등록된 문제는 아직 없어요. 다른 범위를 선택해 주세요. 기존 문제와 학습 기록은 그대로 유지돼요."); }
     if (starred) { text("pool-summary", pool.length ? "별표한 " + pool.length + "문제 중 " + count + "문제" : "이 범위에는 별표한 문제가 없어요."); }
-    if (bundled) { text("pool-summary", state ? state.complete ? state.pass + "회독을 모두 마쳤어요." : "총 " + state.bundles.length + "세트 · 남은 " + available + "세트 중 " + count + "세트" : "묶음 연습을 준비하고 있어요."); }
+    if (bundled) { text("pool-summary", state ? state.complete ? shownPass(state) + "회독을 모두 마쳤어요." : "총 " + state.bundles.length + "세트 · 남은 " + available + "세트 중 " + count + "세트" : "묶음 연습을 준비하고 있어요."); }
     text("start-button", bundled ? "묶음 연습 시작" : state && state.completed ? "남은 문제 풀기" : "연습 시작");
     el("start-button").hidden = Boolean(state && state.complete);
     el("start-button").disabled = !available || !unifiedImportReady;
     el("start-next-pass-button").hidden = !state || !state.complete;
+    el("start-over-button").hidden = bundled || !state || !state.completed || state.complete;
+    el("start-over-button").disabled = !unifiedImportReady;
     el("start-next-pass-button").disabled = !unifiedImportReady;
-    text("start-next-pass-button", state ? (state.pass + 1) + "회독 시작" : "다음 회독 시작");
+    text("start-next-pass-button", state ? (shownPass(state) + 1) + "회독 시작" : "다음 회독 시작");
     renderResume();
     renderWrongReview();
     renderStarredReview();
@@ -2110,6 +2144,7 @@
   }
   text("source-title", "학습 자료: " + (data.sourceTitle || "박혜원 파워토익 VOCA") + (quickstartData ? " · 파워토익 퀵스타트 지정 범위" : "") + " · 인쇄 내용만 반영");
   el("start-button").addEventListener("click", startSelected);
+  el("start-over-button").addEventListener("click", restartSelectedScope);
   el("start-next-pass-button").addEventListener("click", function () {
     if (session && totals().ungraded && !window.confirm("새 회독을 시작하면 저장된 이어 풀기가 새 풀이로 바뀌어요. 누적 기록은 남아요. 시작할까요?")) { return; }
     advanceStudyPass(currentSettings().step, el("round-size").value, el("bookmarks-only").checked ? "starred" : undefined, bundledSelection());
