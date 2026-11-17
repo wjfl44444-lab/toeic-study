@@ -204,7 +204,7 @@
   function reasonSentences(value) { return String(value || "").trim().split(/(?<=[.요다])\s+/).filter(Boolean); }
   function sentenceKey(sentence, option) {
     var key = option ? sentence.replace(new RegExp(escapeRegExp(option), "gi"), "◇") : sentence;
-    return key.replace(/「[^」]*」/g, "「」").replace(/\([^)]*\)/g, "()").replace(/[A-Za-z][A-Za-z' .,~-]*[A-Za-z]/g, "E").replace(/\s+/g, " ").trim();
+    return key.replace(/「[^」]*」/g, "「」").replace(/[‘'"“][^’'"”]*[’'"”]/g, "‘’").replace(/\([^)]*\)/g, "()").replace(/[A-Za-z][A-Za-z' .,~-]*[A-Za-z]/g, "E").replace(/\s+/g, " ").trim();
   }
   function isStockSentence(sentence, option) {
     if (!stockSentences) {
@@ -235,7 +235,9 @@
         var s = q.answerSummary;
         if (!s || typeof s.expression !== "string" || typeof s.meaning !== "string" || /\+|\//.test(s.expression)) { return; }
         var key = s.expression.trim().toLowerCase();
-        if (!meaningIndex.has(key)) { meaningIndex.set(key, s.meaning.replace(/^\((?:n|v|adj|adv|prep|conj)\)\s*/, "")); }
+        var value = s.meaning.replace(/^\((?:n|v|adj|adv|prep|conj)\)\s*/, "").replace(/^[가-힣 ·]{1,15}\/\s*[A-Za-z' -]+:\s*/, "");
+        if (/^(?:불가산|가산|단수|복수)?(?:명사|형용사|부사|동사|전치사|접속사)$/.test(value.trim())) { return; }
+        if (!meaningIndex.has(key)) { meaningIndex.set(key, value); }
       });
     }
     return meaningIndex.get(String(option).trim().toLowerCase()) || "";
@@ -243,6 +245,7 @@
   function optionNote(option, reason) {
     var korean = /[가-힣]/.test(option), meaning = "", kept = [];
     reasonSentences(reason).forEach(function (sentence) {
+      sentence = sentence.replace(/^[가-힣 ]{1,10}\s*\/\s*(?=[A-Za-z])/, "");
       var pair = sentence.match(/짝표현은 「([^」]+)」이고, 뜻은 「([^」]+)」예요/);
       if (pair) { meaning = meaning || pair[1] + " · " + pair[2]; return; }
       // A Korean meaning choice that belongs to another expression: show which one.
@@ -252,16 +255,18 @@
       var gloss = !korean && sentence.match(/^([^:(「]+?)\s*(?:\(([^)]+)\))?\s*:\s*(.*)$/);
       if (gloss && option.toLowerCase().indexOf(gloss[1].trim().toLowerCase()) !== -1) {
         if (gloss[2] && /[가-힣]/.test(gloss[2])) { meaning = meaning || gloss[2].trim(); sentence = gloss[3]; }
-        else if (/[가-힣]/.test(gloss[3]) && !/(요|다)\.?$/.test(gloss[3].trim())) { meaning = meaning || gloss[3].replace(/\.$/, "").trim(); return; }
+        else if (/[가-힣]/.test(gloss[3]) && !/(요|다)\.?$/.test(gloss[3].trim())) { meaning = meaning || gloss[3].replace(/\.$/, "").replace(/\((?:n|v|adj|adv|prep|conj)\)\s*/g, "").trim(); return; }
       }
       if (!sentence || isStockSentence(sentence, option)) { return; }
       var tidy = sentence.replace(/^정답이에요\.\s*/, "").replace(/교재(?:에서|의)\s*(?:학습한\s*)?/g, "").replace(/^이 문제는\s*/, "").trim();
-      if (tidy && !/다른 문맥|다른 상황에서|모든 문장에서|금지하는 규칙은 아니|틀렸다는 뜻은 아니|불가능하다는 뜻은 아니|익혀요|익혀 두세요|학습해요|구별하세요|의 이 쓰임은 「[^」]+」에 해당해요/.test(tidy)) { kept.push(tidy); }
+      if (tidy && !/다른 문맥|다른 상황에서|모든 문장에서|금지하는 규칙은 아니|틀렸다는 뜻은 아니|불가능하다는 뜻은 아니|익혀요|익혀 두세요|학습해요|구별하세요|의 이 쓰임은 「[^」]+」에 해당해요|올바른 (?:뜻|표현)|이 문제에서 묻는|이 문항에서 묻는|뜻이 달라요|다른 뜻이에요|하세요\.?$/.test(tidy)) { kept.push(tidy); }
     });
     if (!meaning && !korean) {
       var listed = window.POWER_VOCA_OPTION_MEANINGS || {};
       meaning = indexedMeaning(option) || (Object.prototype.hasOwnProperty.call(listed, option.trim().toLowerCase()) ? listed[option.trim().toLowerCase()] : "");
     }
+    var core = meaning.split(/\s*[,/·]\s*/)[0];
+    kept = kept.filter(function (line) { return !(core && core.length > 1 && line.indexOf(core) !== -1 && line.length < 40); });
     return [meaning].concat(kept).filter(Boolean).join(" · ");
   }
   function visiblePrompt(card, index) {
@@ -1613,6 +1618,46 @@
     });
     return label;
   }
+  // "When ___ the form" style cards: the options are forms of one verb after a conjunction.
+  // Give each form a one-line clue (object after the blank → active V-ing, none → passive p.p.).
+  function reducedClauseClues(line, choices, answers) {
+    var m = String(line).match(/(?:^|\s)(when|while|before|after|since|once|if|unless|as|until)\s+_{2,}\s*([^\s,.]*)?(\s+[^\s,.]+)?/i);
+    if (!m) { return null; }
+    var conj = m[1].toLowerCase(), words = choices.map(function (c) { return cleanOption(c.text).trim(); });
+    if (words.some(function (w) { return !/^(to\s+)?[a-z]+$/i.test(w); })) { return null; }
+    var toForm = words.find(function (w) { return /^to\s/i.test(w); });
+    // Only verb-form sets (one of the options is "to V"); adjective/adverb sets keep their own notes.
+    if (!toForm) { return null; }
+    var base = toForm.replace(/^to\s+/i, "");
+    var stem = base.slice(0, 2).toLowerCase();
+    if (words.some(function (w) { return w.replace(/^to\s+/i, "").slice(0, 2).toLowerCase() !== stem; })) { return null; }
+    var form = function (w) { return /^to\s/i.test(w) ? "to V" : /ing$/i.test(w) ? "V-ing" : w.toLowerCase() === base.toLowerCase() ? "동사원형" : "p.p."; };
+    var answerForm = form(cleanOption(choices.find(function (c) { return answers.indexOf(c.originalIndex) !== -1; }).text).trim());
+    if (answerForm !== "V-ing" && answerForm !== "p.p.") { return null; }
+    var next = (m[2] || "").toLowerCase();
+    var object = /^(the|a|an|this|that|these|those|his|her|their|our|your|its|my|each|every|all|some|any)$/.test(next) ? (m[2] + (m[3] || "")).trim() : "";
+    var clue = {};
+    clue["V-ing"] = answerForm === "V-ing" ? (object ? "뒤에 목적어(" + object + ")가 있으니 능동 V-ing" : "주어가 직접 하는 동작이라 능동 V-ing") :
+      "뒤에 목적어가 없으니 능동 V-ing는 안 돼요";
+    clue["p.p."] = answerForm === "p.p." ? "뒤에 목적어가 없고 '~되는' 쪽이라 수동 p.p." :
+      object ? "뒤에 목적어가 있으니 수동 p.p.는 안 돼요" : "주어가 직접 하는 동작이라 수동 p.p.는 안 돼요";
+    clue["to V"] = conj + " 뒤에는 to V를 쓰지 않아요";
+    clue["동사원형"] = conj + " 뒤에 동사원형만 쓸 수는 없어요 (주어가 있어야 해요)";
+    var result = new Map();
+    choices.forEach(function (c, i) { var f = form(words[i]); result.set(c.originalIndex, f + " · " + clue[f]); });
+    return result;
+  }
+  function pairSummary(card, option) {
+    var word = String(option).trim(), hasWord = function (text) { return new RegExp("(^|[^a-z])" + escapeRegExp(word.toLowerCase()) + "([^a-z]|$)").test(String(text).toLowerCase()); };
+    // Grammar cards keep their pairs in grammarSummary ("account for" · "~을 설명하다").
+    var rows = Array.isArray(card.question.grammarSummary) ? card.question.grammarSummary : [];
+    var row = !/[가-힣+]/.test(word) && rows.find(function (item) { return item && item.structure && item.meaning && hasWord(item.structure) && String(item.structure).trim().toLowerCase() !== word.toLowerCase(); });
+    if (row) { return row.structure + " · " + row.meaning; }
+    var s = questionDetail(card, "answerSummary") || {}, expression = String(s.expression || "").trim();
+    if (!expression || !s.meaning || /[가-힣+]/.test(word) || expression.toLowerCase() === word.toLowerCase()) { return ""; }
+    if (!new RegExp("(^|[^a-z])" + escapeRegExp(word.toLowerCase()) + "([^a-z]|$)").test(expression.toLowerCase())) { return ""; }
+    return expression + " · " + s.meaning;
+  }
   function compactStageFeedback(card, stage, stageIndex) {
     var stageData = stage.data, answers = answerIndices(stageData), skipped = stage.selected === null, ok = stageCorrect(stage);
     var box = node("section", "stage-review" + (skipped ? " is-skipped" : ok ? " is-correct" : " is-wrong"));
@@ -1625,6 +1670,13 @@
     if (skipped) { title.append(node("span", "stage-review-answer", "정답 " + answerText)); return box; }
     box.append(node("p", "stage-review-prompt", visiblePrompt(card, stageIndex).split("\n")[0]));
     var list = node("div", "stage-review-options");
+    var clues = reducedClauseClues(visiblePrompt(card, stageIndex).split("\n")[0], stage.choices, answers);
+    var shared = new Map();
+    stage.choices.forEach(function (choice) {
+      if (answers.indexOf(choice.originalIndex) !== -1) { return; }
+      var note = optionNote(cleanOption(choice.text), stageData.optionReasons && stageData.optionReasons[choice.originalIndex] || "");
+      new Set(note.split(" · ")).forEach(function (part) { shared.set(part, (shared.get(part) || 0) + 1); });
+    });
     stage.choices.forEach(function (choice) {
       var n = choice.originalIndex, isAnswer = answers.indexOf(n) !== -1, picked = chose(stage, n);
       var reason = stageData.optionReasons && stageData.optionReasons[n] || "";
@@ -1634,7 +1686,12 @@
       var tag = isAnswer ? (picked ? "정답 · 고름" : stageData.multiple ? "빠뜨린 정답" : "정답") : picked ? "내가 고름" : "";
       if (tag) { head.append(node("span", "stage-review-tag", tag)); }
       item.append(head);
-      var body = optionNote(cleanOption(choice.text), reason);
+      var body = clues ? clues.get(n) : optionNote(cleanOption(choice.text), reason);
+      if (!clues && isAnswer && pairSummary(card, cleanOption(choice.text))) { body = pairSummary(card, cleanOption(choice.text)); }
+      if (!clues && !isAnswer && body) {
+        // Only full sentences are dropped; two options can share a short meaning like "~ 사이에".
+        body = body.split(" · ").filter(function (part) { return (shared.get(part) || 0) < 2 || !/(요|다)\.?$/.test(part); }).join(" · ");
+      }
       if (body) { item.append(node("p", "stage-review-body", body)); }
       list.append(item);
     });
