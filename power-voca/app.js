@@ -258,7 +258,10 @@
       var tidy = sentence.replace(/^정답이에요\.\s*/, "").replace(/교재(?:에서|의)\s*(?:학습한\s*)?/g, "").replace(/^이 문제는\s*/, "").trim();
       if (tidy && !/다른 문맥|다른 상황에서|모든 문장에서|금지하는 규칙은 아니|틀렸다는 뜻은 아니|불가능하다는 뜻은 아니|익혀요|익혀 두세요|학습해요|구별하세요|의 이 쓰임은 「[^」]+」에 해당해요/.test(tidy)) { kept.push(tidy); }
     });
-    if (!meaning && !korean) { meaning = indexedMeaning(option); }
+    if (!meaning && !korean) {
+      var listed = window.POWER_VOCA_OPTION_MEANINGS || {};
+      meaning = indexedMeaning(option) || (Object.prototype.hasOwnProperty.call(listed, option.trim().toLowerCase()) ? listed[option.trim().toLowerCase()] : "");
+    }
     return [meaning].concat(kept).filter(Boolean).join(" · ");
   }
   function visiblePrompt(card, index) {
