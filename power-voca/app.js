@@ -1939,7 +1939,9 @@
     var control = target.closest("button, a, summary, [role='button']");
     var allowed = ["grade-button", "next-button", "feedback-next-button"];
     if (backward) { allowed = allowed.concat(["previous-stage-button", "previous-button"]); }
-    return !control || control.dataset.bookmarkKey || key === "0" || key === "Enter" && allowed.indexOf(control.id) !== -1;
+    // After clicking a "+" section in the answer box, Enter still moves on (Space keeps toggling it).
+    var answerSection = key === "Enter" && !backward && control && control.tagName === "SUMMARY" && el("feedback-panel").contains(control);
+    return !control || control.dataset.bookmarkKey || key === "0" || answerSection || key === "Enter" && allowed.indexOf(control.id) !== -1;
   }
   function handleQuizShortcut(event) {
     if (event.defaultPrevented || view !== "quiz" || !session || !unifiedImportReady ||
