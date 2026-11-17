@@ -79,7 +79,7 @@
   render();
   if(window.location.protocol==='http:'||window.location.protocol==='https:'){
     if(!state.canUpload()){connectionFailed=true;render();notice.textContent='원본 기록 백업을 저장하지 못해 계정 연결을 보류했어요. 기존 기록을 먼저 파일로 백업해 주세요.';return;}
-    import('../../shared/study-sync.js?v=20261024-menu1').then(module=>{
+    import('../../shared/study-sync.js?v=20261117-compact2').then(module=>{
       const controller=module.connectStudySync({appId:'power-grammar',legacyKey:window.GrammarSiteState.key,mount:document.getElementById('account-sync'),getPayload:state.raw,createEmptyPayload:()=>M.stringify(M.empty()),validatePayload:raw=>M.parse(raw)!==null,mergePayload:M.merge,semanticPayload:M.semantic,
         onStatusChange:status=>{if(status.ready)openRequested();else if(pendingRequest&&status.phase==='error'){connectionFailed=true;render();}},
         applyPayload:(raw,metadata)=>{if(metadata?.accountSwitch)epoch++;const replaced=state.apply(raw,metadata,page!=='home');if(replaced){session=state.session;roundId=state.roundId;page='home';}render();},

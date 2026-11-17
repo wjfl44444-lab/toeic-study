@@ -24,6 +24,45 @@ async function loadFirebase() {
   return sdkPromise;
 }
 
+const PAYLOAD_FIELDS = ["payload", "basePayload", "acknowledgedPayload"];
+
+export function encodeAccountCache(fields) {
+  const texts = [];
+  const ref = (value) => {
+    if (value === null || value === undefined) return null;
+    let index = texts.indexOf(value);
+    if (index === -1) { index = texts.length; texts.push(value); }
+    return index;
+  };
+  const result = { version: 3, texts, baseRevision: fields.baseRevision, linked: fields.linked, pending: fields.pending, lastSent: null };
+  PAYLOAD_FIELDS.forEach((name) => { result[name] = ref(fields[name]); });
+  if (fields.lastSent) {
+    result.lastSent = { ...fields.lastSent };
+    PAYLOAD_FIELDS.forEach((name) => { result.lastSent[name] = ref(fields.lastSent[name]); });
+  }
+  return JSON.stringify(result);
+}
+
+// Turns a version 3 checkpoint back into the version 2 shape; other versions pass through.
+export function decodeAccountCache(saved) {
+  if (saved?.version !== 3) return saved;
+  const texts = saved.texts;
+  if (!Array.isArray(texts) || texts.length > 6 || !texts.every((value) => typeof value === "string")) throw new Error("Unreadable account cache.");
+  const text = (index) => {
+    if (index === null) return null;
+    if (!Number.isInteger(index) || index < 0 || index >= texts.length) throw new Error("Unreadable account cache.");
+    return texts[index];
+  };
+  const result = { version: 2, baseRevision: saved.baseRevision, linked: saved.linked, pending: saved.pending, lastSent: null };
+  PAYLOAD_FIELDS.forEach((name) => { result[name] = text(saved[name]); });
+  if (saved.lastSent !== null) {
+    if (!saved.lastSent || typeof saved.lastSent !== "object") throw new Error("Unreadable account checkpoint.");
+    result.lastSent = { ...saved.lastSent };
+    PAYLOAD_FIELDS.forEach((name) => { result.lastSent[name] = text(saved.lastSent[name]); });
+  }
+  return result;
+}
+
 function errorText(error) {
   const code = String(error?.code || "");
   if (code.includes("popup-blocked")) return "로그인 창이 차단됐어요. 팝업을 허용하고 다시 눌러 주세요.";
@@ -148,8 +187,8 @@ export function connectStudySync(options = {}) {
     // Keep an in-memory recovery copy even when browser storage is full.
     memoryAccounts.set(account.uid, { account: { ...account }, issue: accountCacheIssue, blocked: accountCacheBlocked });
     if (accountCacheBlocked) { storageFailed = true; return false; }
-    const ok = write(cacheKey(account.uid), JSON.stringify({
-      version: 2, payload: account.payload, basePayload: account.basePayload,
+    const ok = write(cacheKey(account.uid), encodeAccountCache({
+      payload: account.payload, basePayload: account.basePayload,
       baseRevision: account.baseRevision, acknowledgedPayload: account.acknowledgedPayload,
       linked: account.linked, pending: account.pending, lastSent: account.lastSent,
     }));
@@ -167,7 +206,7 @@ export function connectStudySync(options = {}) {
     const original = read(cacheKey(uid));
     if (original === null) return null;
     try {
-      const saved = JSON.parse(original);
+      const saved = decodeAccountCache(JSON.parse(original));
       if (![1, 2].includes(saved?.version) || !valid(saved.payload) || typeof saved.linked !== "boolean" || typeof saved.pending !== "boolean" || !(saved.baseRevision === null || Number.isSafeInteger(saved.baseRevision) && saved.baseRevision >= 0) || !(saved.basePayload === null || valid(saved.basePayload)) || saved.linked && (saved.baseRevision === null || (saved.baseRevision === 0) !== (saved.basePayload === null))) throw new Error("Unreadable account cache.");
       const acknowledgedPayload = saved.version === 1 ? saved.basePayload : saved.acknowledgedPayload;
       const lastSent = saved.version === 1 ? null : saved.lastSent;
@@ -189,8 +228,16 @@ export function connectStudySync(options = {}) {
 
   function backup(raw, label, uid = user?.uid || "guest") {
     if (typeof raw !== "string" || !prefix) return true;
-    const key = `${prefix}backup:${encodeURIComponent(uid)}:${label}:${Date.now()}:${operationId()}`;
-    return write(key, raw);
+    const family = `${prefix}backup:${encodeURIComponent(uid)}:${label}:`;
+    const key = `${family}${Date.now()}:${operationId()}`;
+    if (!write(key, raw)) return false;
+    try {
+      for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {
+        const name = window.localStorage.key(i);
+        if (name && name !== key && name.startsWith(family)) window.localStorage.removeItem(name);
+      }
+    } catch { /* Older copies stay if storage cannot be listed. */ }
+    return true;
   }
 
   function recoveryKey(uid = user?.uid) { return `${prefix}recovery:${encodeURIComponent(uid)}`; }
