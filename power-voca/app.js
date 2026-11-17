@@ -1682,6 +1682,26 @@
       return knownPairs.has(pairKey(pair));
     });
   }
+  // Underline the asked expression inside the example sentence: "voice (one's) concern" → "voiced their concern".
+  function underlineTarget(target, expression) {
+    var skip = ["one", "s", "oneself", "sb", "sth", "a", "an", "the"];
+    var words = expression.toLowerCase().replace(/\([^)]*\)/g, " ").split(/[^a-z]+/).filter(function (w) { return w && skip.indexOf(w) === -1; });
+    var textValue = target.textContent;
+    if (!words.length || textValue.indexOf("\n") !== -1) { return; }
+    var re = /[A-Za-z]+/g, tokens = [], m;
+    while ((m = re.exec(textValue))) { tokens.push({ word: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length }); }
+    var stem = function (w) { return w.slice(0, Math.max(3, Math.min(w.length, 4))); };
+    for (var i = 0; i < tokens.length; i += 1) {
+      if (tokens[i].word.indexOf(stem(words[0])) !== 0) { continue; }
+      var k = 1, j = i;
+      for (var step = i + 1; step < tokens.length && k < words.length && step <= j + 3; step += 1) {
+        if (tokens[step].word.indexOf(stem(words[k])) === 0) { j = step; k += 1; }
+      }
+      if (k < words.length) { continue; }
+      target.replaceChildren(document.createTextNode(textValue.slice(0, tokens[i].start)), node("span", "sentence-target", textValue.slice(tokens[i].start, tokens[j].end)), document.createTextNode(textValue.slice(tokens[j].end)));
+      return;
+    }
+  }
   function compactStageFeedback(card, stage, stageIndex) {
     var stageData = stage.data, answers = answerIndices(stageData), skipped = stage.selected === null, ok = stageCorrect(stage);
     var box = node("section", "stage-review" + (skipped ? " is-skipped" : ok ? " is-correct" : " is-wrong"));
@@ -1868,7 +1888,15 @@
     }
     var content = questionPresentation(card, card.stageIndex);
     text("question-instruction", content.instruction);
+    // An English expression inside the instruction ("voice (one's) concern의 뜻을 고르세요") is what the
+    // card asks about, so it stays large and bright while the Korean part stays a small cue.
+    var target = posLabels(content.instruction).match(/[A-Za-z][A-Za-z0-9 ()'’.,~\/+-]*[A-Za-z0-9)]/);
+    if (target && target[0].length > 1) {
+      var line = el("question-instruction"), before = line.textContent.slice(0, target.index), after = line.textContent.slice(target.index + target[0].length);
+      line.replaceChildren(document.createTextNode(before), node("strong", "instruction-target", target[0]), document.createTextNode(after));
+    }
     text("question-heading", content.prompt);
+    if (target && target[0].length > 1) { underlineTarget(el("question-heading"), target[0]); }
     if (!card.graded && !meaningCueNeeded(card, card.stageIndex, content)) { content.context = ""; }
     text("question-context", content.context);
     el("question-context").hidden = !content.context;
