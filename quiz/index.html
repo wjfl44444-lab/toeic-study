@@ -103,6 +103,7 @@
     .resume-card .button { font-size: 15px; min-height: 48px; padding: 10px 18px; white-space: nowrap; border-radius: 12px; }
     .resume-card .button-primary { flex: 1; }
     .resume-card .resume-reset { background: transparent; color: var(--muted); }
+    .resume-card #discard-saved-button { border-color: transparent; padding: 10px 8px; font-size: 14px; font-weight: 500; }
     .resume-actions { display: flex; gap: 10px; }
     .session-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 11px; gap: 15px; }
     .session-position { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -288,7 +289,7 @@
         </div>
         <div id="resume-card" class="card resume-card" hidden>
           <div><p class="resume-title">지난 풀이가 남아 있어요</p><p id="resume-detail" class="resume-detail"></p><div class="resume-bar" aria-hidden="true"><span id="resume-bar-fill"></span></div></div>
-          <div class="resume-actions"><button id="resume-button" class="button button-primary" type="button">이어서 풀기</button><button id="reset-saved-button" class="button resume-reset" type="button">처음부터</button></div>
+          <div class="resume-actions"><button id="resume-button" class="button button-primary" type="button">이어서 풀기</button><button id="reset-saved-button" class="button resume-reset" type="button">처음부터</button><button id="discard-saved-button" class="button resume-reset" type="button">지우기</button></div>
         </div>
         <h2 class="wrong-box-title">틀린 문제 모아 풀기</h2>
         <div id="wrong-box" class="card wrong-box">
@@ -935,6 +936,13 @@
           pool: sessionPool(state), preserveMarked: state.marked.slice() };
         if (typeof elements.dialog.showModal === 'function') elements.dialog.showModal();
         else { elements.dialog.setAttribute('open', ''); byId('cancel-restart-button').focus(); }
+      });
+      // Drop the saved round only; graded attempts move into the kept history first.
+      byId('discard-saved-button').addEventListener('click', () => {
+        if (!state || !window.confirm("저장된 풀이를 지울까요?\n이미 채점한 문제의 정답·오답 기록과 진도는 그대로 남아요.")) return;
+        history = combineHistories(history, historyForState(state));
+        state = null; setupTouched = false;
+        save(); showStart();
       });
       elements.home.addEventListener('click', showStart);
       byId('settings-button').addEventListener('click', showStart);

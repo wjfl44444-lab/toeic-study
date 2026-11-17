@@ -682,7 +682,7 @@ function renderHome() {
       <div class="home-start-actions"><button class="text-button" type="button" data-view="wordbook">단어 목록 보기</button><button class="primary-button" type="submit" ${state.words.length ? "" : "disabled"}>학습 시작</button></div>
       ${batchSummary({ ...settings, mode: homeMode, collection: "regular" }, homeMode)}
     </form>
-    ${saved.length ? `<section class="home-continuation saved-learning-panel"><h2>지난 풀이가 남아 있어요</h2><div class="saved-learning-list">${saved.map((item) => { const unit = item.view === "quiz" ? "문제" : "개"; const left = Math.max(0, item.total - item.completed); return `<div class="saved-learning-row"><p class="saved-learning-label">${item.label}</p><p class="saved-learning-detail">${item.total}${unit} 중 ${item.completed}${unit} 풀었어요 · ${left}${unit} 남음</p><div class="resume-bar" aria-hidden="true"><span style="width:${item.total ? Math.round(item.completed / item.total * 100) : 0}%"></span></div><div class="saved-learning-actions"><button class="primary-button" type="button" data-view="${item.view}" aria-label="${item.label} 이어서 풀기">이어서 풀기</button><button class="secondary-button" type="button" data-action="restart-saved" data-kind="${item.view}" aria-label="${item.label} 처음부터">처음부터</button></div></div>`; }).join("")}</div></section>` : ""}
+    ${saved.length ? `<section class="home-continuation saved-learning-panel"><h2>지난 풀이가 남아 있어요</h2><div class="saved-learning-list">${saved.map((item) => { const unit = item.view === "quiz" ? "문제" : "개"; const left = Math.max(0, item.total - item.completed); return `<div class="saved-learning-row"><p class="saved-learning-label">${item.label}</p><p class="saved-learning-detail">${item.total}${unit} 중 ${item.completed}${unit} 풀었어요 · ${left}${unit} 남음</p><div class="resume-bar" aria-hidden="true"><span style="width:${item.total ? Math.round(item.completed / item.total * 100) : 0}%"></span></div><div class="saved-learning-actions"><button class="primary-button" type="button" data-view="${item.view}" aria-label="${item.label} 이어서 풀기">이어서 풀기</button><button class="secondary-button" type="button" data-action="restart-saved" data-kind="${item.view}" aria-label="${item.label} 처음부터">처음부터</button><button class="text-button saved-discard" type="button" data-action="discard-saved" data-kind="${item.view}" aria-label="${item.label} 지우기">지우기</button></div></div>`; }).join("")}</div></section>` : ""}
     <h2 class="home-review-title">오답·별표 모아 풀기</h2>${renderReviewBox()}`;
 }
 
@@ -1405,6 +1405,13 @@ document.addEventListener("click", (event) => {
   }
   else if (action === "toggle-bookmark") toggleBookmark(button.dataset.wordId);
   else if (action === "restart-saved") restartSavedLearning(button.dataset.kind);
+  else if (action === "discard-saved") {
+    // Drop the saved round only; answered words already updated their counts and progress.
+    if (confirm("저장된 풀이를 지울까요?\n이미 채점한 문제의 정답·오답 기록과 진도는 그대로 남아요.")) {
+      if (button.dataset.kind === "study") studySession = null; else quizSession = null;
+      saveState(); render(false);
+    }
+  }
   else if (action === "previous-quiz") previousQuiz();
   else if (action === "previous-study") previousStudy();
   else if (action === "next-study") nextStudy();

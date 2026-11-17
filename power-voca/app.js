@@ -1545,6 +1545,7 @@
     text("resume-status", pending ? "이전 풀이를 안전하게 준비하고 있어요." : "");
     el("resume-button").disabled = pending;
     el("resume-restart-button").disabled = pending;
+    el("resume-discard-button").disabled = pending;
     el("resume-panel").hidden = (!session || finished) && !pending;
   }
   function showStart() {
@@ -2203,6 +2204,14 @@
   el("home-button").addEventListener("click", showStart);
   el("resume-button").addEventListener("click", function () { if (!unifiedImportReady || !session) { return; } if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });
   el("resume-restart-button").addEventListener("click", restartSavedScope);
+  // Drop the saved round only; graded cards are already in history and study progress.
+  el("resume-discard-button").addEventListener("click", function () {
+    if (!unifiedImportReady || !session || !window.confirm("저장된 풀이를 지울까요?\n이미 채점한 문제의 정답·오답 기록과 진도는 그대로 남아요.")) { return; }
+    var before = session;
+    session = null;
+    if (!saveState()) { session = before; }
+    showStart();
+  });
   el("grade-button").addEventListener("click", submitStage);
   el("previous-stage-button").addEventListener("click", function () { if (currentCard().stageIndex > 0) { currentCard().stageIndex -= 1; renderQuestion(true); } });
   el("previous-button").addEventListener("click", function () { if (session.index > 0) { session.index -= 1; renderQuestion(true); } });

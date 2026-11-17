@@ -336,3 +336,5 @@ h1 { font-size: 28px; }
 @media (max-width: 600px) { .home-review-title + .review-box { padding: 16px; } }
 .home-review-title + .review-box .setup-card, .home-review-title + .review-box .word-list { padding: 0; border: 0; background: none; box-shadow: none; }
 .home-review-title + .review-box .setup-card { margin-bottom: 4px; }
+
+.saved-learning-actions .saved-discard { color: var(--muted); font-size: 14px; padding: 0 6px; }
