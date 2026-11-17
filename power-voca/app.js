@@ -1621,7 +1621,8 @@
     box.append(title);
     var answerText = stage.choices.filter(function (choice) { return answers.indexOf(choice.originalIndex) !== -1; })
       .map(function (choice) { return cleanOption(choice.text); }).join(" / ");
-    if (skipped || ok) { title.append(node("span", "stage-review-answer", (skipped ? "정답 " : "") + answerText)); return box; }
+    // Steps that were not reached stay one line; answered steps (right or wrong) list every option with its meaning.
+    if (skipped) { title.append(node("span", "stage-review-answer", "정답 " + answerText)); return box; }
     box.append(node("p", "stage-review-prompt", visiblePrompt(card, stageIndex).split("\n")[0]));
     var list = node("div", "stage-review-options");
     stage.choices.forEach(function (choice) {
