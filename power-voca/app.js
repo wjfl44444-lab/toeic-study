@@ -197,22 +197,38 @@
       .map(function (choice) { return letters[stage.choices.indexOf(choice)] + " · " + cleanOption(choice.text); }).join(" / ");
   }
   function cleanOption(value) { return String(value).replace(/^뜻은\s*[「『\[](.+)[」』\]](?:이다)?\.?$/, "$1"); }
-  // Answer review (display only): auto-generated option reasons are replaced by the option's meaning.
-  var templateReason = /(와|과)\s*달라요\.?$|해당하는 말이 아니에요|다른 문맥에서 가능한 결합까지|의 뜻이 아니에요\.?|다른 뜻이에요\.?$|와\(과\) 다른 뜻|에서 학습하는 뜻이에요|의 이 쓰임은 「[^」]+」에 해당해요\.?$/;
-  function tidyReason(value) {
-    var v = String(value || "").trim().replace(/^정답이에요\.\s*/, "");
-    var pair = v.match(/짝표현은 「([^」]+)」이고, 뜻은 「([^」]+)」예요/);
-    if (pair) { return pair[1] + " · " + pair[2]; }
-    v = v.split(/(?<=[.요])\s+/).filter(function (part) {
-      return !/다른 문맥|모든 문장에서|금지하는 규칙은 아니|틀렸다는 뜻은 아니|불가능하다는 뜻은 아니|함께 익혀 두세요|함께 학습해요/.test(part);
-    }).join(" ");
-    return v.replace(/교재(?:에서|의)\s*(?:학습한\s*)?/g, "").replace(/^이 문제는\s*/, "").trim();
+  // Answer review (display only). Stock sentences that repeat across many cards are hidden;
+  // what is left is the option's meaning plus any sentence written for this card.
+  var meaningIndex = null, stockSentences = null, STOCK_LIMIT = 30;
+  function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function reasonSentences(value) { return String(value || "").trim().split(/(?<=[.요다])\s+/).filter(Boolean); }
+  function sentenceKey(sentence, option) {
+    var key = option ? sentence.replace(new RegExp(escapeRegExp(option), "gi"), "◇") : sentence;
+    return key.replace(/「[^」]*」/g, "「」").replace(/\([^)]*\)/g, "()").replace(/[A-Za-z][A-Za-z' .,~-]*[A-Za-z]/g, "E").replace(/\s+/g, " ").trim();
   }
-  var meaningIndex = null;
-  function optionMeaning(option, reason) {
-    if (/[가-힣]/.test(option)) { return ""; }
-    var m = String(reason || "").match(/^[^(:「]+\(([^)]+)\)/) || String(reason || "").match(/^[a-zA-Z][^:「]*:\s*([^.]+)\./);
-    if (m && /[가-힣]/.test(m[1])) { return m[1].trim(); }
+  function isStockSentence(sentence, option) {
+    if (!stockSentences) {
+      stockSentences = new Map();
+      var stages = [];
+      data.questions.forEach(function (q) { (q.stages || []).forEach(function (s) { stages.push(s); }); });
+      [practice, hardPractice, memoryPractice].forEach(function (source) {
+        if (!source || !source.stages) { return; }
+        Object.keys(source.stages).forEach(function (id) {
+          var byIndex = source.stages[id] || {};
+          Object.keys(byIndex).forEach(function (i) { if (byIndex[i] && byIndex[i].optionReasons) { stages.push(byIndex[i]); } });
+        });
+      });
+      stages.forEach(function (s) {
+        (s.optionReasons || []).forEach(function (reason, i) {
+          var seen = new Set();
+          reasonSentences(reason).forEach(function (part) { seen.add(sentenceKey(part, String((s.options || [])[i] || ""))); });
+          seen.forEach(function (key) { stockSentences.set(key, (stockSentences.get(key) || 0) + 1); });
+        });
+      });
+    }
+    return (stockSentences.get(sentenceKey(sentence, option)) || 0) >= STOCK_LIMIT;
+  }
+  function indexedMeaning(option) {
     if (!meaningIndex) {
       meaningIndex = new Map();
       data.questions.forEach(function (q) {
@@ -223,6 +239,27 @@
       });
     }
     return meaningIndex.get(String(option).trim().toLowerCase()) || "";
+  }
+  function optionNote(option, reason) {
+    var korean = /[가-힣]/.test(option), meaning = "", kept = [];
+    reasonSentences(reason).forEach(function (sentence) {
+      var pair = sentence.match(/짝표현은 「([^」]+)」이고, 뜻은 「([^」]+)」예요/);
+      if (pair) { meaning = meaning || pair[1] + " · " + pair[2]; return; }
+      // A Korean meaning choice that belongs to another expression: show which one.
+      var owner = korean && sentence.match(/^「[^」]+」는 (.+?)(?:에서 학습하는 뜻|의 쓰임)이에요\.?$/);
+      if (owner) { meaning = meaning || owner[1].replace(/^교재의\s*/, "") + "의 뜻"; return; }
+      // "word (뜻): ..." or "word: 뜻." gives the option's meaning.
+      var gloss = !korean && sentence.match(/^([^:(「]+?)\s*(?:\(([^)]+)\))?\s*:\s*(.*)$/);
+      if (gloss && option.toLowerCase().indexOf(gloss[1].trim().toLowerCase()) !== -1) {
+        if (gloss[2] && /[가-힣]/.test(gloss[2])) { meaning = meaning || gloss[2].trim(); sentence = gloss[3]; }
+        else if (/[가-힣]/.test(gloss[3]) && !/(요|다)\.?$/.test(gloss[3].trim())) { meaning = meaning || gloss[3].replace(/\.$/, "").trim(); return; }
+      }
+      if (!sentence || isStockSentence(sentence, option)) { return; }
+      var tidy = sentence.replace(/^정답이에요\.\s*/, "").replace(/교재(?:에서|의)\s*(?:학습한\s*)?/g, "").replace(/^이 문제는\s*/, "").trim();
+      if (tidy && !/다른 문맥|다른 상황에서|모든 문장에서|금지하는 규칙은 아니|틀렸다는 뜻은 아니|불가능하다는 뜻은 아니|익혀요|익혀 두세요|학습해요|구별하세요|의 이 쓰임은 「[^」]+」에 해당해요/.test(tidy)) { kept.push(tidy); }
+    });
+    if (!meaning && !korean) { meaning = indexedMeaning(option); }
+    return [meaning].concat(kept).filter(Boolean).join(" · ");
   }
   function visiblePrompt(card, index) {
     var raw = stagePrompt(card,index), match = raw.match(/\n\s*대상 표현:\s*([^\n]+)\s*$/);
@@ -1586,15 +1623,14 @@
     var list = node("div", "stage-review-options");
     stage.choices.forEach(function (choice) {
       var n = choice.originalIndex, isAnswer = answers.indexOf(n) !== -1, picked = chose(stage, n);
-      var reason = stageData.optionReasons && stageData.optionReasons[n] || "", real = reason && !templateReason.test(reason.trim());
+      var reason = stageData.optionReasons && stageData.optionReasons[n] || "";
       var item = node("div", "stage-review-option" + (isAnswer ? " is-answer" : picked ? " is-picked" : ""));
       var head = node("p", "stage-review-option-head");
       head.append(node("strong", "", cleanOption(choice.text)));
       var tag = isAnswer ? (picked ? "정답 · 고름" : stageData.multiple ? "빠뜨린 정답" : "정답") : picked ? "내가 고름" : "";
       if (tag) { head.append(node("span", "stage-review-tag", tag)); }
       item.append(head);
-      var meaning = optionMeaning(cleanOption(choice.text), reason);
-      var body = isAnswer || picked ? (real ? tidyReason(reason) : meaning) : meaning || (real ? tidyReason(reason) : "");
+      var body = optionNote(cleanOption(choice.text), reason);
       if (body) { item.append(node("p", "stage-review-body", body)); }
       list.append(item);
     });
