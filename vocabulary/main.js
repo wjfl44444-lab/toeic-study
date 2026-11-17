@@ -63,6 +63,9 @@ let studyDefaults = studySettings(studySession);
 let quizDefaults = quizSettings(quizSession);
 let homeMode = studySession && !studySession.completed && !(quizSession && !quizSession.completed) ? "flashcard" : quizDefaults.mode;
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
+// Tags are no longer offered as a range (they only mirrored the order words were added).
+studyDefaults.tag = "all";
+quizDefaults.tag = "all";
 let mistakeFilter = "all";
 let reviewKind = "wrong";
 let reviewPage = 0;
@@ -640,7 +643,7 @@ function restartSavedLearning(kind) {
   const saved = kind === "study" ? studySession : quizSession;
   if (!saved) return;
   const settings = batchSettings(saved, kind === "study" ? "flashcard" : saved.mode);
-  const range = settings.tag === "all" ? "모든 태그" : settings.tag;
+  const range = settings.tag === "all" ? "전체 단어" : settings.tag;
   if (!confirm(`${range} 범위의 저장된 풀이를 취소하고 새 회독을 처음부터 시작할까요?\n누적 정답·오답 횟수와 별표는 유지됩니다.`)) return;
   const previous = { state, studySession, quizSession, currentView, homeMode,
     studyDefaults: { ...studyDefaults }, quizDefaults: { ...quizDefaults }, wordFilters: { ...wordFilters } };
@@ -675,7 +678,7 @@ function renderHome() {
       <div class="home-stats" aria-label="학습 현황"><span>전체 단어 <strong>${stats.total}</strong></span><span>암기 완료 <strong>${stats.mastered}</strong></span><span>오답 단어 <strong>${stats.mistakes}</strong></span></div>
       <div class="form-grid two-columns home-settings">
         <label><span>학습 방식</span><select name="mode"><option value="multiple" ${homeMode === "multiple" ? "selected" : ""}>객관식 퀴즈</option><option value="typing" ${homeMode === "typing" ? "selected" : ""}>직접 입력</option><option value="flashcard" ${homeMode === "flashcard" ? "selected" : ""}>암기 카드</option></select></label>
-        <label><span>학습 범위</span><select name="tag">${configTagOptions(settings.tag)}</select></label>
+        <input type="hidden" name="tag" value="all" />
         <label><span>출제 방향</span><select name="direction"><option value="word-to-meaning" ${settings.direction === "word-to-meaning" ? "selected" : ""}>단어 → 뜻</option><option value="meaning-to-word" ${settings.direction === "meaning-to-word" ? "selected" : ""}>뜻 → 단어</option></select></label>
         <label><span>${homeMode === "flashcard" ? "카드 수" : "문제 수"}</span><select name="count">${configCountOptions(settings.count, homeMode === "flashcard" ? "개" : "문제")}</select></label>
       </div>
@@ -700,14 +703,12 @@ function getFilteredWordbookWords() {
 }
 
 function renderWordbook() {
-  const tags = allTags();
   return `
     ${renderPageHeader("내 단어 모음", "단어 목록", "", `<button class="secondary-button" type="button" data-action="open-bulk-dialog">여러 단어 추가</button><button class="primary-button" type="button" data-action="open-word-dialog">＋ 단어 추가</button>`)}
     <div class="toolbar">
-      <label class="search-box"><span class="sr-only">단어 검색</span><input id="word-search" type="search" value="${h(wordFilters.search)}" placeholder="단어, 뜻, 예문, 태그 검색" autocomplete="off" /></label>
+      <label class="search-box"><span class="sr-only">단어 검색</span><input id="word-search" type="search" value="${h(wordFilters.search)}" placeholder="단어, 뜻, 예문 검색" autocomplete="off" /></label>
       <div class="filters" aria-label="단어 필터">
         <select id="status-filter" aria-label="암기 상태"><option value="all">모든 상태</option>${WORD_STATUSES.map((status) => `<option value="${status}" ${wordFilters.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select>
-        <select id="tag-filter" aria-label="태그"><option value="all">모든 태그</option>${tags.map((tag) => `<option value="${h(tag)}" ${wordFilters.tag === tag ? "selected" : ""}>${h(tag)}</option>`).join("")}</select>
         <select id="mistake-filter" aria-label="오답 여부"><option value="all">오답 여부 전체</option><option value="wrong" ${wordFilters.mistakes === "wrong" ? "selected" : ""}>틀린 적 있음</option><option value="clean" ${wordFilters.mistakes === "clean" ? "selected" : ""}>오답 없음</option></select>
         <select id="sort-filter" aria-label="정렬"><option value="alpha" ${wordFilters.sort === "alpha" ? "selected" : ""}>알파벳순</option><option value="recent" ${wordFilters.sort === "recent" ? "selected" : ""}>최근 추가순</option><option value="wrong" ${wordFilters.sort === "wrong" ? "selected" : ""}>많이 틀린순</option></select>
       </div>
@@ -735,7 +736,7 @@ function renderWordCard(word) {
     <div class="word-meaning"><strong>${h(word.meanings.join(", "))}</strong></div>
     <div class="word-actions">${bookmarkButton(word.id)}<select class="status-select" data-status-id="${h(word.id)}" aria-label="${h(word.word)} 암기 상태">${WORD_STATUSES.map((status) => `<option value="${status}" ${word.status === status ? "selected" : ""}>${statusLabel(status)}</option>`).join("")}</select><button class="small-button edit-button" type="button" data-action="edit-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 수정">수정</button></div>
     <details class="word-details"><summary>품사·쓰임·학습 기록 보기</summary><div class="detail-grid">
-      <div><span>품사</span><p>${h(word.partOfSpeech || "품사 미지정")}</p></div><div><span>태그</span><div class="tag-row">${word.tags.map((tag) => `<span class="tag">${h(tag)}</span>`).join("")}</div></div>
+      <div><span>품사</span><p>${h(word.partOfSpeech || "품사 미지정")}</p></div>
       <div><span>영어 예문</span><p>${h(word.example || "등록된 예문이 없습니다.")}</p></div><div><span>예문 해석</span><p>${h(word.translation || "등록된 해석이 없습니다.")}</p></div><div><span>메모</span><p>${h(word.memo || "등록된 메모가 없습니다.")}</p></div><div><span>학습 기록</span><p>정답 ${word.correctCount}회 · 오답 ${word.wrongCount}회 · ${formatDate(word.lastStudiedAt)}</p></div>
       <div><button class="small-button delete-button" type="button" data-action="delete-word" data-word-id="${h(word.id)}" aria-label="${h(word.word)} 삭제">단어 삭제</button></div>
     </div></details></article>`;
@@ -783,7 +784,7 @@ function renderStudySetup() {
       <header><span class="setup-symbol" aria-hidden="true">▣</span><div><h2>학습 범위를 정해 주세요</h2><p>오답이 많거나 오래 보지 않은 단어가 먼저 나옵니다.</p></div></header>
       <div class="form-grid three-columns">
         <label><span>문제 방향</span><select name="direction"><option value="word-to-meaning" ${studyDefaults.direction === "word-to-meaning" ? "selected" : ""}>영어 → 한글 뜻</option><option value="meaning-to-word" ${studyDefaults.direction === "meaning-to-word" ? "selected" : ""}>한글 뜻 → 영어</option></select></label>
-        <label><span>태그</span><select name="tag">${configTagOptions(studyDefaults.tag)}</select></label>
+        <input type="hidden" name="tag" value="all" />
         <label><span>카드 수</span><select name="count">${configCountOptions(studyDefaults.count, "개")}</select></label>
       </div>
       <div class="setup-footer"><p>평가 결과는 다음 출제 우선순위에 반영됩니다.</p><button class="primary-button" type="submit">암기 카드 시작 →</button></div>
@@ -836,12 +837,12 @@ function renderQuizSetup() {
         </div></div>
         <div class="form-grid three-columns">
           <label><span>문제 방향</span><select name="direction"><option value="word-to-meaning" ${quizDefaults.direction === "word-to-meaning" ? "selected" : ""}>영어 → 한글 뜻</option><option value="meaning-to-word" ${quizDefaults.direction === "meaning-to-word" ? "selected" : ""}>한글 뜻 → 영어</option></select></label>
-          <label><span>태그</span><select name="tag">${configTagOptions(quizDefaults.tag, quizDefaults.onlyWrong)}</select></label>
+          <input type="hidden" name="tag" value="all" />
           <label><span>문제 수</span><select name="count">${configCountOptions(quizDefaults.count)}</select></label>
         </div>
         <label class="choice-card"><input type="checkbox" name="onlyWrong" ${quizDefaults.onlyWrong ? "checked" : ""} ${wrongCount === 0 && !quizDefaults.onlyWrong ? "disabled" : ""} /><span><strong>오답 단어만 출제</strong><small>${wrongCount ? `선택한 범위에 ${wrongCount}개의 오답 단어가 있어요.` : "선택한 범위에는 오답 단어가 없어요."}</small></span></label>
       </div>
-      <p class="quiz-help">전체를 선택하면 선택한 태그·오답 조건에서 출제 가능한 단어를 모두 풉니다. 객관식은 단어장 전체에서 같은 품사의 보기를 찾습니다. 복합 품사는 같은 조합끼리, 숙어는 비슷한 뜻의 형태끼리 묶습니다. 보기가 부족한 단어는 제외하며 카드·직접 입력으로 학습할 수 있어요.</p>
+      <p class="quiz-help">전체를 선택하면 오답 조건에서 출제 가능한 단어를 모두 풉니다. 객관식은 단어장 전체에서 같은 품사의 보기를 찾습니다. 복합 품사는 같은 조합끼리, 숙어는 비슷한 뜻의 형태끼리 묶습니다. 보기가 부족한 단어는 제외하며 카드·직접 입력으로 학습할 수 있어요.</p>
       <div class="setup-footer"><p>직접 입력의 영어 답은 대소문자와 앞뒤 공백을 구분하지 않습니다.</p><button class="primary-button" type="submit">퀴즈 시작 →</button></div>
     </form>`;
 }
@@ -923,7 +924,7 @@ function renderReviewBox() {
   return `<section class="review-box">
     <div class="review-tabs" role="tablist" aria-label="복습 종류"><button role="tab" type="button" data-action="review-kind" data-kind="wrong" aria-selected="${reviewKind === "wrong"}">오답</button><button role="tab" type="button" data-action="review-kind" data-kind="starred" aria-selected="${reviewKind === "starred"}">별표</button></div>
     <form id="review-config" class="setup-card"><div class="review-settings">
-      <label><span>학습 범위</span><select name="tag">${configTagOptions(quizDefaults.tag)}</select></label>
+      <input type="hidden" name="tag" value="all" />
       ${reviewKind === "wrong" ? `<label><span>누적 오답</span><input type="number" name="minWrong" min="1" max="999999" value="${reviewMinWrong}" aria-label="누적 오답 횟수"/><span>회 이상</span></label>` : ""}
       ${reviewKind === "wrong" ? `<label class="check-row review-unmastered"><input type="checkbox" name="unmastered" ${reviewUnmastered ? "checked" : ""}/><span>아직 외우지 못한 단어만 · ${STREAK_GOAL}번 연속 맞히면 빠져요</span></label>` : ""}
       <label><span>학습 방식</span><select name="mode"><option value="multiple" ${reviewMode === "multiple" ? "selected" : ""}>객관식</option><option value="typing" ${reviewMode === "typing" ? "selected" : ""}>직접 입력</option><option value="flashcard" ${reviewMode === "flashcard" ? "selected" : ""}>암기 카드</option></select></label>

@@ -51,7 +51,7 @@
         <label><span>예문 해석</span><textarea id="translation-input" name="translation" rows="2" placeholder="금요일까지 예약을 확인해 주세요."></textarea></label>
         <div class="form-grid two-columns">
           <label><span>메모</span><input id="memo-input" name="memo" autocomplete="off" placeholder="기억할 내용" /></label>
-          <label><span>태그 <small>쉼표로 구분</small></span><input id="tags-input" name="tags" autocomplete="off" placeholder="일정, 기초" /></label>
+          <label hidden><span>태그 <small>쉼표로 구분</small></span><input id="tags-input" name="tags" autocomplete="off" placeholder="일정, 기초" /></label>
         </div>
         <p id="word-form-error" class="form-error" role="alert"></p>
         <div class="dialog-actions"><button class="ghost-button" type="button" data-action="close-word-dialog">취소</button><button class="primary-button" type="submit">내 단어장에 저장</button></div>
@@ -77,6 +77,6 @@
 
     <input id="import-file" type="file" accept=".json,.csv,application/json,text/csv" hidden />
     <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-    <script type="module" src="./main.js?v=20261117-discard1"></script>
+    <script type="module" src="./main.js?v=20261117-notags1"></script>
   </body>
 </html>
