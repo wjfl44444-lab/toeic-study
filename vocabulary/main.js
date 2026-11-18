@@ -912,7 +912,7 @@ function renderQuizResult() {
   const total = quizSession.originalTotal;
   const accuracy = total ? Math.round((quizSession.originalCorrect / total) * 100) : 0;
   const wrongWords = uniqueStrings(quizSession.wrongWordIds.map((id) => state.words.find((word) => word.id === id)?.word).filter(Boolean));
-  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">${accuracy >= 80 ? "✓" : "A"}</span><p class="eyebrow">퀴즈 완료</p><h1>${accuracy >= 80 ? "아주 잘했어요" : accuracy >= 60 ? "조금만 더 복습해요" : "오답부터 차근차근 볼까요?"}</h1><p>점수는 복습 재출제를 제외한 첫 시도 ${total}문제를 기준으로 계산했습니다.</p><div class="score-ring" style="--score:${accuracy}%" aria-label="정답률 ${accuracy}퍼센트"><strong>${accuracy}%</strong></div><div class="result-stats"><div><strong>${total}</strong><span>출제 문제</span></div><div><strong>${quizSession.originalCorrect}</strong><span>정답</span></div><div><strong>${quizSession.originalWrong}</strong><span>오답</span></div></div>${wrongWords.length ? `<div class="wrong-summary"><h2>이번에 틀린 단어</h2><div class="wrong-chips">${wrongWords.map((word) => `<span class="wrong-chip">${h(word)}</span>`).join("")}</div></div>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>전부 맞혔어요</strong><br />현재 범위의 단어를 잘 기억하고 있습니다.</p></div>`}${batchSummary(quizSession, quizSession.mode)}<div class="result-actions"><button class="text-button" type="button" data-action="previous-quiz">← 이전 문제</button>${nextBatchButton(quizSession)}<button class="secondary-button" type="button" data-action="restart-quiz">학습 설정</button>${state.words.some((word) => word.wrongCount > 0) ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습하기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
+  return `<section class="result-card"><span class="result-emblem" aria-hidden="true">${accuracy >= 80 ? "✓" : "A"}</span><p class="eyebrow">퀴즈 완료</p><h1>${accuracy >= 80 ? "아주 잘했어요" : accuracy >= 60 ? "조금만 더 복습해요" : "오답부터 차근차근 볼까요?"}</h1><p>점수는 복습 재출제를 제외한 첫 시도 ${total}문제를 기준으로 계산했습니다.</p><div class="score-ring" style="--score:${accuracy}%" aria-label="정답률 ${accuracy}퍼센트"><strong>${accuracy}%</strong></div><div class="result-stats"><div><strong>${total}</strong><span>출제 문제</span></div><div><strong>${quizSession.originalCorrect}</strong><span>정답</span></div><div><strong>${quizSession.originalWrong}</strong><span>오답</span></div></div>${wrongWords.length ? `<div class="wrong-summary"><h2>이번에 틀린 단어</h2><div class="wrong-chips">${wrongWords.map((word) => `<span class="wrong-chip">${h(word)}</span>`).join("")}</div></div>` : `<div class="empty-note"><span aria-hidden="true">✓</span><p><strong>전부 맞혔어요</strong><br />현재 범위의 단어를 잘 기억하고 있습니다.</p></div>`}${batchSummary(quizSession, quizSession.mode)}<div class="result-actions"><button class="text-button" type="button" data-action="previous-quiz">← 이전 문제</button>${nextBatchButton(quizSession)}<button class="secondary-button" type="button" data-action="restart-quiz">학습 설정</button>${wrongWords.length ? `<button class="primary-button" type="button" data-action="start-wrong-quiz" data-scope="round">틀린 ${wrongWords.length}개 다시 풀기</button>` : state.words.some((word) => word.wrongCount > 0) ? `<button class="primary-button" type="button" data-action="start-wrong-quiz">오답 복습하기</button>` : `<button class="primary-button" type="button" data-view="home">홈으로</button>`}</div></section>`;
 }
 
 function getMistakeWords() {
@@ -1023,7 +1023,7 @@ function startQuiz(form) {
   if (!result.ok) showToast(result.error, "error");
 }
 
-function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection = onlyWrong ? "wrong" : "regular", minWrong = 1, count = 10, returnBatchSettings = null, unmastered = false }) {
+function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection = onlyWrong ? "wrong" : "regular", minWrong = 1, count = 10, returnBatchSettings = null, unmastered = false, wordIds = null }) {
   if (!["multiple", "typing"].includes(mode)) return { ok: false, error: "지원하지 않는 퀴즈 유형입니다." };
   if (!["word-to-meaning", "meaning-to-word"].includes(direction)) return { ok: false, error: "지원하지 않는 문제 방향입니다." };
   const settings = { mode, direction, tag, onlyWrong: collection === "wrong", collection, minWrong, count, unmastered: collection === "wrong" && unmastered === true };
@@ -1051,7 +1051,12 @@ function beginQuiz({ mode, direction, tag = "all", onlyWrong = false, collection
       return false;
     });
   }
-  const batch = selectNextBatch(pool, count, settings, state.studyProgress, state.bookmarks, selectWeightedWords);
+  // A fixed word list (this round's wrong words) skips the usual "next unseen batch" choice.
+  const fixedIds = Array.isArray(wordIds) ? new Set(wordIds) : null;
+  const fixedKey = fixedIds && progressScopeKey(settings);
+  const fixedEntry = fixedIds && (state.studyProgress[fixedKey] || { pass: 1, completedIds: [], updatedAt: new Date().toISOString() });
+  const batch = fixedIds ? { words: pool.filter(word => fixedIds.has(word.id)), scopeKey: fixedKey, pass: fixedEntry.pass, entry: fixedEntry }
+    : selectNextBatch(pool, count, settings, state.studyProgress, state.bookmarks, selectWeightedWords);
   const selected = batch.words;
   if (!selected.length) return { ok: false, error: mode === "multiple" ? "현재 조건에서 같은 품사의 보기 4개를 만들 수 없어요. 직접 입력을 선택하거나 단어를 더 추가해 주세요." : "선택한 범위에 출제할 단어가 없습니다." };
   const preparedQueue = selected.map(word => ({ qid: createId("question"), wordId: word.id, isRetry: false, answered: false, selected: null,
@@ -1431,7 +1436,9 @@ document.addEventListener("click", (event) => {
     const previous = currentView === "study" ? studySession : quizSession;
     const parent = previous && batchSettings(previous, currentView === "study" ? "flashcard" : previous.mode);
     if (previous) quizDefaults = { ...quizDefaults, ...studySettings(previous) };
-    const result = beginQuiz({ ...quizDefaults, mode: "multiple", collection: "wrong", onlyWrong: true, minWrong: 1, returnBatchSettings: parent });
+    const round = button.dataset.scope === "round" && previous === quizSession ? quizSession.wrongWordIds.slice() : null;
+    const result = beginQuiz({ ...quizDefaults, mode: "multiple", collection: "wrong", onlyWrong: true, minWrong: 1, returnBatchSettings: parent,
+      ...(round ? { wordIds: round, count: "all" } : {}) });
     if (result.ok) { currentView = "quiz"; history.replaceState(null, "", "#quiz"); render(false); }
     else showToast(result.error, "error");
   }
