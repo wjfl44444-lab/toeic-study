@@ -634,7 +634,9 @@ function nextBatch() {
 }
 
 function nextBatchButton(session) {
-  const settings = session.returnBatchSettings || batchSettings(session, currentView === "study" ? "flashcard" : session.mode);
+  // A wrong-word retry started from a result screen ends on its own result; no jump back to the regular batch.
+  if (session.returnBatchSettings) return "";
+  const settings = batchSettings(session, currentView === "study" ? "flashcard" : session.mode);
   const label = settings.collection === "starred" ? "별표" : settings.collection === "wrong" ? "오답" : "일반";
   return `<button class="primary-button" type="button" data-action="next-batch">${settings.count === "all" ? "남은" : "다음 " + settings.count + "개"} ${label} 묶음 풀기</button>`;
 }
@@ -861,7 +863,7 @@ function renderQuizQuestion() {
   const prompt = getPrompt(word, quizSession.direction);
   const answers = quizSession.mode === "multiple" ? renderMultipleAnswers(question, word) : renderTypingAnswer();
   const feedback = quizSession.feedback ? renderFeedback(word) : "";
-  return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 저장하고 나가기</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>${batchSummary(quizSession, quizSession.mode)}<article class="quiz-card"><div class="question-meta">${bookmarkButton(word.id)}<span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}${quizSession.feedback ? "" : `<button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button>`}${quizSession.returnBatchSettings ? nextBatchButton(quizSession) : ""}</article></section>`;
+  return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 저장하고 나가기</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>${batchSummary(quizSession, quizSession.mode)}<article class="quiz-card"><div class="question-meta">${bookmarkButton(word.id)}<span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}${quizSession.feedback ? "" : `<button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button>`}</article></section>`;
 }
 
 // Wrong choices are other words' meanings (or words): find the word each one came from.
