@@ -338,3 +338,16 @@ h1 { font-size: 28px; }
 .home-review-title + .review-box .setup-card { margin-bottom: 4px; }
 
 .saved-learning-actions .saved-discard { color: var(--muted); font-size: 14px; padding: 0 6px; }
+
+/* Star like 표현·구조 훈련; after grading, each wrong choice names the word it belongs to. */
+.bookmark-button { width: 34px; height: 34px; min-height: 34px; flex: 0 0 34px; padding: 0; border-radius: 10px; }
+.bookmark-button svg { width: 19px; height: 19px; stroke-width: 1.65; }
+.bookmark-button.is-starred, .bookmark-button[aria-pressed="true"] { color: #e5be72; background: #e5be7210; border-color: #e5be7226; }
+.bookmark-button.is-starred svg, .bookmark-button[aria-pressed="true"] svg { fill: currentColor; fill-opacity: 1; stroke-width: 1.4; }
+.bookmark-button:hover { background: #e5be7218; color: #e5be72; border-color: #e5be7238; }
+.option-button .option-owner { margin-left: auto; padding-left: 16px; flex: 0 1 auto; max-width: 45%; text-align: right; font-size: 18px; font-weight: 650; color: var(--ink); opacity: .85; }
+.option-button.wrong .option-owner { color: var(--red); }
+.quiz-card button:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+/* Result line: the mark and "정답입니다 / 오답입니다" sit on one line. */
+.feedback .feedback-icon { width: 30px; height: 30px; font-size: 15px; line-height: 1; }
+.feedback h3 { margin: 0; line-height: 30px; }

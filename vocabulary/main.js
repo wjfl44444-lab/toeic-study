@@ -601,7 +601,7 @@ function batchSummary(session, mode) {
 
 function bookmarkButton(wordId) {
   const starred = state.bookmarks[wordId]?.starred === true;
-  return `<button type="button" class="bookmark-button ${starred ? "is-starred" : ""}" data-action="toggle-bookmark" data-word-id="${h(wordId)}" aria-label="${starred ? "별표 해제" : "별표 표시"}" aria-pressed="${starred}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1 6.2L12 17.3l-5.6 2.9 1-6.2-4.5-4.4 6.3-.9Z"/></svg></button>`;
+  return `<button type="button" class="bookmark-button ${starred ? "is-starred" : ""}" data-action="toggle-bookmark" data-word-id="${h(wordId)}" aria-label="${starred ? "별표 해제" : "별표 표시"}" aria-pressed="${starred}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2 14.7 8.65 20.7 9.52 16.35 13.76 17.38 19.76 12 16.92 6.62 19.76 7.65 13.76 3.3 9.52 9.3 8.65Z"/></svg></button>`;
 }
 
 function toggleBookmark(wordId) {
@@ -864,6 +864,14 @@ function renderQuizQuestion() {
   return `<section class="session-shell" aria-label="퀴즈 진행"><div class="session-top"><button class="ghost-button" type="button" data-action="end-quiz">← 저장하고 나가기</button><div class="session-progress"><div class="progress-label"><span>${quizSession.index + 1} / ${totalQueue}${question.isRetry ? " · 복습" : ""}</span><span>첫 시도 점수 ${scoreText}</span></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>${batchSummary(quizSession, quizSession.mode)}<article class="quiz-card"><div class="question-meta">${bookmarkButton(word.id)}<span class="mode-badge">${quizSession.mode === "multiple" ? "객관식" : "직접 입력"}</span>${question.isRetry ? `<span class="retry-badge">형광펜 복습 문제</span>` : `<span class="mode-badge">${h(word.partOfSpeech || "품사 미지정")}</span>`}</div><p class="question-label">${quizSession.direction === "word-to-meaning" ? "이 단어의 뜻을 맞혀 보세요" : "이 뜻에 해당하는 영단어를 맞혀 보세요"}</p><h1 class="question-prompt">${h(prompt)}</h1>${answers}${feedback}${quizSession.feedback ? "" : `<button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button>`}${quizSession.returnBatchSettings ? nextBatchButton(quizSession) : ""}</article></section>`;
 }
 
+// Wrong choices are other words' meanings (or words): find the word each one came from.
+function choiceOwner(option, direction) {
+  const key = normalizeText(option);
+  const owner = state.words.find((item) => normalizeText(getAnswerLabel(item, direction)) === key);
+  if (!owner) return "";
+  return direction === "word-to-meaning" ? owner.word : owner.meanings.join(", ");
+}
+
 function renderMultipleAnswers(question, word) {
   if (!Array.isArray(question.options)) question.options = buildQuizOptions(word, state.words, quizSession.direction);
   return `<div class="option-list" role="group" aria-label="정답 보기">${question.options.map((option, index) => {
@@ -874,7 +882,7 @@ function renderMultipleAnswers(question, word) {
       else if (option === question.selected) resultClass = "wrong";
     }
     const selected = question.selected === option;
-    return `<button class="option-button ${resultClass} ${selected && !quizSession.feedback ? "selected" : ""}" type="button" data-action="choose-option" data-answer="${h(option)}" aria-pressed="${selected}" ${quizSession.feedback ? "disabled" : ""}><span class="option-letter" aria-hidden="true">${resultClass === "correct" ? "✓" : resultClass === "wrong" ? "×" : index + 1}</span><span>${h(option)}${resultClass ? `<small>${resultClass === "correct" ? "정답" : "선택한 오답"}</small>` : ""}</span></button>`;
+    return `<button class="option-button ${resultClass} ${selected && !quizSession.feedback ? "selected" : ""}" type="button" data-action="choose-option" data-answer="${h(option)}" aria-pressed="${selected}" ${quizSession.feedback ? "disabled" : ""}><span class="option-letter" aria-hidden="true">${resultClass === "correct" ? "✓" : resultClass === "wrong" ? "×" : index + 1}</span><span>${h(option)}${resultClass ? `<small>${resultClass === "correct" ? "정답" : "선택한 오답"}</small>` : ""}</span>${quizSession.feedback && resultClass !== "correct" ? (() => { const owner = choiceOwner(option, quizSession.direction); return owner ? `<span class="option-owner" lang="${quizSession.direction === "word-to-meaning" ? "en" : "ko"}">${h(owner)}</span>` : ""; })() : ""}</button>`;
   }).join("")}</div>${!quizSession.feedback ? `<div class="quiz-question-actions"><button class="primary-button" type="button" data-action="confirm-option" ${question.selected === null ? "disabled" : ""}>채점하기</button></div>` : ""}`;
 }
 
@@ -897,7 +905,7 @@ function renderFeedback(word) {
   const live = state.words.find((item) => item.id === word.id);
   const streak = live?.wrongCount ? Math.min(reviewStreakOf(live), STREAK_GOAL) : null;
   const streakNote = streak === null ? "" : `<small class="feedback-streak" title="연속 정답 ${streak}/${STREAK_GOAL}">연속 정답 ${streakDots(streak)}${streak >= STREAK_GOAL ? " 외운 단어" : ""}</small>`;
-  return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${streakNote}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
+  return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${quizSession.mode === "multiple" ? "" : `${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>`}${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${streakNote}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
 }
 
 function renderQuizResult() {
