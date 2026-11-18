@@ -634,11 +634,10 @@ function nextBatch() {
 }
 
 function nextBatchButton(session) {
-  // A wrong-word retry started from a result screen ends on its own result; no jump back to the regular batch.
-  if (session.returnBatchSettings) return "";
-  const settings = batchSettings(session, currentView === "study" ? "flashcard" : session.mode);
-  const label = settings.collection === "starred" ? "별표" : settings.collection === "wrong" ? "오답" : "일반";
-  return `<button class="primary-button" type="button" data-action="next-batch">${settings.count === "all" ? "남은" : "다음 " + settings.count + "개"} ${label} 묶음 풀기</button>`;
+  // After a wrong-word retry this continues the round it came from (shown on the result screen only).
+  const settings = session.returnBatchSettings || batchSettings(session, currentView === "study" ? "flashcard" : session.mode);
+  const label = settings.collection === "starred" ? "별표 " : settings.collection === "wrong" ? "오답 " : "";
+  return `<button class="primary-button" type="button" data-action="next-batch">${settings.count === "all" ? "남은 " + label + "단어" : "다음 " + label + settings.count + "개"} 풀기</button>`;
 }
 
 function restartSavedLearning(kind) {
