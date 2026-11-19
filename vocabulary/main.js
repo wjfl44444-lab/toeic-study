@@ -476,7 +476,23 @@ function validSavedQuiz(session, checkReferences = true) {
       && (session.mode === "typing" || (stringList(question.options, true) && question.options.length === 4)));
 }
 
+// Picking an option saves after the screen has shown the pick, so the check mark is instant.
+let deferredSaveTimer = 0;
+function saveStateSoon() {
+  if (deferredSaveTimer) return;
+  // Backup timer in case the browser skips frames (hidden tab); normally the frame comes first.
+  deferredSaveTimer = setTimeout(saveState, 150);
+  requestAnimationFrame(() => {
+    if (!deferredSaveTimer) return;
+    clearTimeout(deferredSaveTimer);
+    deferredSaveTimer = setTimeout(saveState, 0);
+  });
+}
+window.addEventListener("pagehide", () => { if (deferredSaveTimer) saveState(); });
+
 function saveState() {
+  if (deferredSaveTimer) clearTimeout(deferredSaveTimer);
+  deferredSaveTimer = 0;
   if (storageBlocked) return false;
   state.version = STORAGE_VERSION;
   state.updatedAt = new Date().toISOString();
@@ -1092,7 +1108,7 @@ function selectQuizOption(answer) {
   });
   const confirm = document.querySelector('[data-action="confirm-option"]');
   if (confirm) confirm.disabled = false;
-  saveState();
+  saveStateSoon();
 }
 
 function submitQuizAnswer(answer) {
