@@ -24,8 +24,8 @@ import {
   uniqueStrings,
   wordsToCsv,
   wordIdentity
-} from "./core.js?v=20261109-streak1";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261109-streak1";
+} from "./core.js?v=20261119-lookalike1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261119-lookalike1";
 
 import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress, reviewStreakOf, STREAK_GOAL } from "./progress.js?v=20261109-streak1";
 
@@ -921,7 +921,8 @@ function renderFeedback(word) {
   // Streak from the live record (the session snapshot keeps the original wording only).
   const live = state.words.find((item) => item.id === word.id);
   const streak = live?.wrongCount ? Math.min(reviewStreakOf(live), STREAK_GOAL) : null;
-  const streakNote = streak === null ? "" : `<small class="feedback-streak" title="연속 정답 ${streak}/${STREAK_GOAL}">연속 정답 ${streakDots(streak)}${streak >= STREAK_GOAL ? " 외운 단어" : ""}</small>`;
+  const practice = question?.isRetry && feedback.correct ? `<small class="feedback-streak">복습 문제는 정답 기록에 넣지 않아요.</small>` : "";
+  const streakNote = practice || (streak === null ? "" : `<small class="feedback-streak" title="연속 정답 ${streak}/${STREAK_GOAL}">연속 정답 ${streakDots(streak)}${streak >= STREAK_GOAL ? " 외운 단어" : ""}</small>`);
   return `<div class="feedback ${feedback.correct ? "correct" : "wrong"}" role="status" aria-live="polite"><span class="feedback-icon" aria-hidden="true">${feedback.correct ? "✓" : "!"}</span><div><h3>${feedback.correct ? "정답입니다" : "오답입니다"}</h3>${quizSession.mode === "multiple" ? "" : `${!feedback.correct ? `<p class="submitted-answer">내 답: ${h(question.selected)}</p>` : ""}<p>정답: <strong>${h(getAnswerLabel(word, quizSession.direction))}</strong></p>`}${!feedback.correct ? `<small>누적 오답 ${feedback.wrongCount}회${feedback.retryScheduled ? " · 잠시 뒤 한 번 더 복습합니다." : ""}</small>` : ""}${streakNote}${word.example ? `<small>${h(word.example)}${word.translation ? `<br>${h(word.translation)}` : ""}</small>` : ""}${word.memo ? `<small class="feedback-memo">${h(word.memo)}</small>` : ""}</div><div class="quiz-nav"><button class="text-button" type="button" data-action="previous-quiz" ${quizSession.index === 0 ? "disabled" : ""}>← 이전 문제</button><button class="primary-button" type="button" data-action="next-quiz">${quizSession.index === quizSession.queue.length - 1 ? "결과 보기" : "다음 문제"} →</button></div></div>`;
 }
 
@@ -1147,8 +1148,9 @@ function submitQuizAnswer(answer) {
       }
     }
   }
-  const updated = updateWordStats(word.id, correct);
-  quizSession.feedback = { correct, retryScheduled, wrongCount: updated?.wrongCount ?? word.wrongCount };
+  // A redo right after seeing the answer is practice: a miss still counts, a hit does not.
+  const updated = question.isRetry && correct ? null : updateWordStats(word.id, correct);
+  quizSession.feedback = { correct, retryScheduled, wrongCount: updated?.wrongCount ?? state.words.find((item) => item.id === word.id)?.wrongCount ?? word.wrongCount };
   question.feedback = { ...quizSession.feedback };
   render();
 }

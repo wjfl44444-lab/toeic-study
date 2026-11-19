@@ -338,6 +338,55 @@ export function quizPartKey(word) {
   return parts.sort().join("·");
 }
 
+// What a noun's meaning is about, so wrong choices come from the same kind of
+// thing (a person among people, a place among places). Decided from the first
+// Korean meaning, with the English ending as support for the unclear endings.
+const PERSON_SURE = /(자|직원|원들|보조원|사원|회원|고객|고객층|인원|동료|승객|독자|강사|상관|이사|장인|주인|건물주|훈련생|연수생|인턴|컨설턴트|큐레이터|애널리스트|사람)$/;
+const PERSON_MAYBE = /(인|가|관|사|장|생|원|주|님)$/;
+const PERSON_ENGLISH = /(er|or|ee|ant|ent|ist|yst|ian|ive|client|colleague|personnel|staff|artisan|landlord|head|people|person|clientele)$/i;
+const PLACE = /(지점|지사|부서|사업부|위원회|의회|정부|기업|조직|업체|업계|산업|미술관|박물관|화랑|창고|실|단지|지구|구역|지역|직장|일터|식당|상점|매장|가게|밭|초지|주택|공간|시설|사회|공동체|노선|길|기관|협회|학교|병원|은행|도서관|공항|역|호텔|건물|사무실|공장|현장|센터)$/;
+const AMOUNT = /(년|연도|기한|기간|시간|마감|\s수|개수|횟수|량|율|률|액|요금|금액)$/;
+const THING = /(서|일정표|시간표|표지판|영수증|신분증|자격증|설계도|지도|도면|물|품|류|추적기|기기|기계|레인지|통|키|레인지|샌들|짐|작물|음료|식사|장비|설비|약품|물질|페이스트리|유물|작품|계좌|계정|게시판|카드|티켓|자료|기계|장치|차량|가구|용품)$/;
+const MONEY = /(예산|비용|임금|급여|봉급|매출|수입|금리|이자|자금|기금|모금|주식|재고|가격|요금|할인|세금)/;
+const EVENT = /(회의|회담|행사|전시회|전시|연설|투어|관광|예약|구독|항공편|출장|면접|세미나|워크숍|축제|공연|대회|교육|연수|여행)$/;
+function kindOf(meaning, english) {
+  const text = String(meaning || "").replace(/\(.*?\)/g, "").trim();
+  if (PERSON_SURE.test(text)) return "사람";
+  if (EVENT.test(text)) return "행사·일정";
+  if (PERSON_MAYBE.test(text) && PERSON_ENGLISH.test(english)) return "사람";
+  if (PLACE.test(text)) return "장소·조직";
+  if (AMOUNT.test(text)) return "돈·시간·수량";
+  if (THING.test(text)) return "물건·서류";
+  if (MONEY.test(text)) return "돈·시간·수량";
+  return "";
+}
+export function meaningKind(word) {
+  if (!/명사/.test(String(word.partOfSpeech || ""))) return "";
+  const english = String(word.word || "").trim();
+  // The first meaning decides; a later one helps when the first is a loanword (마이크로파 → 전자레인지).
+  for (const meaning of word.meanings) { const kind = kindOf(meaning, english); if (kind) return kind; }
+  return "일·개념";
+}
+
+// How alike two English spellings look (shared letter pairs, 0 to 1), so
+// permit/commit can stand next to submit.
+function letterPairs(value) {
+  const text = String(value || "").toLowerCase().replace(/[^a-z]/g, "");
+  const pairs = new Map();
+  for (let index = 0; index < text.length - 1; index += 1) {
+    const pair = text.slice(index, index + 2);
+    pairs.set(pair, (pairs.get(pair) || 0) + 1);
+  }
+  return pairs;
+}
+export function spellingLikeness(a, b) {
+  const left = letterPairs(a), right = letterPairs(b);
+  let shared = 0, total = 0;
+  left.forEach((count, pair) => { shared += Math.min(count, right.get(pair) || 0); total += count; });
+  right.forEach((count) => { total += count; });
+  return total ? (2 * shared) / total : 0;
+}
+
 export function buildQuizOptions(target, allWords, direction, random = Math.random) {
   const correct = getAnswerLabel(target, direction);
   const targetKey = normalizeText(correct);
@@ -346,9 +395,18 @@ export function buildQuizOptions(target, allWords, direction, random = Math.rand
   const seen = new Set([targetKey]);
   const distractors = [];
   const targetMeanings = new Set(target.meanings.map((meaning) => normalizeAnswer(meaning).replace(/\s+/g, "")));
-  // Prefer a similar number of meanings so answer length is less of a hint.
-  const candidates = shuffled(samePart, random).sort((a, b) => Math.abs(a.meanings.length - target.meanings.length) - Math.abs(b.meanings.length - target.meanings.length));
-  for (const candidate of candidates) {
+  const kind = meaningKind(target);
+  // Confusable first: the same kind of meaning, a look-alike spelling, then a
+  // similar number of meanings (so answer length is less of a hint). A little
+  // chance keeps the same three choices from always coming back.
+  const scored = samePart.map((word) => ({
+    word,
+    score: (kind && meaningKind(word) === kind ? 1 : 0)
+      + spellingLikeness(target.word, word.word) * 1.5
+      - Math.abs(word.meanings.length - target.meanings.length) * 0.15
+      + random() * 0.45,
+  })).sort((a, b) => b.score - a.score);
+  for (const { word: candidate } of scored) {
     // Synonyms such as inform/notify must not both be offered as different answers.
     if (candidate.meanings.some((meaning) => targetMeanings.has(normalizeAnswer(meaning).replace(/\s+/g, "")))) continue;
     const label = getAnswerLabel(candidate, direction);
