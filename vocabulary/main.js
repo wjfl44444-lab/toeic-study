@@ -1435,7 +1435,8 @@ document.addEventListener("click", (event) => {
   else if (action === "review-page") { reviewPage = Math.max(0, reviewPage + Number(button.dataset.dir || 0)); render(false); }
   else if (action === "start-wrong-quiz") {
     const previous = currentView === "study" ? studySession : quizSession;
-    const parent = previous && batchSettings(previous, currentView === "study" ? "flashcard" : previous.mode);
+    // A retry of a retry still returns to the original regular round.
+    const parent = previous && (previous.returnBatchSettings || batchSettings(previous, currentView === "study" ? "flashcard" : previous.mode));
     if (previous) quizDefaults = { ...quizDefaults, ...studySettings(previous) };
     const round = button.dataset.scope === "round" && previous === quizSession ? quizSession.wrongWordIds.slice() : null;
     const result = beginQuiz({ ...quizDefaults, mode: "multiple", collection: "wrong", onlyWrong: true, minWrong: 1, returnBatchSettings: parent,
