@@ -140,6 +140,10 @@ export function createInitialState(now = new Date().toISOString()) {
   };
 }
 
+function roundTime(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null;
+}
+
 export function normalizeState(raw, now = new Date().toISOString()) {
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.words)) return null;
   if (Number(raw.version) > STORAGE_VERSION) return null;
@@ -147,7 +151,10 @@ export function normalizeState(raw, now = new Date().toISOString()) {
   if (words.length !== raw.words.length) return null;
   const sessions = Array.isArray(raw.sessions) ? raw.sessions.filter((session) => session && typeof session === "object").slice(-80) : [];
   return { version: STORAGE_VERSION, words, sessions, bookmarks: normalizeBookmarks(raw.bookmarks), studyProgress: normalizeStudyProgress(raw.studyProgress),
-    activeStudy: raw.activeStudy || null, activeQuiz: raw.activeQuiz || null, updatedAt: raw.updatedAt || now };
+    activeStudy: raw.activeStudy || null, activeQuiz: raw.activeQuiz || null,
+    // When each unfinished round last changed (null for records saved before this existed).
+    activeStudyAt: roundTime(raw.activeStudyAt), activeQuizAt: roundTime(raw.activeQuizAt),
+    updatedAt: raw.updatedAt || now };
 }
 
 export function mergeWordCollections(existing, incoming, now = new Date().toISOString()) {

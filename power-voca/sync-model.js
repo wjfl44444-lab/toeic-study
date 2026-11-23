@@ -258,6 +258,8 @@
       if (value.starredStudyProgress !== undefined) { result.starredStudyProgress = studyProgress(value.starredStudyProgress); }
       if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
       if (value.reviewStreaks !== undefined) { result.reviewStreaks = reviewStreaks(value.reviewStreaks); }
+      // When the unfinished round last changed; an unreadable time counts as unknown.
+      if (date(value.sessionAt)) { result.sessionAt = new Date(value.sessionAt).toISOString(); }
       return result;
     } catch (_) { return null; }
   }
@@ -296,6 +298,7 @@
     if (value.starredStudyProgress !== undefined) { result.starredStudyProgress = studyProgress(value.starredStudyProgress); }
     if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
     if (value.reviewStreaks !== undefined && Object.keys(value.reviewStreaks).length) { result.reviewStreaks = reviewStreaks(value.reviewStreaks); }
+    if (date(value.sessionAt)) { result.sessionAt = value.sessionAt; }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
     return raw;
@@ -318,6 +321,11 @@
     if (!local || !remote || baseRaw !== null && !base) { throw new Error("Invalid VOCA merge input"); }
     var ls = revisionMap(local), rs = revisionMap(remote), bs = revisionMap(base), ids = new Set(Array.from(ls.keys()).concat(Array.from(rs.keys())).concat(Array.from(bs.keys())));
     var result = empty(); result.session = local.session; result.settings = local.settings;
+    // One person, one device at a time: the unfinished round that changed most
+    // recently wins (a closed round counts too). Unknown times keep this device's.
+    var sessionTime = function (value) { return value && value.sessionAt ? Date.parse(value.sessionAt) : 0; };
+    if (sessionTime(remote) > sessionTime(local)) { result.session = remote.session; result.sessionAt = remote.sessionAt; }
+    else if (local.sessionAt) { result.sessionAt = local.sessionAt; }
     Array.from(ids).sort().forEach(function (revision) {
       var l = ls.get(revision), r = rs.get(revision), b = bs.get(revision), chosen = l || r || b, record = { signature: chosen.signature };
       counters.forEach(function (name) {

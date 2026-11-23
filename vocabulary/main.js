@@ -24,8 +24,8 @@ import {
   uniqueStrings,
   wordsToCsv,
   wordIdentity
-} from "./core.js?v=20261119-lookalike1";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261124-dedupe1";
+} from "./core.js?v=20261124-round1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261124-round1";
 
 import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress, reviewStreakOf, STREAK_GOAL } from "./progress.js?v=20261109-streak1";
 
@@ -48,7 +48,8 @@ const toastNode = document.querySelector("#toast");
 // Defer browser storage access so restricted/private contexts cannot crash startup.
 const browserStorage = {
   getItem: (key) => window.localStorage.getItem(key),
-  setItem: (key, value) => window.localStorage.setItem(key, value)
+  setItem: (key, value) => window.localStorage.setItem(key, value),
+  removeItem: (key) => window.localStorage.removeItem(key)
 };
 const loaded = readStoredState(browserStorage);
 let storageNotice = loaded.notice;
@@ -61,6 +62,27 @@ let studySession = validSavedStudy(state.activeStudy) ? state.activeStudy : null
 let quizSession = validSavedQuiz(state.activeQuiz) ? state.activeQuiz : null;
 let studyDefaults = studySettings(studySession);
 let quizDefaults = quizSettings(quizSession);
+// The unfinished round from the most recently used device is the one to resume.
+// A round's time changes only when the round itself changes (or is closed), so
+// opening a device or editing words does not make an old round look new.
+function roundSignature(session) {
+  if (!session) return "none";
+  const answered = Array.isArray(session.queue) ? session.queue.filter((question) => question.answered).length : 0;
+  const current = Array.isArray(session.queue) ? session.queue[session.index] : null;
+  return [session.startedAt || session.id || "", session.mode || "flashcard", session.direction, session.index,
+    session.queue?.length ?? session.wordIds?.length, answered, current?.selected ?? "", Boolean(session.feedback),
+    Boolean(session.revealed), session.completed, JSON.stringify(session.results || null)].join("|");
+}
+const roundSignatures = { activeStudy: roundSignature(studySession), activeQuiz: roundSignature(quizSession) };
+function stampRounds() {
+  const now = new Date().toISOString();
+  for (const [slot, session] of [["activeStudy", studySession], ["activeQuiz", quizSession]]) {
+    const signature = roundSignature(session);
+    if (signature !== roundSignatures[slot]) { roundSignatures[slot] = signature; state[`${slot}At`] = now; }
+  }
+}
+const roundTimeOf = (value) => Date.parse(value || "") || 0;
+
 let homeMode = studySession && !studySession.completed && !(quizSession && !quizSession.completed) ? "flashcard" : quizDefaults.mode;
 let wordFilters = { search: "", status: "all", tag: "all", mistakes: "all", sort: "alpha", page: 1 };
 // Tags are no longer offered as a range (they only mirrored the order words were added).
@@ -202,7 +224,25 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
     // DOM, focus, filters, editor text, selected answer and session identities.
     rememberSessionWords(studySession);
     rememberSessionWords(quizSession);
-    state = { ...next, activeStudy: studySession, activeQuiz: quizSession };
+    const ownTimes = { activeStudyAt: state.activeStudyAt, activeQuizAt: state.activeQuizAt };
+    state = { ...next, activeStudy: studySession, activeQuiz: quizSession, ...ownTimes };
+    // A round continued on another device since: open that one instead.
+    let adopted = false;
+    if (roundTimeOf(next.activeStudyAt) > roundTimeOf(ownTimes.activeStudyAt)) {
+      studySession = validSavedStudy(next.activeStudy) ? next.activeStudy : null;
+      state.activeStudy = studySession; state.activeStudyAt = next.activeStudyAt;
+      roundSignatures.activeStudy = roundSignature(studySession); adopted = true;
+    }
+    if (roundTimeOf(next.activeQuizAt) > roundTimeOf(ownTimes.activeQuizAt)) {
+      quizSession = validSavedQuiz(next.activeQuiz) ? next.activeQuiz : null;
+      state.activeQuiz = quizSession; state.activeQuizAt = next.activeQuizAt;
+      roundSignatures.activeQuiz = roundSignature(quizSession); adopted = true;
+    }
+    if (adopted) {
+      studyDefaults = studySettings(studySession);
+      quizDefaults = quizSettings(quizSession);
+      render(false);
+    }
     return;
   }
   state = next;
@@ -210,6 +250,8 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
   quizSession = validSavedQuiz(next.activeQuiz) ? next.activeQuiz : null;
   state.activeStudy = studySession;
   state.activeQuiz = quizSession;
+  roundSignatures.activeStudy = roundSignature(studySession);
+  roundSignatures.activeQuiz = roundSignature(quizSession);
   // Close editors tied to the previous account before showing another payload.
   if (wordDialog.open) wordDialog.close();
   if (bulkDialog.open) bulkDialog.close();
@@ -224,6 +266,19 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
   studyDefaults = studySettings(studySession);
   quizDefaults = quizSettings(quizSession);
   render(false);
+}
+
+function newerRound(slot, local, remote, alignId) {
+  const at = `${slot}At`;
+  if (!(roundTimeOf(remote[at]) > roundTimeOf(local[at]))) return { [slot]: local[slot] ?? null, [at]: local[at] ?? null };
+  const round = remote[slot];
+  if (!round) return { [slot]: null, [at]: remote[at] };
+  // Words added on both devices share one id after the merge; point the round at it.
+  const ids = (list) => Array.isArray(list) ? list.map(alignId) : list;
+  const moved = { ...round };
+  if (Array.isArray(round.queue)) moved.queue = round.queue.map((question) => ({ ...question, wordId: alignId(question.wordId) }));
+  for (const key of ["wordIds", "scheduledWordIds", "wrongWordIds", "unavailableIds"]) if (Array.isArray(round[key])) moved[key] = ids(round[key]);
+  return { [slot]: moved, [at]: remote[at] };
 }
 
 function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
@@ -400,9 +455,10 @@ function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
     ...local, version: STORAGE_VERSION, words, sessions: sessions.slice(-80),
     bookmarks: mergeBookmarks(local.bookmarks, remote.bookmarks, idAliases),
     studyProgress: mergeStudyProgress(base?.studyProgress, local.studyProgress, remote.studyProgress, idAliases),
-    // Progress is device-local while the page is open; the full payload still
-    // lets a freshly opened device resume the last cloud-saved session.
-    activeStudy: local.activeStudy, activeQuiz: local.activeQuiz,
+    // One person, one device at a time: the unfinished round that changed most
+    // recently wins (a closed round counts too). Unknown times keep this device's.
+    ...newerRound("activeStudy", local, remote, alignId),
+    ...newerRound("activeQuiz", local, remote, alignId),
     updatedAt: latest(local.updatedAt, remote.updatedAt),
   };
   const raw = JSON.stringify(merged);
@@ -498,6 +554,7 @@ function saveState() {
   state.updatedAt = new Date().toISOString();
   state.activeStudy = studySession;
   state.activeQuiz = quizSession;
+  stampRounds();
   const saved = studySync ? studySync.saveLocal(JSON.stringify(state)) : writeStoredState(browserStorage, state);
   document.querySelectorAll(".storage-note").forEach((node) => { node.textContent = saved ? "이 브라우저에 저장됨" : "저장 실패 · JSON 백업 필요"; });
   if (!saved) showToast("저장하지 못했어요. JSON 백업을 내려받아 주세요.", "error");

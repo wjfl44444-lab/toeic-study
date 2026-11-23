@@ -466,6 +466,13 @@
       }
       let storageAvailable = true;
       let state = null;
+      // When the unfinished round last changed. The round changed most recently,
+      // on whichever device, is the one to resume (a closed round counts too).
+      let stateAt = null, stateSignature = 'none';
+      const roundTime = value => Date.parse(value || '') || 0;
+      function roundSignature(s) {
+        return s ? [roundId(s), s.index, s.answers.filter(Boolean).length, s.selected, s.status, s.marked.length, !!s.review].join('|') : 'none';
+      }
       // Attempts travel between devices; the currently displayed round stays on this device.
       let history = { version: 1, attempts: [] };
       let view = 'start';
@@ -505,7 +512,7 @@
         try {
           const saved = localStorage.getItem(STORAGE_KEY);
           const parsed = saved ? parseStudyPayload(saved) : null;
-          if (parsed) history = parsed.history;
+          if (parsed) { history = parsed.history; stateAt = parsed.stateAt; stateSignature = roundSignature(parsed.state); }
           return parsed ? parsed.state : null;
         } catch (_) { storageAvailable = false; return null; }
       }
@@ -515,7 +522,9 @@
       }
       function studyPayload() {
         history = combineHistories(history, historyForState(state));
-        return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(state, history), state, history });
+        const signature = roundSignature(state);
+        if (signature !== stateSignature) { stateSignature = signature; stateAt = new Date().toISOString(); }
+        return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(state, history), state, history, stateAt });
       }
       function newRecordId(prefix) {
         const uuid = globalThis.crypto?.randomUUID?.();
@@ -574,7 +583,8 @@
           if (saved.state !== null && !restored) return null;
           const storedHistory = saved.history === undefined ? { version: 1, attempts: [] } : validateHistory(saved.history);
           if (!storedHistory) return null;
-          return { state: restored, history: combineHistories(storedHistory, historyForState(restored)) };
+          return { state: restored, history: combineHistories(storedHistory, historyForState(restored)),
+            stateAt: typeof saved.stateAt === 'string' && Number.isFinite(Date.parse(saved.stateAt)) ? saved.stateAt : null };
         } catch (_) { return null; }
       }
       function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
@@ -582,8 +592,9 @@
         const base = baseRaw ? parseStudyPayload(baseRaw) : null;
         if (!local || !remote) throw new Error('The quiz records could not be merged safely.');
         const mergedHistory = combineHistories(base?.history || { version: 1, attempts: [] }, local.history, remote.history);
-        return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(local.state, mergedHistory), state: local.state,
-          history: mergedHistory });
+        const pick = roundTime(remote.stateAt) > roundTime(local.stateAt) ? remote : local;
+        return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(pick.state, mergedHistory), state: pick.state,
+          history: mergedHistory, stateAt: pick.stateAt });
       }
       function applyStudyPayload(raw, options = {}) {
         const saved = parseStudyPayload(raw);
@@ -593,6 +604,17 @@
         // a second initial snapshot must not interrupt their card or answer.
         const alreadyOpenedRound = options.reason === 'initial' && !options.resetSession && view !== 'start' && state && saved.state &&
           roundId(state) === roundId(saved.state);
+        if (options.reason === 'background' && roundTime(saved.stateAt) > roundTime(stateAt)) {
+          // The round was continued (or closed) on another device since: show that one.
+          pendingStart = null;
+          closeRestart();
+          history = combineHistories(history, saved.history);
+          state = saved.state; stateAt = saved.stateAt; stateSignature = roundSignature(state);
+          if (view === 'start' || !state) showStart();
+          else if (state.status === 'complete') showFinish();
+          else { showView('quiz'); renderQuestion(); }
+          return true;
+        }
         if (options.reason === 'background' || alreadyOpenedRound) {
           history = combineHistories(history, saved.history, historyForState(state));
           if (view === 'start') renderWrongBox();
@@ -603,6 +625,7 @@
         closeRestart();
         state = saved.state;
         history = saved.history;
+        stateAt = saved.stateAt; stateSignature = roundSignature(state);
         if (options.reason === 'initial' || !state) showStart();
         else if (state.status === 'complete') showFinish();
         else { showView('quiz'); renderQuestion(); }

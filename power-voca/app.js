@@ -90,6 +90,11 @@
   var previousPracticeVersion = "20261019-linked1";
   var legacyGatedVersion = "20261019-gated-legacy1";
   var session = null;
+  // When the unfinished round last changed, so the most recently used device's
+  // round is the one to resume. Only a change to the round itself moves it.
+  var sessionAt = null, sessionSignature = "none";
+  function roundSignature() { try { return session ? JSON.stringify(serializedSession()) : "none"; } catch (_) { return "unknown"; } }
+  function roundTime(value) { return value ? Date.parse(value) || 0 : 0; }
   var storageKey = "power-voca-full-v1";
   var history = Object.create(null);
   var bookmarks = Object.create(null), bookmarkIndex = Object.create(null);
@@ -373,6 +378,7 @@
   }
   function currentPayload(compact) {
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
+    if (sessionAt) { saved.sessionAt = sessionAt; }
     if (Object.keys(bookmarks).length) { saved.bookmarks = bookmarks; }
     if (Object.keys(reviewStreaks).length) { saved.reviewStreaks = reviewStreaks; }
     if (archivedHistory.length) { saved.archivedHistory = archivedHistory; }
@@ -396,6 +402,8 @@
     if (applyingPayload) { return; }
     try {
       if (!preserveOriginal()) { throw new Error("Original guest record cannot be backed up"); }
+      var signature = roundSignature();
+      if (signature !== sessionSignature) { sessionSignature = signature; sessionAt = new Date().toISOString(); }
       var raw = currentPayload(Boolean(studySync));
       if (studySync) {
         if (!studySync.saveLocal(raw)) { throw new Error("Local account save failed"); }
@@ -520,6 +528,8 @@
         if (!session && syncModel) { unavailableSession = saved.session; }
         if (!session) { reportStorage("저장된 풀이가 현재 문제 데이터와 맞지 않아 이어 풀기는 불러오지 않았어요. 새 연습을 시작할 수 있어요."); }
       }
+      sessionAt = typeof saved.sessionAt === "string" && Number.isFinite(Date.parse(saved.sessionAt)) ? saved.sessionAt : null;
+      sessionSignature = roundSignature();
       var settings = saved.settings;
       if (settings && typeof settings === "object") {
         if (["20", "50", "100", "all"].indexOf(settings.roundSize) !== -1) { el("round-size").value = settings.roundSize; }
@@ -573,6 +583,14 @@
           text("question-wrong-count", questionWrongText(currentCard().question));
           if (currentCard().graded) { renderFeedbackWrong(currentCard().question); }
         }
+        if (roundTime(saved.sessionAt) > roundTime(sessionAt)) {
+          // The round was continued (or closed) on another device since: offer that one.
+          session = saved.session ? restoreSession(saved.session) : null;
+          unavailableSession = saved.session && !session ? saved.session : null;
+          sessionAt = saved.sessionAt; sessionSignature = roundSignature();
+          clearFeedback();
+          showStart();
+        }
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
         bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
@@ -586,6 +604,7 @@
         syncReceipts = saved._studySync || null;
         session = saved.session ? restoreSession(saved.session) : null;
         unavailableSession = saved.session && !session ? saved.session : null;
+        sessionAt = saved.sessionAt || null; sessionSignature = roundSignature();
         applySettings(saved.settings);
         clearFeedback();
         showStart();
