@@ -469,6 +469,8 @@
       // When the unfinished round last changed. The round changed most recently,
       // on whichever device, is the one to resume (a closed round counts too).
       let stateAt = null, stateSignature = 'none';
+      // Setup choices travel with the account too; the latest change on any device wins.
+      let prefs = null, prefsAt = null, prefsSignature = null, wrongSizePref = null;
       const roundTime = value => Date.parse(value || '') || 0;
       function roundSignature(s) {
         return s ? [roundId(s), s.index, s.answers.filter(Boolean).length, s.selected, s.status, s.marked.length, !!s.review].join('|') : 'none';
@@ -512,7 +514,7 @@
         try {
           const saved = localStorage.getItem(STORAGE_KEY);
           const parsed = saved ? parseStudyPayload(saved) : null;
-          if (parsed) { history = parsed.history; stateAt = parsed.stateAt; stateSignature = roundSignature(parsed.state); }
+          if (parsed) { history = parsed.history; stateAt = parsed.stateAt; stateSignature = roundSignature(parsed.state); usePrefs(parsed.prefs, parsed.prefsAt); }
           return parsed ? parsed.state : null;
         } catch (_) { storageAvailable = false; return null; }
       }
@@ -524,7 +526,10 @@
         history = combineHistories(history, historyForState(state));
         const signature = roundSignature(state);
         if (signature !== stateSignature) { stateSignature = signature; stateAt = new Date().toISOString(); }
-        return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(state, history), state, history, stateAt });
+        const nowPrefs = currentPrefs(), prefsKey = JSON.stringify(nowPrefs);
+        if (prefsSignature !== null && prefsKey !== prefsSignature) { prefs = nowPrefs; prefsAt = new Date().toISOString(); }
+        prefsSignature = prefsKey;
+        return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(state, history), state, history, stateAt, prefs, prefsAt });
       }
       function newRecordId(prefix) {
         const uuid = globalThis.crypto?.randomUUID?.();
@@ -584,7 +589,9 @@
           const storedHistory = saved.history === undefined ? { version: 1, attempts: [] } : validateHistory(saved.history);
           if (!storedHistory) return null;
           return { state: restored, history: combineHistories(storedHistory, historyForState(restored)),
-            stateAt: typeof saved.stateAt === 'string' && Number.isFinite(Date.parse(saved.stateAt)) ? saved.stateAt : null };
+            stateAt: typeof saved.stateAt === 'string' && Number.isFinite(Date.parse(saved.stateAt)) ? saved.stateAt : null,
+            prefs: saved.prefs && typeof saved.prefs === 'object' && !Array.isArray(saved.prefs) ? saved.prefs : null,
+            prefsAt: typeof saved.prefsAt === 'string' && Number.isFinite(Date.parse(saved.prefsAt)) ? saved.prefsAt : null };
         } catch (_) { return null; }
       }
       function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
@@ -593,8 +600,9 @@
         if (!local || !remote) throw new Error('The quiz records could not be merged safely.');
         const mergedHistory = combineHistories(base?.history || { version: 1, attempts: [] }, local.history, remote.history);
         const pick = roundTime(remote.stateAt) > roundTime(local.stateAt) ? remote : local;
+        const setup = roundTime(remote.prefsAt) > roundTime(local.prefsAt) ? remote : local;
         return JSON.stringify({ version: VERSION, fingerprint: payloadFingerprint(pick.state, mergedHistory), state: pick.state,
-          history: mergedHistory, stateAt: pick.stateAt });
+          history: mergedHistory, stateAt: pick.stateAt, prefs: setup.prefs, prefsAt: setup.prefsAt });
       }
       function applyStudyPayload(raw, options = {}) {
         const saved = parseStudyPayload(raw);
@@ -604,6 +612,7 @@
         // a second initial snapshot must not interrupt their card or answer.
         const alreadyOpenedRound = options.reason === 'initial' && !options.resetSession && view !== 'start' && state && saved.state &&
           roundId(state) === roundId(saved.state);
+        if (roundTime(saved.prefsAt) > roundTime(prefsAt)) usePrefs(saved.prefs, saved.prefsAt);
         if (options.reason === 'background' && roundTime(saved.stateAt) > roundTime(stateAt)) {
           // The round was continued (or closed) on another device since: show that one.
           pendingStart = null;
@@ -626,6 +635,7 @@
         state = saved.state;
         history = saved.history;
         stateAt = saved.stateAt; stateSignature = roundSignature(state);
+        usePrefs(saved.prefs, saved.prefsAt);
         if (options.reason === 'initial' || !state) showStart();
         else if (state.status === 'complete') showFinish();
         else { showView('quiz'); renderQuestion(); }
@@ -701,6 +711,27 @@
         byId('scope-note').hidden = !addedQuestions.length;
         byId('scope-note').textContent = `선택 범위 ${pool.length}문제 · 퀵스타트는 본문 예제·객관식 연습·실전 문제이며, 교재가 제시한 정답으로 채점해요. Part 6·7은 포함하지 않아요.`;
       }
+      function currentPrefs() {
+        return { pool: selectedPool(), count: elements.count.value, shuffle: elements.shuffle.checked,
+          wrongUnmastered, wrongSize: byId('wrong-size').value || wrongSizePref || '20' };
+      }
+      function usePrefs(next, at) {
+        if (!next || typeof next !== 'object') return;
+        prefs = next; prefsAt = at || null;
+        if (typeof next.pool === 'string' && next.pool.length <= 60) {
+          const before = selectedPool();
+          applyPool(next.pool);
+          if (selectedPool() !== next.pool) applyPool(before);
+        }
+        if (typeof next.count === 'string' && [...elements.count.options].some(o => o.value === next.count)) elements.count.value = next.count;
+        if (typeof next.shuffle === 'boolean') elements.shuffle.checked = next.shuffle;
+        if (typeof next.wrongUnmastered === 'boolean') wrongUnmastered = next.wrongUnmastered;
+        if (typeof next.wrongSize === 'string' && /^(10|20|30|all)$/.test(next.wrongSize)) wrongSizePref = next.wrongSize;
+        // The shared choices are what the person picked last; a saved round must not override them.
+        setupTouched = true;
+        prefsSignature = JSON.stringify(currentPrefs());
+        if (view === 'start') renderWrongBox();
+      }
       function applyPool(pool) {
         byId('source-filter').value = pool.startsWith('qs-unit-') ? 'quickstart' : pool;
         byId('unit-filter').value = pool.startsWith('qs-unit-') ? pool.slice(8) : 'all';
@@ -748,7 +779,8 @@
         byId('wrong-page-label').textContent = `${wrongPage + 1} / ${pages}`;
         byId('wrong-prev').disabled = wrongPage === 0;
         byId('wrong-next').disabled = wrongPage >= pages - 1;
-        const size = byId('wrong-size'), previous = size.value || '20';
+        const size = byId('wrong-size'), previous = wrongSizePref || size.value || '20';
+        wrongSizePref = null;
         size.replaceChildren();
         for (const count of [10, 20, 30]) if (count < entries.length) { const option = document.createElement('option'); option.value = String(count); option.textContent = `${count}문제`; size.append(option); }
         const all = document.createElement('option'); all.value = 'all'; all.textContent = `모두 (${entries.length}문제)`; size.append(all);
@@ -987,7 +1019,9 @@
         wrongUnmastered = event.target.checked; wrongPage = 0;
         try { localStorage.setItem('quiz-review-unmastered', wrongUnmastered ? '1' : '0'); } catch (_) { /* Storage unavailable. */ }
         renderWrongBox();
+        save();
       });
+      byId('wrong-size').addEventListener('change', () => save());
       byId('wrong-prev').addEventListener('click', () => { wrongPage--; renderWrongBox(); });
       byId('wrong-next').addEventListener('click', () => { wrongPage++; renderWrongBox(); });
       byId('wrong-start').addEventListener('click', () => {
@@ -1002,10 +1036,10 @@
         } else beginSession(ids, options);
       });
       byId('new-round-button').addEventListener('click', () => beginSession(undefined, { baseCount: state.baseCount, shuffleChoices: state.shuffleChoices, pool: sessionPool(state) }));
-      byId('source-filter').addEventListener('change', () => { setupTouched = true; byId('unit-filter').value = 'all'; refreshPoolSettings(); });
-      byId('unit-filter').addEventListener('change', () => { setupTouched = true; refreshPoolSettings(); });
-      elements.count.addEventListener('change', () => { setupTouched = true; });
-      elements.shuffle.addEventListener('change', () => { setupTouched = true; });
+      byId('source-filter').addEventListener('change', () => { setupTouched = true; byId('unit-filter').value = 'all'; refreshPoolSettings(); save(); });
+      byId('unit-filter').addEventListener('change', () => { setupTouched = true; refreshPoolSettings(); save(); });
+      elements.count.addEventListener('change', () => { setupTouched = true; save(); });
+      elements.shuffle.addEventListener('change', () => { setupTouched = true; save(); });
       document.addEventListener('keydown', event => {
         if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.repeat || view !== 'quiz' || elements.dialog.open) return;
         const target = event.target;

@@ -20,9 +20,12 @@
     state.apply=(value,metadata={},active=false)=>{
       const incoming=M.parse(value);if(!incoming)throw Error('계정 기록 형식이 올바르지 않아요.');
       const keep=active&&metadata.accountSwitch!==true&&metadata.reason!=='restore';
+      const before=state.payload.sessionAt||null;
       state.payload=keep?M.parse(M.merge(null,state.raw(),value)):incoming;
-      if(!keep)restore();
-      return !keep;
+      // A round continued on another device since replaces the open one too.
+      const moved=keep&&(state.payload.sessionAt||null)!==before;
+      if(!keep||moved)restore();
+      return !keep||moved;
     };
     state.import=value=>{
       if(!M.parse(value))throw Error('이 파일은 문형·구조 개편판 기록 파일이 아니에요.');

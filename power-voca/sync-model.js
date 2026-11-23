@@ -215,6 +215,7 @@
             settings.bundleByVerb !== undefined && typeof settings.bundleByVerb !== "boolean") { return null; }
         result.settings = { roundSize: settings.roundSize, step: settings.step, shuffleQuestions: settings.shuffleQuestions, shuffleOptions: settings.shuffleOptions };
         if (settings.bundleByVerb === true) { result.settings.bundleByVerb = true; }
+        if (settings.starredOnly === true) { result.settings.starredOnly = true; }
       }
       var records;
       if (value.version !== 1) {
@@ -260,6 +261,7 @@
       if (value.reviewStreaks !== undefined) { result.reviewStreaks = reviewStreaks(value.reviewStreaks); }
       // When the unfinished round last changed; an unreadable time counts as unknown.
       if (date(value.sessionAt)) { result.sessionAt = new Date(value.sessionAt).toISOString(); }
+      if (date(value.settingsAt)) { result.settingsAt = new Date(value.settingsAt).toISOString(); }
       return result;
     } catch (_) { return null; }
   }
@@ -299,6 +301,7 @@
     if (value.bookmarks !== undefined) { result.bookmarks = bookmarks(value.bookmarks); }
     if (value.reviewStreaks !== undefined && Object.keys(value.reviewStreaks).length) { result.reviewStreaks = reviewStreaks(value.reviewStreaks); }
     if (date(value.sessionAt)) { result.sessionAt = value.sessionAt; }
+    if (date(value.settingsAt)) { result.settingsAt = value.settingsAt; }
     var raw = JSON.stringify(result);
     if (!parse(raw)) { throw new Error("Invalid VOCA state"); }
     return raw;
@@ -326,6 +329,10 @@
     var sessionTime = function (value) { return value && value.sessionAt ? Date.parse(value.sessionAt) : 0; };
     if (sessionTime(remote) > sessionTime(local)) { result.session = remote.session; result.sessionAt = remote.sessionAt; }
     else if (local.sessionAt) { result.sessionAt = local.sessionAt; }
+    // Setup choices follow the same rule.
+    var settingsTime = function (value) { return value && value.settingsAt ? Date.parse(value.settingsAt) : 0; };
+    if (settingsTime(remote) > settingsTime(local)) { result.settings = remote.settings; result.settingsAt = remote.settingsAt; }
+    else if (local.settingsAt) { result.settingsAt = local.settingsAt; }
     Array.from(ids).sort().forEach(function (revision) {
       var l = ls.get(revision), r = rs.get(revision), b = bs.get(revision), chosen = l || r || b, record = { signature: chosen.signature };
       counters.forEach(function (name) {

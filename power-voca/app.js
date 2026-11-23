@@ -92,7 +92,7 @@
   var session = null;
   // When the unfinished round last changed, so the most recently used device's
   // round is the one to resume. Only a change to the round itself moves it.
-  var sessionAt = null, sessionSignature = "none";
+  var sessionAt = null, sessionSignature = "none", settingsAt = null, settingsSignature = null;
   function roundSignature() { try { return session ? JSON.stringify(serializedSession()) : "none"; } catch (_) { return "unknown"; } }
   function roundTime(value) { return value ? Date.parse(value) || 0 : 0; }
   var storageKey = "power-voca-full-v1";
@@ -374,11 +374,13 @@
     var settings = { roundSize: el("round-size").value, step: scope !== "all" ? scope : group === "all" ? "all" : "group-" + group,
       shuffleQuestions: el("shuffle-questions").checked, shuffleOptions: el("shuffle-options").checked };
     if (el("bundle-by-verb").checked) { settings.bundleByVerb = true; }
+    if (el("bookmarks-only").checked) { settings.starredOnly = true; }
     return settings;
   }
   function currentPayload(compact) {
     var saved = { version: 1, session: serializedSession(), history: history, settings: currentSettings() };
     if (sessionAt) { saved.sessionAt = sessionAt; }
+    if (settingsAt) { saved.settingsAt = settingsAt; }
     if (Object.keys(bookmarks).length) { saved.bookmarks = bookmarks; }
     if (Object.keys(reviewStreaks).length) { saved.reviewStreaks = reviewStreaks; }
     if (archivedHistory.length) { saved.archivedHistory = archivedHistory; }
@@ -404,6 +406,9 @@
       if (!preserveOriginal()) { throw new Error("Original guest record cannot be backed up"); }
       var signature = roundSignature();
       if (signature !== sessionSignature) { sessionSignature = signature; sessionAt = new Date().toISOString(); }
+      var setup = JSON.stringify(currentSettings());
+      if (settingsSignature !== null && setup !== settingsSignature) { settingsAt = new Date().toISOString(); }
+      settingsSignature = setup;
       var raw = currentPayload(Boolean(studySync));
       if (studySync) {
         if (!studySync.saveLocal(raw)) { throw new Error("Local account save failed"); }
@@ -530,6 +535,8 @@
       }
       sessionAt = typeof saved.sessionAt === "string" && Number.isFinite(Date.parse(saved.sessionAt)) ? saved.sessionAt : null;
       sessionSignature = roundSignature();
+      settingsAt = typeof saved.settingsAt === "string" && Number.isFinite(Date.parse(saved.settingsAt)) ? saved.settingsAt : null;
+      if (saved.settings && saved.settings.starredOnly === true) { el("bookmarks-only").checked = true; }
       var settings = saved.settings;
       if (settings && typeof settings === "object") {
         if (["20", "50", "100", "all"].indexOf(settings.roundSize) !== -1) { el("round-size").value = settings.roundSize; }
@@ -538,6 +545,7 @@
         if (typeof settings.shuffleOptions === "boolean") { el("shuffle-options").checked = settings.shuffleOptions; }
         el("bundle-by-verb").checked = settings.bundleByVerb === true;
       }
+      settingsSignature = JSON.stringify(currentSettings());
     } catch (error) {
       if (typeof raw === "string") { unreadableOriginal = raw; }
       reportStorage("저장된 기록을 읽지 못했어요. 현재 문제는 정상적으로 풀 수 있고, 새 풀이부터 이 브라우저에 다시 저장해요.");
@@ -550,6 +558,7 @@
     el("shuffle-questions").checked = settings.shuffleQuestions;
     el("shuffle-options").checked = settings.shuffleOptions;
     el("bundle-by-verb").checked = settings.bundleByVerb === true;
+    el("bookmarks-only").checked = settings.starredOnly === true;
   }
   function applyStudyPayload(raw, options) {
     var saved = syncModel && syncModel.parse(raw);
@@ -591,6 +600,12 @@
           clearFeedback();
           showStart();
         }
+        if (roundTime(saved.settingsAt) > roundTime(settingsAt)) {
+          // Setup choices changed on another device since: use those.
+          applySettings(saved.settings);
+          settingsAt = saved.settingsAt; settingsSignature = JSON.stringify(currentSettings());
+          if (view === "start") { updateSettings(); }
+        }
       } else {
         history = saved.history; archivedHistory = saved.archivedHistory;
         bookmarks = saved.bookmarks || Object.create(null); rebuildBookmarkIndex(); renderBookmarkButtons();
@@ -606,6 +621,7 @@
         unavailableSession = saved.session && !session ? saved.session : null;
         sessionAt = saved.sessionAt || null; sessionSignature = roundSignature();
         applySettings(saved.settings);
+        settingsAt = saved.settingsAt || null; settingsSignature = JSON.stringify(currentSettings());
         clearFeedback();
         showStart();
         if (unavailableSession) { reportStorage("다른 버전의 문제로 저장된 이어 풀기는 보관했어요. 현재 문제로 새 연습을 시작할 수 있고, 누적 학습 기록은 유지돼요."); }
@@ -2217,8 +2233,8 @@
   ["shuffle-questions", "shuffle-options", "round-size", "step-filter"].forEach(function (id) {
     el(id).addEventListener("change", function () { updateSettings(); saveState(); });
   });
-  el("bookmarks-only").addEventListener("change", updateSettings);
-  el("bundle-by-verb").addEventListener("change", updateSettings);
+  el("bookmarks-only").addEventListener("change", function () { updateSettings(); saveState(); });
+  el("bundle-by-verb").addEventListener("change", function () { updateSettings(); saveState(); });
   el("home-link").addEventListener("click", function (event) { event.preventDefault(); showStart(); });
   el("home-button").addEventListener("click", showStart);
   el("resume-button").addEventListener("click", function () { if (!unifiedImportReady || !session) { return; } if (!totals().ungraded) { showResults(); } else { renderQuestion(true); } });

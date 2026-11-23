@@ -28,6 +28,8 @@
       const p=JSON.parse(raw);
       if(!obj(p)||p.kind!=='power-grammar'||p.version!==1||!sessionValid(p.session)||!obj(p.history)||Object.keys(p.history).length>10000||!Array.isArray(p.counted)||new Set(p.counted).size!==p.counted.length||p.counted.some(id=>!key(id)||!validRecord(p.history[id])||!p.session?.ids.includes(p.history[id].id))||(p.session?!key(p.roundId):p.roundId!==null||p.counted.length))return null;
       const out=empty();out.session=p.session;out.roundId=p.roundId;out.counted=p.counted.slice();
+      // When the unfinished round last changed; the most recently used device's round wins.
+      if(stamp(p.sessionAt))out.sessionAt=new Date(p.sessionAt).toISOString();
       for(const id of Object.keys(p.history).sort()){const r=p.history[id];if(!key(id)||!validRecord(r)||id!==r.id+'@'+r.signature)return null;out.history[id]={id:r.id,signature:r.signature,...Object.fromEntries(fields.map(f=>[f,r[f]])),lastAt:r.lastAt};}
       if(p._studySync!==undefined){const r=p._studySync;if(!obj(r)||r.version!==1||!Array.isArray(r.commits)||r.commits.length>256||new Set(r.commits).size!==r.commits.length||!r.commits.every(id=>typeof id==='string'&&/^[a-zA-Z0-9-]{8,100}$/.test(id)))return null;out._studySync={version:1,commits:r.commits.slice()};}
       return out;
@@ -41,7 +43,7 @@
     // Engine-created transitions are trusted; replay is only for external restore/import.
     if(session?.signature!==E.signature(cards)||!sessionValid(session))throw Error('진행 중인 문항 기록을 확인할 수 없어요.');
     if(p.roundId!==roundId)p.counted=[];
-    p.session=clone(session);p.roundId=roundId;
+    p.session=clone(session);p.roundId=roundId;p.sessionAt=now;
     for(const id of session.ids){const e=session.entries[id];if(!e.complete)continue;
       const c=cards.find(c=>c.id===id),signature=E.signature([c]),historyKey=id+'@'+signature;
       if(p.counted.includes(historyKey))continue;
@@ -69,6 +71,10 @@
         if(e?.complete){const contribution={attempts:1,correct:Number(e.answers.length===e.orders.length&&e.answers.every(a=>a.correct)),stagesGraded:e.answers.length,stagesCorrect:e.answers.filter(a=>a.correct).length};for(const f of fields)item[f]-=contribution[f];}
       }
       out.history[id]=item;
+    }
+    // One person, one device at a time: the round that changed most recently wins.
+    if(r.sessionAt&&(!l.sessionAt||Date.parse(r.sessionAt)>Date.parse(l.sessionAt))){
+      out.session=clone(r.session);out.roundId=r.roundId;if(!sameRound)out.counted=r.counted.slice();out.sessionAt=r.sessionAt;
     }
     const commits=[...new Set([...(b?._studySync?.commits||[]),...(l._studySync?.commits||[]),...(r._studySync?.commits||[])])].slice(-256);
     if(commits.length)out._studySync={version:1,commits};

@@ -24,8 +24,8 @@ import {
   uniqueStrings,
   wordsToCsv,
   wordIdentity
-} from "./core.js?v=20261124-round1";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261124-round1";
+} from "./core.js?v=20261124-prefs1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261124-prefs1";
 
 import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress, reviewStreakOf, STREAK_GOAL } from "./progress.js?v=20261109-streak1";
 
@@ -97,6 +97,45 @@ let reviewCount = 20;
 let reviewMode = "multiple";
 // Per-device preference: show only wrong words not yet answered right 3 times in a row.
 let reviewUnmastered = (() => { try { return window.localStorage.getItem("vocab-review-unmastered") === "1"; } catch { return false; } })();
+
+// Setup choices travel with the account like the records: the latest change on
+// any device wins. Each value is checked before use; anything unknown is ignored.
+const DIRECTIONS = ["word-to-meaning", "meaning-to-word"];
+const countValue = (value, fallback) => value === "all" ? "all" : Number.isInteger(value) && value > 0 && value <= 1000 ? value : fallback;
+function currentPrefs() {
+  return { homeMode, study: { direction: studyDefaults.direction, count: studyDefaults.count },
+    quiz: { mode: quizDefaults.mode, direction: quizDefaults.direction, count: quizDefaults.count, onlyWrong: Boolean(quizDefaults.onlyWrong) },
+    review: { mode: reviewMode, count: reviewCount, minWrong: reviewMinWrong, unmastered: reviewUnmastered } };
+}
+function usePrefs(prefs) {
+  if (!isRecord(prefs)) return;
+  if (["flashcard", "multiple", "typing"].includes(prefs.homeMode)) homeMode = prefs.homeMode;
+  if (isRecord(prefs.study)) {
+    if (DIRECTIONS.includes(prefs.study.direction)) studyDefaults.direction = prefs.study.direction;
+    studyDefaults.count = countValue(prefs.study.count, studyDefaults.count);
+  }
+  if (isRecord(prefs.quiz)) {
+    if (["multiple", "typing"].includes(prefs.quiz.mode)) quizDefaults.mode = prefs.quiz.mode;
+    if (DIRECTIONS.includes(prefs.quiz.direction)) quizDefaults.direction = prefs.quiz.direction;
+    quizDefaults.count = countValue(prefs.quiz.count, quizDefaults.count);
+    if (typeof prefs.quiz.onlyWrong === "boolean") quizDefaults.onlyWrong = prefs.quiz.onlyWrong;
+  }
+  if (isRecord(prefs.review)) {
+    if (["flashcard", "multiple", "typing"].includes(prefs.review.mode)) reviewMode = prefs.review.mode;
+    reviewCount = countValue(prefs.review.count, reviewCount);
+    if (Number.isInteger(prefs.review.minWrong) && prefs.review.minWrong >= 1 && prefs.review.minWrong <= 99) reviewMinWrong = prefs.review.minWrong;
+    if (typeof prefs.review.unmastered === "boolean") reviewUnmastered = prefs.review.unmastered;
+  }
+}
+usePrefs(state.prefs);
+let prefsSignature = JSON.stringify(currentPrefs());
+function stampPrefs() {
+  const signature = JSON.stringify(currentPrefs());
+  if (signature === prefsSignature) return;
+  prefsSignature = signature;
+  state.prefs = currentPrefs();
+  state.prefsAt = new Date().toISOString();
+}
 const payloadChecks = new Map();
 let studySync = null;
 let payloadRevision = 0;
@@ -224,7 +263,7 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
     // DOM, focus, filters, editor text, selected answer and session identities.
     rememberSessionWords(studySession);
     rememberSessionWords(quizSession);
-    const ownTimes = { activeStudyAt: state.activeStudyAt, activeQuizAt: state.activeQuizAt };
+    const ownTimes = { activeStudyAt: state.activeStudyAt, activeQuizAt: state.activeQuizAt, prefs: state.prefs, prefsAt: state.prefsAt };
     state = { ...next, activeStudy: studySession, activeQuiz: quizSession, ...ownTimes };
     // A round continued on another device since: open that one instead.
     let adopted = false;
@@ -241,6 +280,13 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
     if (adopted) {
       studyDefaults = studySettings(studySession);
       quizDefaults = quizSettings(quizSession);
+    }
+    // Setup choices changed on another device since: use those.
+    if (adopted || roundTimeOf(next.prefsAt) > roundTimeOf(ownTimes.prefsAt)) {
+      const prefs = roundTimeOf(next.prefsAt) > roundTimeOf(ownTimes.prefsAt) ? next.prefs : ownTimes.prefs;
+      state.prefs = prefs; state.prefsAt = roundTimeOf(next.prefsAt) > roundTimeOf(ownTimes.prefsAt) ? next.prefsAt : ownTimes.prefsAt;
+      usePrefs(prefs);
+      prefsSignature = JSON.stringify(currentPrefs());
       render(false);
     }
     return;
@@ -265,6 +311,8 @@ function applyStudyPayload(raw, { reason = "initial" } = {}) {
   reviewMinWrong = 1;
   studyDefaults = studySettings(studySession);
   quizDefaults = quizSettings(quizSession);
+  usePrefs(state.prefs);
+  prefsSignature = JSON.stringify(currentPrefs());
   render(false);
 }
 
@@ -459,6 +507,7 @@ function mergeStudyPayload(baseRaw, localRaw, remoteRaw) {
     // recently wins (a closed round counts too). Unknown times keep this device's.
     ...newerRound("activeStudy", local, remote, alignId),
     ...newerRound("activeQuiz", local, remote, alignId),
+    ...(roundTimeOf(remote.prefsAt) > roundTimeOf(local.prefsAt) ? { prefs: remote.prefs, prefsAt: remote.prefsAt } : { prefs: local.prefs ?? null, prefsAt: local.prefsAt ?? null }),
     updatedAt: latest(local.updatedAt, remote.updatedAt),
   };
   const raw = JSON.stringify(merged);
@@ -555,6 +604,7 @@ function saveState() {
   state.activeStudy = studySession;
   state.activeQuiz = quizSession;
   stampRounds();
+  stampPrefs();
   const saved = studySync ? studySync.saveLocal(JSON.stringify(state)) : writeStoredState(browserStorage, state);
   document.querySelectorAll(".storage-note").forEach((node) => { node.textContent = saved ? "이 브라우저에 저장됨" : "저장 실패 · JSON 백업 필요"; });
   if (!saved) showToast("저장하지 못했어요. JSON 백업을 내려받아 주세요.", "error");
@@ -1613,6 +1663,7 @@ document.addEventListener("change", (event) => {
     rememberStudyTag(String(data.get("tag")));
     reviewPage = 0;
     render(false);
+    saveStateSoon();
   } else if (event.target.closest?.("#home-config")) {
     const data = new FormData(event.target.closest("#home-config"));
     homeMode = String(data.get("mode"));
@@ -1621,15 +1672,18 @@ document.addEventListener("change", (event) => {
     else quizDefaults = { ...settings, mode: homeMode, onlyWrong: false };
     rememberStudyTag(settings.tag);
     if (event.target.name === "mode") render(false);
+    saveStateSoon();
   } else if (event.target.closest?.("#quiz-config")) {
     const data = new FormData(event.target.closest("#quiz-config"));
     quizDefaults = { mode: String(data.get("mode")), direction: String(data.get("direction")), tag: String(data.get("tag")), onlyWrong: data.get("onlyWrong") === "on", count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
     rememberStudyTag(quizDefaults.tag);
     render(false);
+    saveStateSoon();
   } else if (event.target.closest?.("#study-config")) {
     const data = new FormData(event.target.closest("#study-config"));
     studyDefaults = { direction: String(data.get("direction")), tag: String(data.get("tag")), count: String(data.get("count")) === "all" ? "all" : Number(data.get("count")) };
     rememberStudyTag(studyDefaults.tag);
+    saveStateSoon();
   } else if (event.target.matches("[data-status-id]")) {
     state.words = state.words.map((word) => word.id === event.target.dataset.statusId ? { ...word, status: event.target.value } : word);
     saveState();

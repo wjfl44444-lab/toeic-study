@@ -154,6 +154,8 @@ export function normalizeState(raw, now = new Date().toISOString()) {
     activeStudy: raw.activeStudy || null, activeQuiz: raw.activeQuiz || null,
     // When each unfinished round last changed (null for records saved before this existed).
     activeStudyAt: roundTime(raw.activeStudyAt), activeQuizAt: roundTime(raw.activeQuizAt),
+    // Setup choices shared across devices (checked again where they are used).
+    prefs: raw.prefs && typeof raw.prefs === "object" && !Array.isArray(raw.prefs) ? raw.prefs : null, prefsAt: roundTime(raw.prefsAt),
     updatedAt: raw.updatedAt || now };
 }
 
