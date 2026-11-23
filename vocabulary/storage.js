@@ -2,6 +2,18 @@ import { STORAGE_KEY, createInitialState, upgradeState } from "./core.js?v=20261
 
 export const BACKUP_KEY = `${STORAGE_KEY}-backup`;
 export const RECOVERY_KEY = `${STORAGE_KEY}-recovery`;
+const LEGACY_ORIGINAL_KEY = "toeic-sync:v1:vocabulary:legacy-before-first-login";
+
+// The pre-update copy is often byte-for-byte the same record that is kept
+// elsewhere. On a phone that third identical copy filled the storage the
+// account sync needs, so drop it only when another identical copy remains.
+function dropDuplicateBackup(storage) {
+  try {
+    const backup = storage.getItem(BACKUP_KEY);
+    if (backup === null) return;
+    if (backup === storage.getItem(STORAGE_KEY) || backup === storage.getItem(LEGACY_ORIGINAL_KEY)) storage.removeItem(BACKUP_KEY);
+  } catch { /* Leave storage as it is. */ }
+}
 
 // Storage is injected so quota failures and corrupt data can be checked without a browser.
 export function readStoredState(storage) {
@@ -24,6 +36,7 @@ export function readStoredState(storage) {
         return { state: result.state, notice: "업데이트를 저장하지 못했어요. 현재 단어장을 JSON으로 백업해 주세요.", blocked: false, error: true };
       }
     }
+    if (!result.migrated) dropDuplicateBackup(storage);
     const notice = result.migrated ? `단어장 업데이트 · 새 단어 ${result.addedCount}개 · 중복 ${result.duplicateCount}개 통합` : "";
     return { state: result.state, notice, blocked: false };
   } catch {

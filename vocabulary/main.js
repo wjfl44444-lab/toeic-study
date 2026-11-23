@@ -25,7 +25,7 @@ import {
   wordsToCsv,
   wordIdentity
 } from "./core.js?v=20261119-lookalike1";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261119-lookalike1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261124-dedupe1";
 
 import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress, reviewStreakOf, STREAK_GOAL } from "./progress.js?v=20261109-streak1";
 
