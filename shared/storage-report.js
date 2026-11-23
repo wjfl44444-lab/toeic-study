@@ -88,16 +88,34 @@ export function renderStorageReport(container) {
   head.append("전체 사용량 ", el("strong", "font-size:20px;", kb(report.total)));
   container.append(head, el("p", "margin:0 0 8px;font-size:12px;opacity:.75;",
     `항목 ${report.count}개 · 보통 폰 브라우저는 약 5,000 KB까지 저장할 수 있어요. 아래 지우기 버튼을 누를 때만 바뀌어요.`));
-  const oldCopy = window.localStorage.getItem(OLD_UPDATE_COPY);
-  if (oldCopy !== null) {
+  // Copies that are safe to drop: neither the current record nor the account
+  // depends on them. Each one is removed only after a confirmation.
+  const removable = [];
+  if (window.localStorage.getItem(OLD_UPDATE_COPY) !== null) {
+    removable.push({ key: OLD_UPDATE_COPY, button: "옛 사본 지우기",
+      note: "옛 업데이트 전 사본: 예전 단어장 업데이트 때 만든 사본이에요. 지금 기록과 계정 기록에는 영향이 없어요.",
+      ask: "옛 업데이트 전 사본을 지울까요?" });
+  }
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    const match = key && key.match(/^toeic-sync:v1:([^:]+):recovery:/);
+    if (!match) continue;
+    const app = APPS[match[1]] || match[1];
+    // The kept copy of this device's record from before it was merged with
+    // another device; its contents are already in the merged record.
+    removable.push({ key, button: `${app} 보관된 기기 기록 지우기`,
+      note: `${app} 보관된 기기 기록: 다른 기기 기록과 합치기 전의 이 기기 기록이에요. 내용은 이미 지금 기록에 합쳐졌어요.`,
+      ask: `${app} 보관된 기기 기록을 지울까요?` });
+  }
+  for (const item of removable) {
+    const value = window.localStorage.getItem(item.key) || "";
     const box = el("div", "margin:10px 0 4px;padding:10px 12px;border:1px solid rgba(255,255,255,.18);border-radius:10px;");
-    box.append(el("p", "margin:0 0 8px;font-size:13px;",
-      `옛 업데이트 전 사본 (${kb(oldCopy.length)}): 예전 단어장 업데이트 때 만든 사본이에요. 지금 기록과 계정 기록에는 영향이 없어요.`));
-    const remove = el("button", "font:inherit;padding:8px 12px;border-radius:8px;", "옛 사본 지우기");
+    box.append(el("p", "margin:0 0 8px;font-size:13px;", `${item.note} (${kb(item.key.length + value.length)})`));
+    const remove = el("button", "font:inherit;padding:8px 12px;border-radius:8px;", item.button);
     remove.type = "button";
     remove.addEventListener("click", () => {
-      if (!window.confirm("옛 업데이트 전 사본을 지울까요?\n지금 단어장 기록과 계정 기록은 그대로예요. 지운 사본은 되돌릴 수 없어요.")) return;
-      try { window.localStorage.removeItem(OLD_UPDATE_COPY); } catch { /* Shown again below if it stayed. */ }
+      if (!window.confirm(`${item.ask}\n지금 기록과 계정 기록은 그대로예요. 지운 사본은 되돌릴 수 없어요.`)) return;
+      try { window.localStorage.removeItem(item.key); } catch { /* Shown again below if it stayed. */ }
       renderStorageReport(container);
     });
     box.append(remove);
