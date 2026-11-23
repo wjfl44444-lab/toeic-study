@@ -108,7 +108,7 @@ export function connectStudySync(options = {}) {
   let accountCacheBlocked = false;
   const memoryAccounts = new Map();
   let guestMemoryDirty = false;
-  let bar, panel, identity, status, actions, detail, toolsActions;
+  let bar, panel, identity, status, actions, detail, toolsActions, storageView;
   // Collapsed to one line normally; opened automatically when the user must act.
   const attentionPhases = ["guest", "choice", "conflict", "error"];
   let attentionShown = null;
@@ -852,6 +852,15 @@ export function connectStudySync(options = {}) {
         button("보관된 기기 기록 백업", () => download(saved.payload, "preserved-device"), false, false, toolsActions);
         button("보관된 기기 기록으로 복구", restoreRecovery, false, Boolean(inflight || account?.lastSent), toolsActions);
       }
+      // Read-only: shows what fills this browser's storage (a home-screen app has its own).
+      button(storageView && !storageView.hidden ? "저장 공간 닫기" : "저장 공간 보기", async () => {
+        if (!storageView) return;
+        if (!storageView.hidden) { storageView.hidden = true; render(); return; }
+        const { renderStorageReport } = await import("./storage-report.js?v=20261124-report1");
+        renderStorageReport(storageView);
+        storageView.hidden = false;
+        render();
+      }, false, false, toolsActions);
     }
   }
 
@@ -873,7 +882,8 @@ export function connectStudySync(options = {}) {
     const toolsHeading = document.createElement("summary"); toolsHeading.textContent = "기록 관리";
     toolsActions = document.createElement("div"); toolsActions.className = "study-sync__actions";
     const toolsNote = document.createElement("p"); toolsNote.textContent = "평소에는 로그인만 하면 자동 연결됩니다. 백업과 복구는 필요한 경우에만 사용하세요.";
-    tools.append(toolsHeading, toolsActions, toolsNote);
+    storageView = document.createElement("div"); storageView.className = "study-sync__storage"; storageView.hidden = true;
+    tools.append(toolsHeading, toolsActions, storageView, toolsNote);
     tools.hidden = !appId;
     const privacy = document.createElement("details"); privacy.className = "study-sync__privacy";
     const heading = document.createElement("summary"); heading.textContent = "기록 저장 안내";

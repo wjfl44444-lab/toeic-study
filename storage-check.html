@@ -27,73 +27,12 @@
 <main>
   <h1>저장 공간 확인</h1>
   <p class="note">이 기기 브라우저에 저장된 학습 기록의 크기를 보여 줘요. 보기만 하고 아무것도 지우거나 바꾸지 않아요. 이 화면을 캡처해서 보내 주세요.</p>
-  <div class="total" id="total">확인 중…</div>
-  <div id="groups"></div>
+  <div class="total" id="report">확인 중…</div>
   <p class="note" style="margin-top:24px"><a href="./">첫 화면으로</a></p>
 </main>
-<script>
-(() => {
-  // Read-only: only getItem/key/length are used on localStorage.
-  const kb = (chars) => (chars * 2 / 1024).toFixed(0) + " KB"; // browsers keep text as 2 bytes per character
-  const apps = { vocabulary: "단어장", quiz: "문제집", "power-voca": "표현·구조", "power-grammar": "표현·구조(문법)" };
-  const kinds = {
-    account: "계정 기록 (이 기기 사본)",
-    recovery: "보관된 기기 기록",
-    "legacy-before-first-login": "로그인 전 원본 기록",
-  };
-  function describe(key) {
-    const sync = key.match(/^toeic-sync:v1:([^:]+):(.*)$/);
-    if (sync) {
-      const app = apps[sync[1]] || sync[1];
-      const rest = sync[2];
-      const backup = rest.match(/^backup:[^:]+:([^:]+):/);
-      if (backup) return { group: app, label: "자동 백업 · " + backup[1] };
-      const kind = Object.keys(kinds).find((name) => rest === name || rest.startsWith(name + ":"));
-      return { group: app, label: kind ? kinds[kind] : rest.replace(/:[A-Za-z0-9%_-]{12,}/g, ":…") };
-    }
-    if (key === "toeic-pocket-state-v1") return { group: "단어장", label: "로그인 안 했을 때 기록" };
-    if (key.startsWith("toeic-random-cards")) return { group: "문제집", label: "로그인 안 했을 때 기록" };
-    if (key.startsWith("power-voca-full")) return { group: "표현·구조", label: key.includes("backup") ? "자동 백업" : "로그인 안 했을 때 기록" };
-    if (key.startsWith("toeic-power-grammar") || key.startsWith("toeic-grammar")) return { group: "표현·구조(문법)", label: key.includes("backup") ? "자동 백업" : "기록" };
-    if (key.startsWith("toeic-unified")) return { group: "표현·구조", label: "합치기 전 백업" };
-    return { group: "기타", label: key.length > 40 ? key.slice(0, 40) + "…" : key };
-  }
-  const rows = [];
-  let total = 0;
-  try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      const value = localStorage.getItem(key) || "";
-      const size = key.length + value.length;
-      total += size;
-      const info = describe(key);
-      let detail = "";
-      if (/^toeic-sync:v1:[^:]+:account:/.test(key)) {
-        try {
-          const saved = JSON.parse(value);
-          if (saved && saved.version === 3 && Array.isArray(saved.texts)) detail = "안에 기록 " + saved.texts.length + "벌 (" + saved.texts.map((t) => kb(t.length)).join(", ") + ")";
-          else detail = "예전 방식 저장 (버전 " + (saved && saved.version) + ")";
-        } catch (e) { detail = "읽을 수 없는 형식"; }
-      }
-      rows.push({ ...info, size, detail });
-    }
-  } catch (e) {
-    document.getElementById("total").textContent = "이 브라우저에서는 저장 공간을 읽을 수 없어요.";
-    return;
-  }
-  const groups = new Map();
-  rows.forEach((row) => {
-    if (!groups.has(row.group)) groups.set(row.group, { size: 0, rows: [] });
-    const g = groups.get(row.group); g.size += row.size; g.rows.push(row);
-  });
-  document.getElementById("total").innerHTML = "전체 사용량 <strong>" + kb(total) + "</strong><br><small style=\"color:#a9bdb5\">항목 " + rows.length + "개 · 보통 폰 브라우저는 약 5,000 KB까지 저장할 수 있어요.</small>";
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  document.getElementById("groups").innerHTML = [...groups.entries()].sort((a, b) => b[1].size - a[1].size).map(([name, g]) =>
-    "<h2>" + esc(name) + " · " + kb(g.size) + "</h2>" + g.rows.sort((a, b) => b.size - a.size).map((row) =>
-      "<div class=\"row\"><span>" + esc(row.label) + (row.detail ? "<small>" + esc(row.detail) + "</small>" : "") +
-      "<div class=\"bar\"><i style=\"width:" + Math.max(1, Math.round(row.size / Math.max(total, 1) * 100)) + "%\"></i></div></span><span class=\"size\">" + kb(row.size) + "</span></div>"
-    ).join("")).join("");
-})();
+<script type="module">
+  import { renderStorageReport } from "./shared/storage-report.js?v=20261124-report1";
+  renderStorageReport(document.getElementById("report"));
 </script>
 </body>
 </html>
