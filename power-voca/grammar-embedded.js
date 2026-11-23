@@ -374,7 +374,7 @@
       if (!state.canUpload()) { connecting = false; failed = true; phase = 'error'; render(); notify(); announce('원본 기록 백업을 저장하지 못해 계정 연결을 보류했어요. 기존 기록은 그대로예요.'); return; }
       if (!hosted) { connecting = false; ready = true; phase = 'local'; options.onReady?.(status()); notify(); openPending(); return; }
       try {
-        const module = await (options.loadSync ? options.loadSync() : import('../shared/study-sync.js?v=20261124-report1'));
+        const module = await (options.loadSync ? options.loadSync() : import('../shared/study-sync.js?v=20261124-oldcopy1'));
         if (disposed || ticket !== generation) return;
         controller = module.connectStudySync({ appId: 'power-grammar', legacyKey: S.key, mount,
           getPayload: state.raw, createEmptyPayload: () => M.stringify(M.empty()), validatePayload: raw => M.parse(raw) !== null,

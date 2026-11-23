@@ -856,7 +856,7 @@ export function connectStudySync(options = {}) {
       button(storageView && !storageView.hidden ? "저장 공간 닫기" : "저장 공간 보기", async () => {
         if (!storageView) return;
         if (!storageView.hidden) { storageView.hidden = true; render(); return; }
-        const { renderStorageReport } = await import("./storage-report.js?v=20261124-report1");
+        const { renderStorageReport } = await import("./storage-report.js?v=20261124-oldcopy1");
         renderStorageReport(storageView);
         storageView.hidden = false;
         render();

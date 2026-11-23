@@ -1092,7 +1092,7 @@
           : event.newValue;
         if (applyStudyPayload(raw)) { storageAvailable = true; updateStorageNote(); }
       });
-      import('../shared/study-sync.js?v=20261124-report1').then(({ connectStudySync }) => {
+      import('../shared/study-sync.js?v=20261124-oldcopy1').then(({ connectStudySync }) => {
         studySync = connectStudySync({
           appId: 'quiz', legacyKey: STORAGE_KEY,
           getPayload: studyPayload,

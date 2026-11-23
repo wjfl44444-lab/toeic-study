@@ -1,7 +1,8 @@
 // Read-only summary of what this site keeps in this browser's storage.
 // Used by storage-check.html and by the 기록 관리 panel (a home-screen app
 // has its own storage, so the report has to be visible inside the app too).
-// Only localStorage.length/key/getItem are used: nothing is changed.
+// Nothing is changed, except one old copy the person can delete after a
+// confirmation (see OLD_UPDATE_COPY).
 
 const APPS = { vocabulary: "단어장", quiz: "문제집", "power-voca": "표현·구조", "power-grammar": "표현·구조(문법)" };
 const KINDS = {
@@ -9,6 +10,11 @@ const KINDS = {
   recovery: "보관된 기기 기록",
   "legacy-before-first-login": "로그인 전 원본 기록",
 };
+
+// Saved before an early 단어장 update, only to recover if the current record
+// became unreadable. Once signed in, the account holds the record, and on a
+// full phone this copy blocked account saving.
+const OLD_UPDATE_COPY = "toeic-pocket-state-v1-backup";
 
 // Browsers keep text as 2 bytes per character.
 const kb = (chars) => `${Math.round((chars * 2) / 1024).toLocaleString("ko-KR")} KB`;
@@ -23,6 +29,7 @@ function describe(key) {
     const kind = Object.keys(KINDS).find((name) => rest === name || rest.startsWith(`${name}:`));
     return { group: app, label: kind ? KINDS[kind] : rest.replace(/:[A-Za-z0-9%_-]{12,}/g, ":…") };
   }
+  if (key === OLD_UPDATE_COPY) return { group: "단어장", label: "옛 업데이트 전 사본" };
   if (key === "toeic-pocket-state-v1") return { group: "단어장", label: "로그인 안 했을 때 기록" };
   if (key.startsWith("toeic-random-cards")) return { group: "문제집", label: "로그인 안 했을 때 기록" };
   if (key.startsWith("power-voca-full")) return { group: "표현·구조", label: key.includes("backup") ? "자동 백업" : "로그인 안 했을 때 기록" };
@@ -80,7 +87,22 @@ export function renderStorageReport(container) {
   const head = el("p", "margin:8px 0 4px;font-size:15px;");
   head.append("전체 사용량 ", el("strong", "font-size:20px;", kb(report.total)));
   container.append(head, el("p", "margin:0 0 8px;font-size:12px;opacity:.75;",
-    `항목 ${report.count}개 · 보통 폰 브라우저는 약 5,000 KB까지 저장할 수 있어요. 보기만 하고 아무것도 바꾸지 않아요.`));
+    `항목 ${report.count}개 · 보통 폰 브라우저는 약 5,000 KB까지 저장할 수 있어요. 아래 지우기 버튼을 누를 때만 바뀌어요.`));
+  const oldCopy = window.localStorage.getItem(OLD_UPDATE_COPY);
+  if (oldCopy !== null) {
+    const box = el("div", "margin:10px 0 4px;padding:10px 12px;border:1px solid rgba(255,255,255,.18);border-radius:10px;");
+    box.append(el("p", "margin:0 0 8px;font-size:13px;",
+      `옛 업데이트 전 사본 (${kb(oldCopy.length)}): 예전 단어장 업데이트 때 만든 사본이에요. 지금 기록과 계정 기록에는 영향이 없어요.`));
+    const remove = el("button", "font:inherit;padding:8px 12px;border-radius:8px;", "옛 사본 지우기");
+    remove.type = "button";
+    remove.addEventListener("click", () => {
+      if (!window.confirm("옛 업데이트 전 사본을 지울까요?\n지금 단어장 기록과 계정 기록은 그대로예요. 지운 사본은 되돌릴 수 없어요.")) return;
+      try { window.localStorage.removeItem(OLD_UPDATE_COPY); } catch { /* Shown again below if it stayed. */ }
+      renderStorageReport(container);
+    });
+    box.append(remove);
+    container.append(box);
+  }
   for (const group of report.groups) {
     container.append(el("p", "margin:14px 0 4px;font-weight:700;font-size:15px;", `${group.name} · ${kb(group.size)}`));
     for (const row of group.rows) {
