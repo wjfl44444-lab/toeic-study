@@ -230,13 +230,21 @@ export function connectStudySync(options = {}) {
     if (typeof raw !== "string" || !prefix) return true;
     const family = `${prefix}backup:${encodeURIComponent(uid)}:${label}:`;
     const key = `${family}${Date.now()}:${operationId()}`;
-    if (!write(key, raw)) return false;
-    try {
-      for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {
-        const name = window.localStorage.key(i);
-        if (name && name !== key && name.startsWith(family)) window.localStorage.removeItem(name);
-      }
-    } catch { /* Older copies stay if storage cannot be listed. */ }
+    const pruneOlder = () => {
+      try {
+        for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {
+          const name = window.localStorage.key(i);
+          if (name && name !== key && name.startsWith(family)) window.localStorage.removeItem(name);
+        }
+      } catch { /* Older copies stay if storage cannot be listed. */ }
+    };
+    if (!write(key, raw)) {
+      // Full storage: only the newest copy is kept anyway, so the older ones
+      // make room for it (otherwise a full phone could never back up again).
+      pruneOlder();
+      if (!write(key, raw)) return false;
+    }
+    pruneOlder();
     return true;
   }
 
@@ -255,9 +263,20 @@ export function connectStudySync(options = {}) {
     if (!account || !valid(account.payload)) return false;
     const previous = recoveryRecord();
     if (previous && semantic(previous.payload) === semantic(account.payload)) return true;
-    if (!backup(account.payload, "before-automatic-account-load")) return false;
     // Only displaced local drafts use this slot, never routine clean refreshes.
-    return write(recoveryKey(), JSON.stringify({ version: 1, payload: account.payload, savedAt: new Date().toISOString() }));
+    // It is the copy 기록 관리 offers back, so one copy is enough: a second dated
+    // copy doubled the space and stopped full phones from merging at all.
+    const record = JSON.stringify({ version: 1, payload: account.payload, savedAt: new Date().toISOString() });
+    if (write(recoveryKey(), record)) return true;
+    // Earlier dated copies of displaced drafts (older versions wrote them) make room.
+    const family = `${prefix}backup:${encodeURIComponent(user?.uid || "guest")}:before-automatic-account-load:`;
+    try {
+      for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {
+        const name = window.localStorage.key(i);
+        if (name && name.startsWith(family)) window.localStorage.removeItem(name);
+      }
+    } catch { /* Nothing more can be freed. */ }
+    return write(recoveryKey(), record);
   }
 
   function preserveGuest() {
