@@ -1,4 +1,4 @@
-import { STORAGE_KEY, createInitialState, upgradeState } from "./core.js?v=20261124-prefs1";
+import { STORAGE_KEY, createInitialState, upgradeState } from "./core.js?v=20261125-start1";
 
 export const BACKUP_KEY = `${STORAGE_KEY}-backup`;
 export const RECOVERY_KEY = `${STORAGE_KEY}-recovery`;

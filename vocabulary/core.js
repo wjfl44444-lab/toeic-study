@@ -396,6 +396,24 @@ export function spellingLikeness(a, b) {
   return total ? (2 * shared) / total : 0;
 }
 
+// Words that begin the same way (occupant / occupancy, int-, con-) are the ones
+// people mix up, so they come first. Two shared letters (re-, in-) are too common
+// to mean much; those words simply follow the other rules.
+function sharedStart(a, b) {
+  const left = String(a || "").toLowerCase(), right = String(b || "").toLowerCase();
+  let length = 0;
+  while (length < left.length && length < right.length && left[length] === right[length]) length += 1;
+  return length;
+}
+// When the choices are English words, three shared letters already look alike.
+// When they are Korean meanings, only a close family (4+ letters: occupant /
+// occupancy) is a real trap; con- alone would just bring unrelated meanings.
+function startBonus(a, b, direction) {
+  const length = sharedStart(a, b);
+  if (length >= 4) return 2;
+  return length === 3 ? (direction === "meaning-to-word" ? 1.4 : 0.5) : 0;
+}
+
 export function buildQuizOptions(target, allWords, direction, random = Math.random) {
   const correct = getAnswerLabel(target, direction);
   const targetKey = normalizeText(correct);
@@ -405,12 +423,13 @@ export function buildQuizOptions(target, allWords, direction, random = Math.rand
   const distractors = [];
   const targetMeanings = new Set(target.meanings.map((meaning) => normalizeAnswer(meaning).replace(/\s+/g, "")));
   const kind = meaningKind(target);
-  // Confusable first: the same kind of meaning, a look-alike spelling, then a
+  // Confusable first: the same beginning, the same kind of meaning, a look-alike spelling, then a
   // similar number of meanings (so answer length is less of a hint). A little
   // chance keeps the same three choices from always coming back.
   const scored = samePart.map((word) => ({
     word,
     score: (kind && meaningKind(word) === kind ? 1 : 0)
+      + startBonus(target.word, word.word, direction)
       + spellingLikeness(target.word, word.word) * 1.5
       - Math.abs(word.meanings.length - target.meanings.length) * 0.15
       + random() * 0.45,
