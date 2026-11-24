@@ -418,10 +418,7 @@ export function buildQuizOptions(target, allWords, direction, random = Math.rand
   const correct = getAnswerLabel(target, direction);
   const targetKey = normalizeText(correct);
   const partKey = quizPartKey(target);
-  // Same part of speech as before, plus any word sharing the first 3+ letters
-  // whatever its part of speech (intend / intent, occupant / occupy).
-  const samePart = allWords.filter((word) => word.id !== target.id && wordIdentity(word.word) !== wordIdentity(target.word)
-    && ((partKey && quizPartKey(word) === partKey) || sharedStart(target.word, word.word) >= 3));
+  const samePart = partKey ? allWords.filter((word) => word.id !== target.id && wordIdentity(word.word) !== wordIdentity(target.word) && quizPartKey(word) === partKey) : [];
   const seen = new Set([targetKey]);
   const distractors = [];
   const targetMeanings = new Set(target.meanings.map((meaning) => normalizeAnswer(meaning).replace(/\s+/g, "")));

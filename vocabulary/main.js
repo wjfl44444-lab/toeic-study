@@ -24,8 +24,8 @@ import {
   uniqueStrings,
   wordsToCsv,
   wordIdentity
-} from "./core.js?v=20261125-start2";
-import { readStoredState, writeStoredState } from "./storage.js?v=20261125-start2";
+} from "./core.js?v=20261125-start1";
+import { readStoredState, writeStoredState } from "./storage.js?v=20261125-start1";
 
 import { progressScopeKey, eligibleStudyWords, selectNextBatch, markStudyWord, mergeBookmarks, mergeStudyProgress, reviewStreakOf, STREAK_GOAL } from "./progress.js?v=20261109-streak1";
 
