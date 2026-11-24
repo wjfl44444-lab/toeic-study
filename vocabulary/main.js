@@ -799,7 +799,7 @@ function renderHome() {
     <form id="home-config" class="home-study-panel">
       <h1>${state.words.length ? "단어 학습" : "단어를 추가해 주세요"}</h1>
       <p class="home-intro">뜻을 익히고, 헷갈린 단어를 다시 확인해요.</p>
-      <div class="home-stats" aria-label="학습 현황"><span>전체 단어 <strong>${stats.total}</strong></span><span>암기 완료 <strong>${stats.mastered}</strong></span><span>오답 단어 <strong>${stats.mistakes}</strong></span></div>
+      <div class="home-stats" aria-label="학습 현황"><span>전체 단어 <strong>${stats.total}</strong></span></div>
       <div class="form-grid two-columns home-settings">
         <label><span>학습 방식</span><select name="mode"><option value="multiple" ${homeMode === "multiple" ? "selected" : ""}>객관식 퀴즈</option><option value="typing" ${homeMode === "typing" ? "selected" : ""}>직접 입력</option><option value="flashcard" ${homeMode === "flashcard" ? "selected" : ""}>암기 카드</option></select></label>
         <input type="hidden" name="tag" value="all" />
