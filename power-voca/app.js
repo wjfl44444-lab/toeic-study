@@ -644,7 +644,7 @@
       reportStorage(storageWarning);
       return;
     }
-    import("../shared/study-sync.js?v=20261124-recovery1").then(function (module) {
+    import("../shared/study-sync.js?v=20261125-share1").then(function (module) {
       syncReader = module.readLegacyGrammarRecord;
       // Lossless migration before the controller reads the legacy guest key.
       // Compact checkpoints also fit an entire-book round in one cloud record.

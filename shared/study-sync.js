@@ -182,8 +182,23 @@ export function connectStudySync(options = {}) {
 
   function cacheKey(uid) { return `${prefix}account:${encodeURIComponent(uid)}`; }
 
+  // The acknowledged copy usually means the same as the account copy; they differ
+  // only in the sync receipt list. Keeping both as separate text doubled a large
+  // record on phones (a 300-question 단어장 round no longer fit), so a copy with
+  // the same meaning is stored once.
+  let sameMemo = { a: null, b: null, same: false };
+  const sameMeaning = (a, b) => {
+    if (sameMemo.a !== a || sameMemo.b !== b) sameMemo = { a, b, same: semantic(a) === semantic(b) };
+    return sameMemo.same;
+  };
+  function shareSameCopies() {
+    const ack = account.acknowledgedPayload, base = account.basePayload;
+    if (typeof ack === "string" && typeof base === "string" && ack !== base && sameMeaning(ack, base)) account.acknowledgedPayload = base;
+  }
+
   function persistAccount() {
     if (!account || !prefix) return true;
+    shareSameCopies();
     // Keep an in-memory recovery copy even when browser storage is full.
     memoryAccounts.set(account.uid, { account: { ...account }, issue: accountCacheIssue, blocked: accountCacheBlocked });
     if (accountCacheBlocked) { storageFailed = true; return false; }
